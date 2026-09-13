@@ -6,6 +6,8 @@ const MAX_PENDING_BRANCHES = 64;
 const SPA_DOMAINS = new Set(['youtube.com', 'notion.so', 'gmail.com', 'github.com', 'app.notion.so', 'docs.google.com', 'drive.google.com', 'calendar.google.com', 'mail.google.com']);
 const spaDedup = new Map();
 const MAX_SPA_DEDUP = 128;
+const activeTabs = new Map();
+const navigationHints = new Map();
 // Safe hostname extraction: never throws on malformed URLs.
 function hostnameOf(value) { try { return new URL(String(value || '')).hostname.toLowerCase(); } catch { return ''; } }
 // True when a hostname belongs to a known SPA domain or one of its subdomains.
@@ -142,6 +144,13 @@ function isRedirectLike(value) {
     return /\/(url|redirect|out|away|click)(?:\/|$)/i.test(url.pathname) || ['url', 'target', 'dest', 'destination', 'redirect'].some((key) => url.searchParams.has(key));
   } catch { return false; }
 }
+function navigationKindForTransition(transitionType, qualifiers = []) {
+  if (transitionType === 'back_forward' || qualifiers.includes('forward_back')) return 'back-forward';
+  if (transitionType === 'reload') return 'reload';
+  if (transitionType === 'link') return 'link';
+  if (transitionType === 'typed' || transitionType === 'auto_bookmark' || transitionType === 'generated' || transitionType === 'keyword' || transitionType === 'keyword_generated') return 'manual';
+  return 'external';
+}
 
 function isRecord(value) {
   return value && typeof value === 'object' && !Array.isArray(value);
@@ -230,17 +239,41 @@ function effectiveThresholds(settings) { const clean = normalizeSettings(setting
 function activeView(state, tabId) {
   const session = activeSession(state);
   const node = session && nodeForTab(session, tabId);
-  if (!session || !node) return { session: null, thresholds: effectiveThresholds(state.settings), settings: normalizeSettings(state.settings) };
+  const settings = normalizeSettings(state.settings);
+  let sitePaused = false;
+  try { const host = new URL(node?.url || '').hostname.toLowerCase().replace(/^www\./, ''); sitePaused = settings.excludedSites.includes(host); } catch {}
+  if (!session || !node) return { session: null, thresholds: effectiveThresholds(settings), settings, sitePaused };
   return {
     session: {
       id: session.id,
       mission: session.mission,
       interventionPaused: Boolean(session.interventionPaused),
-      node: { id: node.id, depth: node.depth, state: node.state, url: node.url }
+      node: { id: node.id, depth: node.depth, state: node.state, url: node.url, confidence: node.confidence || 'low', navigationKind: node.navigationKind || 'external' }
     },
-    thresholds: effectiveThresholds(state.settings),
-    settings: normalizeSettings(state.settings)
+    thresholds: effectiveThresholds(settings),
+    settings,
+    sitePaused,
+    interventionEligible: !session.interventionPaused && !sitePaused && node.depth >= effectiveThresholds(settings).INTERRUPT && node.confidence !== 'low'
   };
+}
+
+async function recordActiveTab(tabId, windowId) {
+  if (!Number.isInteger(tabId)) return;
+  const key = Number.isInteger(windowId) ? windowId : -1;
+  const previous = activeTabs.get(key);
+  if (previous?.tabId === tabId) return;
+  const now = Date.now();
+  await mutate((state) => {
+    const session = activeSession(state);
+    if (!session) return NO_CHANGE;
+    session.activeIntervals ||= [];
+    const open = session.activeIntervals.find((entry) => entry.tabId === previous?.tabId && !entry.endedAt);
+    if (open) open.endedAt = now;
+    session.activeIntervals.push({ tabId, windowId: Number.isInteger(windowId) ? windowId : null, startedAt: now, endedAt: null });
+    if (session.activeIntervals.length > 128) session.activeIntervals.splice(0, session.activeIntervals.length - 128);
+    return session;
+  });
+  activeTabs.set(key, { tabId, startedAt: now });
 }
 
 async function createSession(mission, tab) {
@@ -257,15 +290,15 @@ async function createSession(mission, tab) {
     const originTabId = Number.isInteger(tab?.id) ? tab.id : null;
     const session = {
       id: makeId('session'), mission: cleanMission, status: 'active', startedAt: Date.now(), endedAt: null, endReason: null,
-      origin: { tabId: originTabId, windowId: Number.isInteger(tab?.windowId) ? tab.windowId : null, url: originUrl, title }, nodes: [], events: [], pendingRedirects: [], interventionPaused: false
+      origin: { tabId: originTabId, windowId: Number.isInteger(tab?.windowId) ? tab.windowId : null, url: originUrl, title }, nodes: [], events: [], activeIntervals: [], pendingRedirects: [], interventionPaused: false
     };
-    pushNode(session, { id: makeId('node'), tabIds: Number.isInteger(tab?.id) ? [tab.id] : [], url: originUrl, title, parentId: null, depth: 0, firstSeenAt: Date.now(), relationshipConfidence: 'direct', state: 'normal' });
+    pushNode(session, { id: makeId('node'), tabIds: Number.isInteger(tab?.id) ? [tab.id] : [], url: originUrl, title, parentId: null, depth: 0, firstSeenAt: Date.now(), relationshipConfidence: 'direct', confidence: 'high', navigationKind: 'mission-origin', state: 'normal' });
     addEvent(session, 'mission_started', { mission: session.mission });
     state.sessions.push(session);
     if (state.sessions.length > LIMITS.SESSIONS) state.sessions.splice(0, state.sessions.length - LIMITS.SESSIONS);
     state.activeSessionId = session.id;
     return session;
-  }).then((result) => { updateBadge(); return result; });
+  }).then(async (result) => { await recordActiveTab(Number.isInteger(tab?.id) ? tab.id : null, tab?.windowId); updateBadge(); return result; });
 }
 
 async function endSession(reason = 'user_ended') {
@@ -273,6 +306,8 @@ async function endSession(reason = 'user_ended') {
     const session = activeSession(state);
     if (!session) return NO_CHANGE;
     session.status = 'completed'; session.endedAt = Date.now(); session.endReason = reason;
+    for (const interval of session.activeIntervals || []) if (!interval.endedAt) interval.endedAt = session.endedAt;
+    activeTabs.clear();
     addEvent(session, reason === 'mission_changed' ? 'mission_changed' : 'mission_ended', { reason });
     state.activeSessionId = null;
     return session;
@@ -304,7 +339,7 @@ function updateBadge() {
   }).catch(() => {});
 }
 
-async function trackLink({ tabId, url, title, targetBlank = false, windowId }) {
+async function trackLink({ tabId, url, title, targetBlank = false, windowId, navigationKind = 'link' }) {
   const destination = safeHttpUrl(url);
   return mutate((state) => {
     const session = activeSession(state); if (!session || !destination) return NO_CHANGE;
@@ -320,7 +355,8 @@ async function trackLink({ tabId, url, title, targetBlank = false, windowId }) {
       return { pending: true, parentId: parent.id, redirect: isRedirectLike(destination) };
     }
     const depth = parent.depth + 1;
-    const node = { id: makeId('node'), tabIds: Number.isInteger(tabId) ? [tabId] : [], url: destination, title: compactText(title || destination), parentId: parent.id, depth, firstSeenAt: Date.now(), relationshipConfidence: 'direct', state: getDepthState(depth, session.interventionPaused, effectiveThresholds(state.settings)) };
+    const isSpa = navigationKind === 'spa';
+    const node = { id: makeId('node'), tabIds: Number.isInteger(tabId) ? [tabId] : [], url: destination, title: compactText(title || destination), parentId: parent.id, depth, firstSeenAt: Date.now(), relationshipConfidence: isSpa ? 'tab-inferred' : 'direct', confidence: isSpa ? 'medium' : 'high', navigationKind: isSpa ? 'spa' : (targetBlank ? 'new-tab-link' : 'link'), state: getDepthState(depth, session.interventionPaused, effectiveThresholds(state.settings)) };
     if (!pushNode(session, node)) { addEvent(session, 'garden_at_capacity'); return { capped: true }; }
     moveTabToNode(session, tabId, node.id);
     addEvent(session, 'navigation', { nodeId: node.id, depth, url: destination });
@@ -332,6 +368,8 @@ async function observeTab(tabId, rawUrl, rawTitle, openerTabId, windowId) {
   const url = safeHttpUrl(rawUrl);
   const title = compactText(rawTitle || url);
   return mutate((state) => {
+    const navigationHint = navigationHints.get(tabId);
+    navigationHints.delete(tabId);
     const session = activeSession(state); if (!session || !url) return NO_CHANGE;
     const current = nodeForTab(session, tabId);
     // The origin is unset on a Chromium new tab (Chrome, Brave, Edge, Opera, Vivaldi) or our own New Tab page.
@@ -342,14 +380,24 @@ async function observeTab(tabId, rawUrl, rawTitle, openerTabId, windowId) {
       if (root) { attachTab(root, tabId); root.url = url; root.title = title; root.firstSeenAt = Date.now(); root.relationshipConfidence = 'direct'; }
       session.origin = { tabId, windowId: Number.isInteger(windowId) ? windowId : session.origin?.windowId || null, url, title }; addEvent(session, 'origin_planted', { url }); return root;
     }
-    if (current && current.url === url) return NO_CHANGE;
-    if (isSearchUrl(url) && !originNotSet) return NO_CHANGE;
+    if (current && current.url === url) {
+      if (navigationHint === 'back-forward' || navigationHint === 'manual') {
+        current.navigationKind = navigationHint;
+        current.confidence = 'low';
+      }
+      addEvent(session, navigationHint === 'back-forward' ? 'back_forward' : 'reload', { nodeId: current.id, url });
+      return current;
+    }
+    if (isSearchUrl(url) && !originNotSet) { addEvent(session, 'search_refinement', { url }); return NO_CHANGE; }
     const known = session.nodes.find((node) => node.url === url && !TERMINAL_STATES.has(node.state));
     if (known) {
       clearPendingRedirect(session, tabId);
       moveTabToNode(session, tabId, known.id);
       const attached = attachTab(known, tabId);
       known.title = title;
+      known.navigationKind = navigationHint || 'known-page';
+      if (navigationHint === 'back-forward' || navigationHint === 'manual') known.confidence = 'low';
+      else known.confidence = known.confidence || 'medium';
       if (known.closedAt) delete known.closedAt;
       if (attached) addEvent(session, 'tab_joined_path', { nodeId: known.id, url });
       else addEvent(session, 'return_to_path', { nodeId: known.id, url });
@@ -369,7 +417,9 @@ async function observeTab(tabId, rawUrl, rawTitle, openerTabId, windowId) {
     if (redirectParent) clearPendingRedirect(session, tabId);
     const depth = parent ? parent.depth + 1 : 0;
     const relationshipConfidence = opener ? 'tab-inferred' : (pendingParent || redirectParent) ? 'direct' : 'external';
-    const node = { id: makeId('node'), tabIds: Number.isInteger(tabId) ? [tabId] : [], url, title, parentId: parent?.id || null, depth, firstSeenAt: Date.now(), relationshipConfidence, state: getDepthState(depth, session.interventionPaused, effectiveThresholds(state.settings)) };
+    const confidence = relationshipConfidence === 'direct' ? 'high' : relationshipConfidence === 'tab-inferred' ? 'medium' : 'low';
+    const navigationKind = navigationHint || (redirectParent ? 'redirect' : pendingParent ? 'new-tab-link' : opener ? 'manual' : 'manual');
+    const node = { id: makeId('node'), tabIds: Number.isInteger(tabId) ? [tabId] : [], url, title, parentId: parent?.id || null, depth, firstSeenAt: Date.now(), relationshipConfidence, confidence, navigationKind, state: getDepthState(depth, session.interventionPaused, effectiveThresholds(state.settings)) };
     if (!pushNode(session, node)) { addEvent(session, 'garden_at_capacity'); return { capped: true }; }
     moveTabToNode(session, tabId, node.id);
     addEvent(session, relationshipConfidence === 'external' ? 'external_path' : 'navigation', { nodeId: node.id, depth, url });
@@ -432,11 +482,17 @@ async function getDashboardStats() {
   const state = await loadState();
   const now = Date.now();
   const oneDayMs = 24 * 60 * 60 * 1000;
-  const sevenDaysAgo = now - (7 * oneDayMs);
 
   // Calculate total sessions and focus time
   let totalSessions = 0;
   let totalFocusTime = 0;
+  let totalActiveTabTime = 0;
+  let intentionalBranches = 0;
+  let unlinkedPaths = 0;
+  let interruptionsAccepted = 0;
+  let interruptionsDismissed = 0;
+  let returnToMission = 0;
+  let branchDepthTotal = 0;
   const domainCounts = {};
   const dailySeconds = {};
   // Performance optimization: track unique active ISO date keys in a Set for O(1) streak lookups
@@ -473,12 +529,26 @@ async function getDashboardStats() {
     }
     
     totalFocusTime += sessionDuration;
+    const intervals = Array.isArray(session.activeIntervals) ? session.activeIntervals : [];
+    totalActiveTabTime += intervals.reduce((sum, interval) => sum + Math.max(0, ((interval.endedAt || now) - interval.startedAt) / 1000), 0);
+    intentionalBranches += session.nodes.filter((node) => node.depth > 0 && node.confidence !== 'low').length;
+    unlinkedPaths += session.nodes.filter((node) => node.depth > 0 && node.confidence === 'low').length;
+    branchDepthTotal += session.nodes.reduce((sum, node) => sum + Math.max(0, node.depth || 0), 0);
+    interruptionsAccepted += session.events.filter((event) => event.type === 'return_to_path' || event.type === 'mission_changed').length;
+    interruptionsDismissed += session.events.filter((event) => event.type === 'interruption_dismissed').length;
+    returnToMission += session.events.filter((event) => event.type === 'return_to_path').length;
     
-    // Daily breakdown using ISO date key - accumulate raw seconds first to preserve sub-minute sessions
-    const dayKey = new Date(sessionStart).toISOString().slice(0, 10);
-    activeDays.add(dayKey);
-    if (Object.hasOwn(dailySeconds, dayKey)) {
-      dailySeconds[dayKey] += sessionDuration;
+    // Split sessions at UTC midnight so a long session is represented on each day it touched.
+    const firstDay = Math.floor(sessionStart / oneDayMs) * oneDayMs;
+    const lastDay = Math.floor(Math.max(sessionStart, sessionEnd - 1) / oneDayMs) * oneDayMs;
+    for (let dayStart = firstDay; dayStart <= lastDay; dayStart += oneDayMs) {
+      const dayKey = new Date(dayStart).toISOString().slice(0, 10);
+      activeDays.add(dayKey);
+      if (Object.hasOwn(dailySeconds, dayKey)) {
+        const overlapStart = Math.max(sessionStart, dayStart);
+        const overlapEnd = Math.min(sessionEnd, dayStart + oneDayMs);
+        dailySeconds[dayKey] += Math.max(0, (overlapEnd - overlapStart) / 1000);
+      }
     }
   }
 
@@ -532,6 +602,13 @@ async function getDashboardStats() {
   return {
     totalSessions,
     totalFocusTime: Math.floor(totalFocusTime),
+    totalActiveTabTime: Math.floor(totalActiveTabTime),
+    intentionalBranches,
+    unlinkedPaths,
+    interruptionsAccepted,
+    interruptionsDismissed,
+    returnToMission,
+    averageBranchDepth: totalSessions ? Number((branchDepthTotal / totalSessions).toFixed(2)) : 0,
     currentStreak,
     weeklyData,
     domainData,
@@ -576,7 +653,8 @@ async function importAllData(payload) {
     sessions: mergedSessions,
     compostItems: Array.from(compostMap.values()).slice(0, LIMITS.COMPOST),
     settings: next.settings,
-    activeSessionId
+    activeSessionId,
+    onboardingCompleted: Boolean(current.onboardingCompleted || next.onboardingCompleted)
   };
   await replaceState(merged);
   return { imported: true };
@@ -598,6 +676,7 @@ chrome.runtime.onInstalled.addListener((details) => {
 chrome.runtime.onInstalled.addListener(() => {
   wrapWithErrorBoundary(() => {
     chrome.contextMenus?.create({ id: 'focus-forest-start', title: 'Start Focus Mission for "%s"', contexts: ['link', 'page', 'selection'] });
+    chrome.contextMenus?.create({ id: 'focus-forest-compost', title: 'Save Page for Later', contexts: ['page', 'link'] });
     chrome.contextMenus?.create({ id: 'focus-forest-end', title: 'End Current Focus Mission', contexts: ['page'] });
   }, { category: ERROR_CATEGORIES.MESSAGING, component: 'service-worker', function: 'contextMenus.create', swallow: true })();
 });
@@ -612,6 +691,11 @@ chrome.contextMenus?.onClicked?.addListener((info, tab) => {
       await createSession(mission, { id: tab?.id, url: cleanUrl || 'chrome://newtab', title: tab?.title || 'New Tab', windowId: tab?.windowId });
       if (tab?.id != null && cleanUrl) {
         await chrome.tabs.update(tab.id, { url: cleanUrl });
+      }
+    } else if (info.menuItemId === 'focus-forest-compost') {
+      const targetUrl = safeHttpUrl(info.linkUrl || tab?.url);
+      if (Number.isInteger(tab?.id) && targetUrl) {
+        await compost(info.linkUrl ? null : tab.id, targetUrl, info.linkText || tab?.title || targetUrl);
       }
     } else if (info.menuItemId === 'focus-forest-end') {
       await endSession('user_ended');
@@ -673,6 +757,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'DELETE_COMPOST': return isExtensionPageSender(sender) && safeId(message.id) ? mutate((state) => { const before = state.compostItems.length; state.compostItems = state.compostItems.filter((item) => item.id !== message.id); return before === state.compostItems.length ? NO_CHANGE : state.compostItems; }) : null;
       case 'PRUNE_NODE': return isExtensionPageSender(sender) && safeId(message.sessionId) && safeId(message.nodeId) ? pruneNode(message.sessionId, message.nodeId, Boolean(message.toCompost)) : null;
       case 'DELETE_SESSION': return isExtensionPageSender(sender) && safeId(message.sessionId) ? mutate((state) => { const before = state.sessions.length; state.sessions = state.sessions.filter((session) => session.id !== message.sessionId); if (state.activeSessionId === message.sessionId) state.activeSessionId = null; return before === state.sessions.length ? NO_CHANGE : state.sessions; }) : null;
+      case 'FORGET_SITE': return isExtensionPageSender(sender) && typeof message.hostname === 'string' ? mutate((state) => {
+        const hostname = message.hostname.toLowerCase().replace(/^www\./, '');
+        let removed = 0;
+        for (const session of state.sessions) {
+          const before = session.nodes.length;
+          session.nodes = session.nodes.filter((node) => { try { return new URL(node.url).hostname.toLowerCase().replace(/^www\./, '') !== hostname; } catch { return true; } });
+          removed += before - session.nodes.length;
+        }
+        state.compostItems = state.compostItems.filter((item) => { try { return new URL(item.url).hostname.toLowerCase().replace(/^www\./, '') !== hostname; } catch { return true; } });
+        return removed ? { hostname, removed } : NO_CHANGE;
+      }) : null;
       case 'CLEAR_DATA':
       case 'CLEAR_ALL_DATA': return isExtensionPageSender(sender) ? replaceState(emptyState()) : null;
       case 'GET_DASHBOARD_STATS': return isExtensionPageSender(sender) ? getDashboardStats() : null;
@@ -720,6 +815,7 @@ const SCHEMAS = {
   DELETE_COMPOST: { id: 'string' },
   PRUNE_NODE: { sessionId: 'string', nodeId: 'string', toCompost: 'boolean?' },
   DELETE_SESSION: { sessionId: 'string' },
+  FORGET_SITE: { hostname: 'string' },
   CLEAR_DATA: {},
   GET_DASHBOARD_STATS: {},
   REMOVE_SAVED_ITEM: { id: 'string' },
@@ -762,7 +858,7 @@ chrome.webNavigation?.onHistoryStateUpdated?.addListener((details) => {
     if (recentlyObservedSpa(details.tabId, details.url)) return;
     const tab = await chrome.tabs.get(details.tabId);
     if (!tab?.url) return;
-    await trackLink({ tabId: tab.id, url: tab.url, title: tab.title, targetBlank: false, windowId: Number.isInteger(tab.windowId) ? tab.windowId : null });
+    await trackLink({ tabId: tab.id, url: tab.url, title: tab.title, targetBlank: false, windowId: Number.isInteger(tab.windowId) ? tab.windowId : null, navigationKind: 'spa' });
   }, { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'webNavigation.onHistoryStateUpdated', swallow: true })(details);
 });
 
@@ -788,7 +884,11 @@ chrome.tabs.onCreated?.addListener((tab) => {
   }, { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'tabs.onCreated', swallow: true })(tab);
 });
 chrome.runtime.onStartup?.addListener(() => {
-  wrapWithErrorBoundary(takeOverOpenNewTabs, { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'onStartup', swallow: true })();
+  wrapWithErrorBoundary(async () => {
+    await takeOverOpenNewTabs();
+    const tabs = await chrome.tabs.query({ active: true }).catch(() => []);
+    await Promise.all(tabs.filter((tab) => Number.isInteger(tab.id)).map((tab) => recordActiveTab(tab.id, tab.windowId)));
+  }, { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'onStartup', swallow: true })();
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   return wrapWithErrorBoundary(async (tabId, changeInfo, tab) => {
@@ -796,8 +896,16 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
     if (changeInfo.status === 'complete' && tab.url) await observeTab(tabId, tab.url, tab.title, tab.openerTabId, tab.windowId);
   }, { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'tabs.onUpdated', swallow: true })(tabId, changeInfo, tab);
 });
+chrome.tabs.onActivated?.addListener((activeInfo) => {
+  wrapWithErrorBoundary(() => recordActiveTab(activeInfo?.tabId, activeInfo?.windowId), { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'tabs.onActivated', swallow: true })();
+});
+chrome.webNavigation?.onCommitted?.addListener((details) => {
+  if (details.frameId !== 0 || !Number.isInteger(details.tabId)) return;
+  navigationHints.set(details.tabId, navigationKindForTransition(details.transitionType, details.transitionQualifiers || []));
+});
 chrome.tabs.onRemoved.addListener((tabId) => {
   return wrapWithErrorBoundary(async (tabId) => {
+    activeTabs.forEach((active, key) => { if (active.tabId === tabId) activeTabs.delete(key); });
     await mutate((state) => {
       const session = activeSession(state);
       if (!session) return NO_CHANGE;

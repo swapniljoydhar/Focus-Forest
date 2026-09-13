@@ -51,6 +51,7 @@
   style.textContent = `
 :host{all:initial}
 #ff-root{position:fixed;z-index:2147483646;inset:0;pointer-events:none}
+#ff-root.motion-off *,#ff-root.motion-off *::before,#ff-root.motion-off *::after{animation:none!important;transition:none!important}
 #ff-root *{box-sizing:border-box}
 .chip{position:fixed;top:16px;right:18px;display:flex;align-items:center;gap:9px;max-width:min(380px,calc(100vw - 32px));padding:8px 8px 8px 12px;border:1px solid rgba(74,104,71,.22);border-radius:999px;background:linear-gradient(120deg,rgba(252,251,245,.97),rgba(243,248,239,.95));box-shadow:0 8px 28px rgba(42,65,41,.16),0 1px 0 rgba(255,255,255,.6) inset;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);font:13px/1.25 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#29432d;pointer-events:auto;cursor:default;transition:transform .18s ease,box-shadow .18s ease,opacity .2s ease;animation:ff-slide-in .28s cubic-bezier(.2,.8,.3,1) both}
 .chip:hover{box-shadow:0 10px 32px rgba(42,65,41,.22),0 1px 0 rgba(255,255,255,.6) inset}
@@ -146,9 +147,9 @@
   actionsEl.append(makeElement('button', 'chip-btn', { 'data-action': 'pause', 'aria-label': 'Pause Focus Forest' }, 'Pause'), makeElement('button', 'chip-btn minimize', { 'data-action': 'minimize', 'aria-label': 'Minimize Focus Forest' }, '–'));
   chipEl.append(seedEl, copyEl, actionsEl);
   const choiceCardEl = makeElement('section', 'choice-card', { role: 'dialog', 'aria-modal': 'false', 'aria-labelledby': 'ff-title', hidden: true });
-  choiceCardEl.append(makeElement('button', 'close', { 'data-action': 'dismiss', 'aria-label': 'Dismiss' }, '×'), makeElement('p', 'choice-eyebrow', {}, 'A moment to choose'), makeElement('h2', '', { id: 'ff-title' }, 'You may have wandered a little.'), makeElement('p', 'choice-copy'));
+  choiceCardEl.append(makeElement('button', 'close', { 'data-action': 'dismiss', 'aria-label': 'Keep exploring' }, '×'), makeElement('p', 'choice-eyebrow', {}, 'A moment to choose'), makeElement('h2', '', { id: 'ff-title' }, 'You may have wandered a little.'), makeElement('p', 'choice-copy'));
   const choiceActionsEl = makeElement('div', 'choice-actions');
-  choiceActionsEl.append(makeChoice('home', 'choice primary', '↶', 'Return to my mission', 'Go back to where this session began.'), makeChoice('compost', 'choice', '⌁', 'Save this for later', 'Put this curiosity in your compost pile.'), makeChoice('mission', 'choice', '＋', 'Start a new mission', 'Let this become the thing you are here to do.'));
+  choiceActionsEl.append(makeChoice('dismiss', 'choice', '→', 'Keep exploring', 'Leave the page open and continue by choice.'), makeChoice('home', 'choice primary', '↶', 'Return to my mission', 'Go back to where this session began.'), makeChoice('compost', 'choice', '⌁', 'Save this for later', 'Put this curiosity in your compost pile.'), makeChoice('mission', 'choice', '＋', 'Start a new mission', 'Let this become the thing you are here to do.'));
   choiceCardEl.append(choiceActionsEl);
   rootEl.append(chipEl, choiceCardEl);
   shadow.append(rootEl);
@@ -166,6 +167,7 @@
   let ritualToken = 0;
   let ritualTimer = 0;
   let growthAnimationTrigger = 'mission-origin';
+  let ambientMotion = true;
   let originRitualPlayed = false;
   try { originRitualPlayed = sessionStorage.getItem('ff-origin-ritual-played') === 'true'; } catch { /* storage may be unavailable */ }
 
@@ -246,6 +248,8 @@
     try {
       const snap = await send('GET_ACTIVE_VIEW');
       growthAnimationTrigger = snap.settings?.growthAnimationTrigger || 'mission-origin';
+      ambientMotion = snap.settings?.ambientMotion !== false;
+      rootEl.classList.toggle('motion-off', !ambientMotion);
     } catch (error) {
       logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'loadSettings' });
       growthAnimationTrigger = 'mission-origin';
@@ -259,7 +263,7 @@
 
   async function showGrowthRitual(isOrigin = false) {
     const reduceMotion = window.matchMedia?.('(prefers-reduced-motion: reduce)').matches;
-    if (reduceMotion) return false;
+    if (reduceMotion || !ambientMotion) return false;
     if (growthAnimationTrigger === 'none') return false;
     if (growthAnimationTrigger === 'mission-origin' && !isOrigin) return false;
     if (growthAnimationTrigger === 'mission-origin' && originRitualPlayed) return false;
@@ -286,7 +290,7 @@
   async function update(view) {
     const previous = current;
     current = view?.session || null;
-    if (!current?.node) { cancelGrowthRitual(); chip.hidden = true; choiceCard.hidden = true; return; }
+    if (!current?.node || view?.sitePaused) { cancelGrowthRitual(); chip.hidden = true; choiceCard.hidden = true; return; }
     const previousSessionId = previous?.id || null;
     const currentSessionId = current.id || null;
     if (previousSessionId && currentSessionId && previousSessionId !== currentSessionId) {
@@ -307,12 +311,12 @@
     pauseBtn.textContent = paused ? 'Resume' : 'Pause';
     pauseBtn.setAttribute('aria-label', paused ? 'Resume Focus Forest' : 'Pause Focus Forest');
     if (isOriginLoad) await safeShowGrowthRitual(true); else if (enteredNewBranch) await safeShowGrowthRitual(false); else cancelGrowthRitual();
-    if (!paused && depth >= thresholds.INTERRUPT && choiceCard.dataset.shownFor !== location.href) showChoiceSheet(depth);
+    if (!paused && view.interventionEligible && choiceCard.dataset.shownFor !== location.href) showChoiceSheet(depth, current.node.confidence);
     stateEl.textContent = state;
   }
 
   // DOM-safe choice sheet: all dynamic content set via textContent/elements, no innerHTML.
-  function showChoiceSheet(depth) {
+  function showChoiceSheet(depth, confidence = 'medium') {
     choiceCard.dataset.shownFor = location.href;
     choiceCopy.replaceChildren();
     const missionEl = document.createElement('q');
@@ -328,7 +332,7 @@
       depthEl,
       document.createTextNode(' branches away, looking at '),
       pageEl,
-      document.createTextNode('. That may be exactly where you meant to go \u2014 or it may be a path that opened by itself.')
+      document.createTextNode(`. This is a ${confidence}-confidence branch. Keep exploring, return to your intention, or pause the forest.`)
     );
     choiceCard.hidden = false;
     shadow.querySelector('[data-action="home"]').focus();

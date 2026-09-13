@@ -5,7 +5,7 @@ const messages = [];
 const tabActions = [];
 const windowActions = [];
 const tabInfo = new Map();
-const listeners = { installed: [], message: [], updated: [], removed: [], created: [], startup: [] };
+const listeners = { installed: [], message: [], updated: [], removed: [], created: [], startup: [], committed: [] };
 
 globalThis.chrome = {
   storage: {
@@ -21,6 +21,7 @@ globalThis.chrome = {
     onMessage: { addListener(fn) { listeners.message.push(fn); } },
     onStartup: { addListener(fn) { listeners.startup.push(fn); } }
   },
+  webNavigation: { onCommitted: { addListener(fn) { listeners.committed.push(fn); } }, onHistoryStateUpdated: { addListener() {} } },
   windows: { async update(id, patch) { windowActions.push(['update', id, patch]); } },
   tabs: {
     onCreated: { addListener(fn) { listeners.created.push(fn); } },
@@ -73,6 +74,7 @@ for (const newTabUrl of chromiumNewTabs) {
 tabInfo.delete(801);
 
 await send({ type: 'START_MISSION', mission: 'Find a good laptop to buy.', tab: { id: 7, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
+assert.ok(Array.isArray(session().activeIntervals), 'sessions should track active-tab intervals');
 await send({ type: 'OBSERVE_PAGE', url: 'https://example.com', title: 'Origin' }, { id: 7, openerTabId: undefined });
 assert.equal(session().nodes[0].depth, 0, 'first ordinary page must become depth 0');
 assert.equal(session().origin.tabId, 7, 'origin tab must be remembered');
@@ -96,7 +98,7 @@ assert.equal(session().nodes.at(-1).state, 'interrupted', 'depth 5 should be int
 assert.equal(session().nodes.slice(0, -1).some((node) => node.tabIds?.includes(7)), false, 'a navigating tab should not remain attached to historical nodes');
 
 await send({ type: 'COMPOST', url: 'https://example.com/weapons', title: 'Weapons' }, { id: 7 });
-assert.equal(store.focusForestState.schemaVersion, 2, 'state should use the compact schema');
+assert.equal(store.focusForestState.schemaVersion, 3, 'state should use the current compact schema');
 assert.equal('transitions' in session(), false, 'nodes should be the only branch relationship source');
 assert.equal(store.focusForestState.compostItems.length, 1, 'compost should save one item');
 assert.equal(tabActions.some((action) => action[0] === 'remove' && action[1] === 7), false, 'compost must not close the current tab');
@@ -156,6 +158,9 @@ assert.equal(session().nodes.at(-1).depth, 0, 'manual or external navigation sho
 const nodeCountBeforeReturn = session().nodes.length;
 await send({ type: 'OBSERVE_PAGE', url: 'https://history.example', title: 'History again' }, { id: 7 });
 assert.equal(session().nodes.length, nodeCountBeforeReturn, 'returning to a known URL should reuse its node');
+listeners.committed[0]?.({ frameId: 0, tabId: 7, transitionType: 'back_forward', transitionQualifiers: [] });
+await send({ type: 'OBSERVE_PAGE', url: 'https://history.example', title: 'History back' }, { id: 7 });
+assert.equal(session().nodes.find((node) => node.url === 'https://history.example/').confidence, 'low', 'back/forward returns should be low confidence');
 await send({ type: 'GO_HOME' });
 assert.equal(tabActions.some((a) => a[0] === 'remove'), false, 'Go Home must not close tracked tabs automatically');
 const goHomeUpdate = tabActions.findLast((a) => a[0] === 'update' && a[1] === 7);
@@ -287,6 +292,17 @@ assert.ok(imported.imported, 'import should succeed');
 const afterImport = await send({ type: 'GET_SNAPSHOT', includeHistory: true });
 assert.equal(afterImport.session.mission, 'Export import test', 'import should restore session');
 assert.equal(afterImport.session.nodes[0].url, 'https://export.example/page', 'import should restore nodes');
+
+await send({ type: 'COMPLETE_ONBOARDING' });
+await send({ type: 'UPDATE_SETTINGS', settings: { ambientMotion: false } });
+const importedWithExistingPreferences = await send({
+  type: 'IMPORT_DATA',
+  payload: { data: { sessions: [], compostItems: [], settings: { ambientMotion: true }, onboardingCompleted: false } }
+});
+assert.ok(importedWithExistingPreferences.imported, 'import should merge a valid state with existing preferences');
+const afterPreferenceImport = await send({ type: 'GET_SNAPSHOT' });
+assert.equal(afterPreferenceImport.state.onboardingCompleted, true, 'import must not erase onboarding completion');
+assert.equal(afterPreferenceImport.settings.ambientMotion, true, 'import should apply the imported settings explicitly');
 
 // Test onboarding completion
 await send({ type: 'CLEAR_DATA' });
