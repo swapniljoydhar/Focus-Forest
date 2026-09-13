@@ -53,11 +53,13 @@ export function isSearchUrl(value) {
     if (/^(www\.)?google\.[a-z.]+$/i.test(host)) {
       return /^\/(search|webhp)(\/|$|\?)/.test(url.pathname) || url.searchParams.has('q');
     }
-    // Other search engines: match by domain
     const baseDomain = host.split('.').slice(-2, -1)[0];
-    if (SEARCH_DOMAINS.has(baseDomain) && baseDomain !== 'google') return true;
-    // Fallback: check for common search query parameters
-    for (const key of url.searchParams.keys()) { if (SEARCH_PARAMS.has(key.toLowerCase())) return true; }
+    if (SEARCH_DOMAINS.has(baseDomain) && baseDomain !== 'google') {
+      if (baseDomain === 'brave' && url.pathname === '/') return true;
+      const isSearchPath = /^\/(search|web|results?)(\/|$)/i.test(url.pathname);
+      const hasSearchParam = [...url.searchParams.keys()].some((key) => SEARCH_PARAMS.has(key.toLowerCase()));
+      return isSearchPath || hasSearchParam;
+    }
     return false;
   } catch { return false; }
 }
@@ -308,14 +310,15 @@ export async function loadState() {
  * @returns {Promise<object>} The saved state.
  */
 export async function saveState(state) {
+  const normalized = normalizeState(state);
   ownWritesInFlight += 1;
   try {
-    await chrome.storage.local.set({ [STORAGE_KEY]: state });
-    stateCache = state;
+    await chrome.storage.local.set({ [STORAGE_KEY]: normalized });
+    stateCache = normalized;
   } finally {
     ownWritesInFlight = Math.max(0, ownWritesInFlight - 1);
   }
-  return state;
+  return normalized;
 }
 
 /**

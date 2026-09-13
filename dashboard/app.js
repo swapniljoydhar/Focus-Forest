@@ -182,6 +182,7 @@ function renderSessions(sessions, activeId, currentId) {
 const safeRender = wrapWithErrorBoundary(render, { category: ERROR_CATEGORIES.UI_RENDER, function: 'render' });
 async function render() {
   const snap = await message('GET_SNAPSHOT', { sessionId: selectedSessionId, includeHistory: true });
+  document.body.dataset.motion = snap.settings?.ambientMotion === false ? 'off' : 'on';
   selectedSessionId = snap.session?.id || null;
   renderSessions(snap.state.sessions || [], snap.activeSessionId, selectedSessionId);
   const session = snap.session;

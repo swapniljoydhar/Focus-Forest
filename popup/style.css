@@ -3,6 +3,10 @@
 .popup-ambient span:first-child{position:absolute;top:-42px;right:-45px;width:190px;height:155px;border-radius:50%;background:radial-gradient(circle,rgba(232,239,190,.5),rgba(232,239,190,0) 68%);animation:ambientPulse 6s ease-in-out infinite}
 .popup-ambient span:last-child{position:absolute;right:-32px;bottom:-83px;width:245px;height:150px;border-radius:50% 50% 0 0;background:#d7e7d3;opacity:.7;animation:ambientPulse 8s ease-in-out infinite reverse}
 @keyframes ambientPulse{0%,100%{transform:scale(1);opacity:.7}50%{transform:scale(1.05);opacity:.85}}
+body[data-motion="off"] .popup-ambient span,
+body[data-motion="off"] .local-dot:before,
+body[data-motion="off"] .empty,
+body[data-motion="off"] .empty-seed { animation:none !important; }
 .popup-shell{min-height:420px;padding:16px 18px 12px;display:flex;flex-direction:column}
 .popup-brand{display:flex;align-items:center;gap:8px;color:#527154;font-size:13px}
 .brand-mark{width:20px;height:20px}

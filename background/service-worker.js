@@ -432,7 +432,6 @@ async function getDashboardStats() {
   const state = await loadState();
   const now = Date.now();
   const oneDayMs = 24 * 60 * 60 * 1000;
-  const sevenDaysAgo = now - (7 * oneDayMs);
 
   // Calculate total sessions and focus time
   let totalSessions = 0;
@@ -474,11 +473,17 @@ async function getDashboardStats() {
     
     totalFocusTime += sessionDuration;
     
-    // Daily breakdown using ISO date key - accumulate raw seconds first to preserve sub-minute sessions
-    const dayKey = new Date(sessionStart).toISOString().slice(0, 10);
-    activeDays.add(dayKey);
-    if (Object.hasOwn(dailySeconds, dayKey)) {
-      dailySeconds[dayKey] += sessionDuration;
+    // Split sessions at UTC midnight so a long session is represented on each day it touched.
+    const firstDay = Math.floor(sessionStart / oneDayMs) * oneDayMs;
+    const lastDay = Math.floor(Math.max(sessionStart, sessionEnd - 1) / oneDayMs) * oneDayMs;
+    for (let dayStart = firstDay; dayStart <= lastDay; dayStart += oneDayMs) {
+      const dayKey = new Date(dayStart).toISOString().slice(0, 10);
+      activeDays.add(dayKey);
+      if (Object.hasOwn(dailySeconds, dayKey)) {
+        const overlapStart = Math.max(sessionStart, dayStart);
+        const overlapEnd = Math.min(sessionEnd, dayStart + oneDayMs);
+        dailySeconds[dayKey] += Math.max(0, (overlapEnd - overlapStart) / 1000);
+      }
     }
   }
 
@@ -576,7 +581,8 @@ async function importAllData(payload) {
     sessions: mergedSessions,
     compostItems: Array.from(compostMap.values()).slice(0, LIMITS.COMPOST),
     settings: next.settings,
-    activeSessionId
+    activeSessionId,
+    onboardingCompleted: Boolean(current.onboardingCompleted || next.onboardingCompleted)
   };
   await replaceState(merged);
   return { imported: true };
@@ -598,6 +604,7 @@ chrome.runtime.onInstalled.addListener((details) => {
 chrome.runtime.onInstalled.addListener(() => {
   wrapWithErrorBoundary(() => {
     chrome.contextMenus?.create({ id: 'focus-forest-start', title: 'Start Focus Mission for "%s"', contexts: ['link', 'page', 'selection'] });
+    chrome.contextMenus?.create({ id: 'focus-forest-compost', title: 'Save Page for Later', contexts: ['page', 'link'] });
     chrome.contextMenus?.create({ id: 'focus-forest-end', title: 'End Current Focus Mission', contexts: ['page'] });
   }, { category: ERROR_CATEGORIES.MESSAGING, component: 'service-worker', function: 'contextMenus.create', swallow: true })();
 });
@@ -612,6 +619,11 @@ chrome.contextMenus?.onClicked?.addListener((info, tab) => {
       await createSession(mission, { id: tab?.id, url: cleanUrl || 'chrome://newtab', title: tab?.title || 'New Tab', windowId: tab?.windowId });
       if (tab?.id != null && cleanUrl) {
         await chrome.tabs.update(tab.id, { url: cleanUrl });
+      }
+    } else if (info.menuItemId === 'focus-forest-compost') {
+      const targetUrl = safeHttpUrl(info.linkUrl || tab?.url);
+      if (Number.isInteger(tab?.id) && targetUrl) {
+        await compost(info.linkUrl ? null : tab.id, targetUrl, info.linkText || tab?.title || targetUrl);
       }
     } else if (info.menuItemId === 'focus-forest-end') {
       await endSession('user_ended');

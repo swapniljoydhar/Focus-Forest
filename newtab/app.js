@@ -23,6 +23,7 @@ const safeInit = wrapWithErrorBoundary(init, { category: ERROR_CATEGORIES.UI_REN
 async function init() {
   try {
     const snap = await message('GET_SNAPSHOT');
+    document.body.dataset.motion = snap?.settings?.ambientMotion === false ? 'off' : 'on';
     if (snap && snap.session) {
       resumeBtn.hidden = false;
       resumeBtn.querySelector('.action-text').textContent = `Continue Session · "${snap.session.mission}"`;
@@ -55,12 +56,8 @@ form.addEventListener('submit', wrapWithErrorBoundary(async (event) => {
   try {
     await message('START_MISSION', { mission, tab: { url: location.href, title: 'Focus Forest' } });
     status.hidden = false;
-    status.textContent = '🌱 Intention planted! Navigating to your search...';
+    status.textContent = '🌱 Intention planted! Your mission is ready when you are.';
     input.blur();
-
-    // Perform search redirect using Google search or search query URL
-    const searchUrl = 'https:' + '//www.google.com/search?q=' + encodeURIComponent(mission);
-    setTimeout(() => { window.location.href = searchUrl; }, 400);
   } catch (err) {
     logError(err, { category: ERROR_CATEGORIES.MESSAGING, function: 'startMission' });
     status.hidden = false;
