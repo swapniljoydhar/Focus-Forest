@@ -7,6 +7,7 @@ const SPA_DOMAINS = new Set(['youtube.com', 'notion.so', 'gmail.com', 'github.co
 const spaDedup = new Map();
 const MAX_SPA_DEDUP = 128;
 const activeTabs = new Map();
+const navigationHints = new Map();
 // Safe hostname extraction: never throws on malformed URLs.
 function hostnameOf(value) { try { return new URL(String(value || '')).hostname.toLowerCase(); } catch { return ''; } }
 // True when a hostname belongs to a known SPA domain or one of its subdomains.
@@ -142,6 +143,13 @@ function isRedirectLike(value) {
     const url = new URL(value);
     return /\/(url|redirect|out|away|click)(?:\/|$)/i.test(url.pathname) || ['url', 'target', 'dest', 'destination', 'redirect'].some((key) => url.searchParams.has(key));
   } catch { return false; }
+}
+function navigationKindForTransition(transitionType, qualifiers = []) {
+  if (transitionType === 'back_forward' || qualifiers.includes('forward_back')) return 'back-forward';
+  if (transitionType === 'reload') return 'reload';
+  if (transitionType === 'link') return 'link';
+  if (transitionType === 'typed' || transitionType === 'auto_bookmark' || transitionType === 'generated' || transitionType === 'keyword' || transitionType === 'keyword_generated') return 'manual';
+  return 'external';
 }
 
 function isRecord(value) {
@@ -360,6 +368,8 @@ async function observeTab(tabId, rawUrl, rawTitle, openerTabId, windowId) {
   const url = safeHttpUrl(rawUrl);
   const title = compactText(rawTitle || url);
   return mutate((state) => {
+    const navigationHint = navigationHints.get(tabId);
+    navigationHints.delete(tabId);
     const session = activeSession(state); if (!session || !url) return NO_CHANGE;
     const current = nodeForTab(session, tabId);
     // The origin is unset on a Chromium new tab (Chrome, Brave, Edge, Opera, Vivaldi) or our own New Tab page.
@@ -370,7 +380,14 @@ async function observeTab(tabId, rawUrl, rawTitle, openerTabId, windowId) {
       if (root) { attachTab(root, tabId); root.url = url; root.title = title; root.firstSeenAt = Date.now(); root.relationshipConfidence = 'direct'; }
       session.origin = { tabId, windowId: Number.isInteger(windowId) ? windowId : session.origin?.windowId || null, url, title }; addEvent(session, 'origin_planted', { url }); return root;
     }
-    if (current && current.url === url) { addEvent(session, 'reload', { nodeId: current.id, url }); return current; }
+    if (current && current.url === url) {
+      if (navigationHint === 'back-forward' || navigationHint === 'manual') {
+        current.navigationKind = navigationHint;
+        current.confidence = 'low';
+      }
+      addEvent(session, navigationHint === 'back-forward' ? 'back_forward' : 'reload', { nodeId: current.id, url });
+      return current;
+    }
     if (isSearchUrl(url) && !originNotSet) { addEvent(session, 'search_refinement', { url }); return NO_CHANGE; }
     const known = session.nodes.find((node) => node.url === url && !TERMINAL_STATES.has(node.state));
     if (known) {
@@ -378,8 +395,9 @@ async function observeTab(tabId, rawUrl, rawTitle, openerTabId, windowId) {
       moveTabToNode(session, tabId, known.id);
       const attached = attachTab(known, tabId);
       known.title = title;
-      known.navigationKind = 'known-page';
-      known.confidence = known.confidence || 'medium';
+      known.navigationKind = navigationHint || 'known-page';
+      if (navigationHint === 'back-forward' || navigationHint === 'manual') known.confidence = 'low';
+      else known.confidence = known.confidence || 'medium';
       if (known.closedAt) delete known.closedAt;
       if (attached) addEvent(session, 'tab_joined_path', { nodeId: known.id, url });
       else addEvent(session, 'return_to_path', { nodeId: known.id, url });
@@ -400,7 +418,7 @@ async function observeTab(tabId, rawUrl, rawTitle, openerTabId, windowId) {
     const depth = parent ? parent.depth + 1 : 0;
     const relationshipConfidence = opener ? 'tab-inferred' : (pendingParent || redirectParent) ? 'direct' : 'external';
     const confidence = relationshipConfidence === 'direct' ? 'high' : relationshipConfidence === 'tab-inferred' ? 'medium' : 'low';
-    const navigationKind = redirectParent ? 'redirect' : pendingParent ? 'new-tab-link' : opener ? 'manual' : 'manual';
+    const navigationKind = navigationHint || (redirectParent ? 'redirect' : pendingParent ? 'new-tab-link' : opener ? 'manual' : 'manual');
     const node = { id: makeId('node'), tabIds: Number.isInteger(tabId) ? [tabId] : [], url, title, parentId: parent?.id || null, depth, firstSeenAt: Date.now(), relationshipConfidence, confidence, navigationKind, state: getDepthState(depth, session.interventionPaused, effectiveThresholds(state.settings)) };
     if (!pushNode(session, node)) { addEvent(session, 'garden_at_capacity'); return { capped: true }; }
     moveTabToNode(session, tabId, node.id);
@@ -866,7 +884,11 @@ chrome.tabs.onCreated?.addListener((tab) => {
   }, { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'tabs.onCreated', swallow: true })(tab);
 });
 chrome.runtime.onStartup?.addListener(() => {
-  wrapWithErrorBoundary(takeOverOpenNewTabs, { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'onStartup', swallow: true })();
+  wrapWithErrorBoundary(async () => {
+    await takeOverOpenNewTabs();
+    const tabs = await chrome.tabs.query({ active: true }).catch(() => []);
+    await Promise.all(tabs.filter((tab) => Number.isInteger(tab.id)).map((tab) => recordActiveTab(tab.id, tab.windowId)));
+  }, { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'onStartup', swallow: true })();
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   return wrapWithErrorBoundary(async (tabId, changeInfo, tab) => {
@@ -876,6 +898,10 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
 });
 chrome.tabs.onActivated?.addListener((activeInfo) => {
   wrapWithErrorBoundary(() => recordActiveTab(activeInfo?.tabId, activeInfo?.windowId), { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'tabs.onActivated', swallow: true })();
+});
+chrome.webNavigation?.onCommitted?.addListener((details) => {
+  if (details.frameId !== 0 || !Number.isInteger(details.tabId)) return;
+  navigationHints.set(details.tabId, navigationKindForTransition(details.transitionType, details.transitionQualifiers || []));
 });
 chrome.tabs.onRemoved.addListener((tabId) => {
   return wrapWithErrorBoundary(async (tabId) => {

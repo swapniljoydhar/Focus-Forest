@@ -5,7 +5,7 @@ const messages = [];
 const tabActions = [];
 const windowActions = [];
 const tabInfo = new Map();
-const listeners = { installed: [], message: [], updated: [], removed: [], created: [], startup: [] };
+const listeners = { installed: [], message: [], updated: [], removed: [], created: [], startup: [], committed: [] };
 
 globalThis.chrome = {
   storage: {
@@ -21,6 +21,7 @@ globalThis.chrome = {
     onMessage: { addListener(fn) { listeners.message.push(fn); } },
     onStartup: { addListener(fn) { listeners.startup.push(fn); } }
   },
+  webNavigation: { onCommitted: { addListener(fn) { listeners.committed.push(fn); } }, onHistoryStateUpdated: { addListener() {} } },
   windows: { async update(id, patch) { windowActions.push(['update', id, patch]); } },
   tabs: {
     onCreated: { addListener(fn) { listeners.created.push(fn); } },
@@ -157,6 +158,9 @@ assert.equal(session().nodes.at(-1).depth, 0, 'manual or external navigation sho
 const nodeCountBeforeReturn = session().nodes.length;
 await send({ type: 'OBSERVE_PAGE', url: 'https://history.example', title: 'History again' }, { id: 7 });
 assert.equal(session().nodes.length, nodeCountBeforeReturn, 'returning to a known URL should reuse its node');
+listeners.committed[0]?.({ frameId: 0, tabId: 7, transitionType: 'back_forward', transitionQualifiers: [] });
+await send({ type: 'OBSERVE_PAGE', url: 'https://history.example', title: 'History back' }, { id: 7 });
+assert.equal(session().nodes.find((node) => node.url === 'https://history.example/').confidence, 'low', 'back/forward returns should be low confidence');
 await send({ type: 'GO_HOME' });
 assert.equal(tabActions.some((a) => a[0] === 'remove'), false, 'Go Home must not close tracked tabs automatically');
 const goHomeUpdate = tabActions.findLast((a) => a[0] === 'update' && a[1] === 7);
