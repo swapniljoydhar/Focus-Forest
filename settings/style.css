@@ -20,6 +20,11 @@ input[type=range]::-webkit-slider-thumb:hover{transform:scale(1.15);box-shadow:0
 input[type=range]::-webkit-slider-thumb:active{transform:scale(1.05);box-shadow:0 1px 3px rgba(44,68,44,.2)}
 input[type=range]:focus-visible{outline:3px solid rgba(101,145,98,.25);outline-offset:3px;border-radius:3px}
 .setting-card p{margin:8px 0 26px;color:#8a9986;font-size:11px}
+textarea{display:block;width:100%;min-height:76px;padding:11px 12px;border:1px solid #d5e0d1;border-radius:12px;background:rgba(250,252,248,.9);color:#29432d;font:13px/1.45 ui-sans-serif,system-ui,sans-serif;resize:vertical;transition:border-color .2s,box-shadow .2s}
+textarea::placeholder{color:#98a595}
+textarea:hover{border-color:#b8cdb3}
+textarea:focus{outline:none;border-color:#659162;box-shadow:0 0 0 3px rgba(101,145,98,.16)}
+textarea + p{margin-top:9px}
 .toggle{display:flex;align-items:center;gap:11px;margin:5px 0 24px;color:#4d6f4e;font:700 13px ui-sans-serif;cursor:pointer}
 .toggle input{position:absolute;opacity:0}
 .toggle-track{position:relative;width:39px;height:22px;flex:none;border-radius:20px;background:#cbd9c7;transition:.2s}

@@ -134,6 +134,7 @@ document.querySelector('#plant-form').addEventListener('submit', wrapWithErrorBo
       tab: tab ? { id: tab.id, url: tab.url, title: tab.title, windowId: tab.windowId } : undefined
     });
     input.value = '';
+    if (note) note.value = '';
     await renderSafely();
   } catch (error) {
     logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'plant.submit' });
