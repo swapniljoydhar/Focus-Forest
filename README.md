@@ -63,7 +63,7 @@ Focus Forest targets desktop Chromium browsers: **Chrome, Brave, Edge, Opera, an
 
 ## Privacy
 
-Session data, URL/title metadata, navigation events, and compost items are stored in `chrome.storage.local`. The extension does not collect page text, send browsing data to a server, use an account, or run remote analytics. Local history is bounded to 12 gardens and the compost pile to 80 items. The dashboard provides an explicit delete-all-data action.
+Session data, URL/title metadata, navigation events, optional mission notes, and compost items are stored in `chrome.storage.local`. The extension does not collect page text, send browsing data to a server, use an account, or run remote analytics. Local history is bounded to 12 gardens and the compost pile to 80 items. The dashboard provides an explicit delete-all-data action.
 
 Dashboard duration statistics represent elapsed time between starting and ending a garden session. They do not claim foreground-tab or keyboard/mouse activity tracking.
 
