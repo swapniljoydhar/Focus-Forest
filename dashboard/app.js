@@ -16,6 +16,14 @@ let selectedSessionId = null; let selectedNodeId = null; let careAction = null; 
 function branchClass(node) { return node.state === 'pruned' ? 'pruned' : node.state === 'composted' ? 'saved' : node.depth >= 5 ? 'deep' : node.depth >= 4 ? 'long' : node.depth === 0 ? 'root' : 'healthy'; }
 function nodeClasses(node) { return `${branchClass(node)}${node.closedAt ? ' closed' : ''}`; }
 function confidenceLabel(node) { return node.relationshipConfidence === 'direct' ? 'direct link' : node.relationshipConfidence === 'tab-inferred' ? 'new tab from a tracked page' : 'unlinked path'; }
+function pathReason(node) {
+  if (node.depth === 0) return 'You planted this as the root of the mission.';
+  if (node.navigationKind === 'search') return 'This branch grew from a search step.';
+  if (node.navigationKind === 'new-tab-link') return 'This branch opened in a new tab from another tracked page.';
+  if (node.navigationKind === 'spa') return 'This branch followed an in-page route change.';
+  if (node.navigationKind === 'manual' || node.relationshipConfidence === 'external') return 'This was an unlinked path you chose to explore.';
+  return 'This branch followed a link from the page before it.';
+}
 function nodeDescription(node) { const state = node.state === 'pruned' ? 'pruned and kept in the trail' : node.state === 'composted' ? 'resting in compost' : node.depth === 0 ? 'mission root' : `${branchClass(node)} branch`; return `${(node.title || node.url || 'Untitled path').slice(0, 80)}, ${state}, ${confidenceLabel(node)}, depth ${node.depth}`; }
 function shortLabel(node) { const value = (node.title || node.url || 'Untitled path').replace(/^https?:\/\//, ''); return value.length > 20 ? `${value.slice(0, 19)}…` : value; }
 function renderTree(session) {
@@ -83,7 +91,8 @@ function renderDetail(node, session) {
     makeTextElement('p', 'SELECTED PATH', 'eyebrow'),
     makeTextElement('h3', (node.title || node.url || 'Untitled path').slice(0, 72)),
     makeTextElement('p', `Depth ${node.depth} · ${confidenceLabel(node)} · ${stateLabel}`, 'detail-meta'),
-    makeTextElement('p', parentLabel, 'detail-parent')
+    makeTextElement('p', parentLabel, 'detail-parent'),
+    makeTextElement('p', pathReason(node), 'detail-reason')
   );
   if (durationLabel) copy.append(makeTextElement('p', durationLabel, 'detail-duration'));
   const actions = document.createElement('div');
@@ -189,6 +198,7 @@ async function render() {
   const nodes = session?.nodes || [];
   if (!nodes.some((node) => node.id === selectedNodeId)) selectedNodeId = null;
   document.querySelector('#mission').textContent = session ? `Mission: ${session.mission}` : 'A visual record of where your attention wandered today.';
+  document.querySelector('#mission-note').textContent = session?.note ? `Why it matters: ${session.note}` : 'No extra reason was recorded for this mission.';
   const deepest = Math.max(0, ...nodes.map((node) => node.depth));
   const composted = nodes.filter((node) => node.state === 'composted').length;
   const pruned = nodes.filter((node) => node.state === 'pruned').length;

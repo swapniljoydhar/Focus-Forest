@@ -106,7 +106,8 @@ assert.equal(tabActions.some((action) => action[0] === 'remove' && action[1] ===
 await send({ type: 'CLEAR_DATA' });
 tabActions.length = 0;
 await send({ type: 'START_MISSION', mission: 'First mission', tab: { id: 7, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
-await send({ type: 'START_MISSION', mission: 'Research history', tab: { id: 9, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
+await send({ type: 'START_MISSION', mission: 'Research history', missionNote: 'Understand the roots before choosing a direction.', tab: { id: 9, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
+assert.equal(session().note, 'Understand the roots before choosing a direction.', 'mission note should be stored with the active garden');
 assert.equal(store.focusForestState.sessions[0].status, 'completed', 'starting a new mission should complete the prior garden');
 assert.equal(store.focusForestState.sessions[0].endReason, 'mission_changed', 'prior garden should record the reason for change');
 await send({ type: 'CLEAR_DATA' });

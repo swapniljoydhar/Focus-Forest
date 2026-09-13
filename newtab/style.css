@@ -126,6 +126,10 @@ body[data-motion="off"] .sapling-branch { animation: none !important; }
 .char-counter { position: absolute; right: var(--space-md); top: 50%; transform: translateY(-50%); font-size: 0.8125rem; color: var(--color-text-muted); font-variant-numeric: tabular-nums; }
 .char-separator { opacity: 0.5; margin: 0 2px; }
 .input-hint { margin: var(--space-sm) 0 0; font-size: 0.8125rem; color: var(--color-text-muted); text-align: left; }
+.note-label { margin-top: var(--space-md); }
+.optional-label { font-size: .75rem; font-weight: 400; color: var(--color-text-muted); }
+#mission-note { width: 100%; min-height: 58px; padding: 12px var(--space-md); resize: vertical; border: 2px solid var(--color-border); border-radius: var(--radius-md); background: rgba(255,255,255,.9); color: var(--color-text-primary); font: .9rem/1.45 var(--font-sans); }
+#mission-note:focus { outline: 3px solid rgba(74,124,89,.2); border-color: var(--color-accent-green-light); }
 .plant-btn { width: 100%; height: 56px; display: flex; align-items: center; justify-content: space-between; padding: 0 var(--space-lg); border: none; border-radius: var(--radius-lg); background: linear-gradient(135deg, var(--color-accent-green) 0%, var(--color-accent-green-dark) 100%); color: white; font-weight: 600; font-size: 1rem; cursor: pointer; transition: all var(--transition-base); box-shadow: var(--shadow-md); }
 .btn-content { display: flex; align-items: center; gap: var(--space-sm); }
 .btn-icon svg { fill: currentColor; }
