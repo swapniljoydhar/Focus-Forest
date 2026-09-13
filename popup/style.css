@@ -5,11 +5,11 @@
 @keyframes ambientPulse{0%,100%{transform:scale(1);opacity:.7}50%{transform:scale(1.05);opacity:.85}}
 .popup-shell{min-height:420px;padding:16px 18px 12px;display:flex;flex-direction:column}
 .popup-brand{display:flex;align-items:center;gap:8px;color:#527154;font-size:13px}
-.brand-mark{position:relative;width:20px;height:20px}
-.brand-mark span{position:absolute;bottom:1px;width:5px;border-radius:5px;background:#719b6b}
-.brand-mark span:nth-child(1){left:2px;height:10px;transform:rotate(-22deg)}
-.brand-mark span:nth-child(2){left:8px;height:17px}
-.brand-mark span:nth-child(3){left:14px;height:13px;transform:rotate(22deg)}
+.brand-mark{width:20px;height:20px}
+.brand-mark svg{display:block;width:100%;height:100%}
+.brand-trunk,.brand-branch{fill:none;stroke:#7b5538;stroke-width:1.7;stroke-linecap:round}
+.brand-leaf{fill:#79a96a;stroke:#4d7d50;stroke-width:.55}
+.brand-leaf-right{fill:#91ba78}
 .local-dot{margin-left:auto;color:#8b9b87;font-size:10px;font-weight:500;display:flex;align-items:center;gap:5px}
 .local-dot:before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:#83a578;vertical-align:1px;animation:localPulse 3s ease-in-out infinite}
 @keyframes localPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(.85)}}
@@ -20,8 +20,10 @@
 .empty-seed{margin-bottom:14px;display:inline-block;animation:sproutGrow .8s ease-out}
 @keyframes sproutGrow{from{opacity:0;transform:scale(.7) translateY(4px)}to{opacity:1;transform:scale(1) translateY(0)}}
 .empty-seed svg{display:block;filter:drop-shadow(0 2px 4px rgba(74,124,89,.2))}
-.sprout-stem{fill:none;stroke:#719b6c;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;opacity:.9}
-.sprout-leaf{fill:#82a97b;opacity:.85;transform-origin:center}
+.sprout-stem,.sprout-branch{fill:none;stroke:#7b5538;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;opacity:.9}
+.sprout-leaf{fill:#79a96a;stroke:#4d7d50;stroke-width:.7;opacity:.95;transform-origin:center}
+.sprout-right{fill:#91ba78}
+.sprout-ground{fill:none;stroke:rgba(74,124,89,.3);stroke-width:1.2;stroke-linecap:round}
 .sprout-left{animation:leafSway 3s ease-in-out infinite}
 .sprout-right{animation:leafSway 3s ease-in-out infinite .5s}
 @keyframes leafSway{0%,100%{transform:rotate(-3deg)}50%{transform:rotate(3deg)}}

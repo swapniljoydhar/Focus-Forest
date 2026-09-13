@@ -62,9 +62,12 @@ button, input { font: inherit; color: inherit; }
 .page-header { display: flex; align-items: center; gap: var(--space-md); padding-bottom: var(--space-sm); }
 .logo-container { flex-shrink: 0; }
 .logo-mark { width: 48px; height: 48px; }
-.logo-trunk { fill: none; stroke: var(--color-accent-green); stroke-width: 2.5; stroke-linecap: round; }
-.logo-branch { fill: none; stroke: var(--color-accent-green-light); stroke-width: 2; stroke-linecap: round; }
-.logo-leaf { fill: var(--color-accent-green-light); opacity: 0.9; }
+.logo-trunk { fill: none; stroke: #7b5538; stroke-width: 2.6; stroke-linecap: round; }
+.logo-branch { fill: none; stroke: #7b5538; stroke-width: 1.8; stroke-linecap: round; }
+.logo-leaf { fill: #79a96a; stroke: #4d7d50; stroke-width: 0.8; }
+.logo-leaf-2 { fill: #91ba78; }
+.logo-leaf-3 { fill: #6e9d62; }
+.logo-ground { fill: none; stroke: rgba(74, 124, 89, 0.3); stroke-width: 1.2; stroke-linecap: round; }
 .brand-text { display: flex; flex-direction: column; gap: var(--space-xs); }
 .brand-name { margin: 0; font-size: 1.25rem; font-weight: 700; color: var(--color-text-primary); letter-spacing: -0.02em; }
 .privacy-badge { display: inline-flex; align-items: center; gap: var(--space-xs); padding: var(--space-xs) var(--space-sm); background: rgba(74, 124, 89, 0.1); color: var(--color-text-secondary); font-size: 0.75rem; font-weight: 600; border-radius: var(--radius-full); }

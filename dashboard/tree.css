@@ -25,6 +25,19 @@
   contain: layout paint;
 }
 .forest-art { pointer-events: none; }
+.forest-scene .tree-structure,
+.forest-scene .canopy-back,
+.forest-scene .canopy-front {
+  transform-box: fill-box;
+  transform-origin: center bottom;
+  animation: treeWind 7s ease-in-out infinite;
+}
+.forest-scene .canopy-front { animation-delay: -1.2s; }
+.forest-scene .canopy-back { animation-delay: -.6s; }
+@keyframes treeWind {
+  0%, 100% { transform: rotate(-0.7deg) translateX(-0.6px); }
+  50% { transform: rotate(0.9deg) translateX(0.8px); }
+}
 .forest-scene .canopy-shadow { fill: var(--crown-shadow); stroke: #3d663e; stroke-width: 2; }
 .forest-scene .canopy-silhouette { fill: var(--crown-base); stroke: #507742; stroke-width: 1.5; }
 .forest-scene .foliage-puff { stroke: none; }
