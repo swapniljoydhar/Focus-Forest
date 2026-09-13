@@ -8,19 +8,19 @@
 Focus Forest
 
 **Short Description**
-A gentle mission-aware browsing companion that helps you notice rabbit holes without blocking the web.
+A calm, local-first Chromium browser companion that helps you notice browsing drift and return to your intention—without blocking, judging, or tracking you.
 
 **Detailed Description**
-Focus Forest is a calm, local-first browsing companion that helps you notice when you are wandering down rabbit holes—without blocking pages, scolding you, or breaking the web.
+Focus Forest is a calm, local-first Chromium browser companion that helps you notice when browsing drifts from your intention—without blocking pages, judging your curiosity, or tracking you.
 
-When you sit down to research or work, plant an intention for what you are setting out to do. As you click links and explore, Focus Forest quietly keeps track of how many branches deep you have traveled from your original task.
+When you sit down to research or work, plant an intention for what you are setting out to do. You can add an optional private note about why it matters today. As you click links and explore, Focus Forest quietly keeps track of how many branches deep you have traveled from your original task.
 
-When you wander too far into an unrelated trail, Focus Forest offers a gentle moment of reflection: a quiet choice sheet that lets you prune the branch, save the distracting article to compost for later reading, or return safely to your starting page with one click.
+When a path becomes unusually deep, Focus Forest offers a gentle moment of reflection: a quiet choice sheet that lets you return to your mission, save the curiosity to compost for later, start a new mission, or keep exploring. A deep path is never treated as a mistake.
 
 Key Features:
 - Non-blocking companion: A discreet leaf chip tucked into the corner of your page that shows your current depth and mission.
 - Organic tree visualization: Visit the Garden Dashboard to view your browsing trail rendered as a living botanical tree.
-- Mindful choices: When you venture 4 or 5 links deep, pause to reflect with gentle options—not loud sirens or blocking walls.
+- Mindful choices: When you reach your chosen branch depth, pause to reflect with gentle options—not loud sirens or blocking walls.
 - Compost for later: Save interesting discoveries into your personal compost bin with one click or via the context menu.
 - 100% Offline and Private: All session histories and settings stay strictly in your browser's local storage. Zero telemetry, zero external servers, zero tracking.
 - Dark mode and reduced motion support: Built with full accessibility in mind, supporting light/dark themes and system reduced-motion preferences.
@@ -31,10 +31,10 @@ How to Use:
 2. Enter your intention (for example: "Research camera lenses for landscape photography").
 3. Browse normally. Watch the discreet companion chip at the top right of the page.
 4. If you wander several links deep, choose whether to return to your intention, compost the page for later, or keep exploring.
-5. Open the Garden Dashboard anytime to see the tree you grew and explore your weekly focus insights.
+5. Open the Garden Dashboard anytime to see the tree you grew, why each path was recognized, and your weekly focus insights.
 
 Privacy & Offline Guarantee:
-Focus Forest is completely local. It never connects to an external server, transmits any browsing history, or includes third-party analytics. Your data belongs exclusively to you.
+Focus Forest is completely local. It never connects to an external server, transmits any browsing history, or includes third-party analytics. Mission notes, navigation signals, and garden history remain on this device in local extension storage. Your data belongs exclusively to you.
 
 **Category**
 Productivity
@@ -63,17 +63,17 @@ English
 - Screenshot 2: The Insights & Stats tab displaying weekly focus minutes, consecutive day streak, and top visited domains.
 - Screenshot 3: The peaceful new-tab page inviting the user to plant their intention.
 - Screenshot 4: A normal webpage with the compact leaf chip resting quietly in the corner without obscuring page content.
-- Screenshot 5: The gentle choice sheet offering "Go Home", "Compost for Later", or "Keep Exploring".
+- Screenshot 5: The gentle choice sheet offering "Return to my mission", "Save this for later", "Start a new mission", or "Keep exploring".
 
 ## Permissions Justification
 
 | Permission | Type | Justification |
 |------------|------|---------------|
 | `storage` | permissions | Required to store user session trees, garden statistics, composted items, and preferences locally in `chrome.storage.local`. |
-| `tabs` | permissions | Required to associate tabs with active focus sessions, detect new-tab replacements across Chromium browsers, and return to origin tabs via "Go Home". |
+| `tabs` | permissions | Required to associate tabs with active focus sessions, detect new-tab replacements across Chromium browsers, and return to origin tabs via "Return to my mission". |
 | `webNavigation` | permissions | Required to observe in-page client-side navigations (`onHistoryStateUpdated`) on single-page apps (such as YouTube and GitHub) so link depth is accurate. |
 | `alarms` | permissions | Required to schedule periodic storage quota checks to keep local extension data bounded and healthy. |
-| `contextMenus` | permissions | Required to provide right-click shortcuts for "Compost for Later" and "End Focus Mission" directly from any webpage. |
+| `contextMenus` | permissions | Required to provide right-click shortcuts for "Save Page for Later" and "End Current Focus Mission" directly from any webpage. |
 | `http://*/*`, `https://*/*` | host_permissions | Required to inject the isolated content script that renders the non-blocking companion chip and observes link clicks during active sessions. |
 
 ## Privacy & Data Use
@@ -117,4 +117,3 @@ Focus Forest operates entirely offline on the client device. It does not transmi
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
 | 0.2.0 | 2026-09-11 | Cleaned repository, eliminated dead external logs and unused dynamic imports, hardened message schemas, refined sub-minute statistics aggregation, added dark theme styling, automated browser testing. | Draft |
-

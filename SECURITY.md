@@ -32,4 +32,4 @@ The companion chip renders inside a closed shadow root. Its styles are scoped to
 
 ## Data Storage
 
-All browsing data stays in `chrome.storage.local`. No remote servers, accounts, analytics, or external dependencies are used.
+All browsing signals, garden history, compost items, and optional mission notes stay in `chrome.storage.local`. No remote servers, accounts, analytics, or external dependencies are used.
