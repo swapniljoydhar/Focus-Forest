@@ -59,12 +59,20 @@ form.addEventListener('submit', wrapWithErrorBoundary(async (event) => {
     status.hidden = false;
     status.textContent = '🌱 Intention planted! Your mission is ready when you are.';
     input.blur();
+    missionNote.value = '';
   } catch (err) {
     logError(err, { category: ERROR_CATEGORIES.MESSAGING, function: 'startMission' });
     status.hidden = false;
     status.textContent = 'Could not start session. Please try again.';
   }
 }, { category: ERROR_CATEGORIES.MESSAGING, function: 'form.submit', swallow: true }));
+
+input.addEventListener('keydown', wrapWithErrorBoundary((event) => {
+  if (event.key !== 'Enter' || event.isComposing) return;
+  event.preventDefault();
+  if (typeof form.requestSubmit === 'function') form.requestSubmit();
+  else form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+}, { category: ERROR_CATEGORIES.MESSAGING, function: 'mission-input.keydown', swallow: true }));
 
 resumeBtn.addEventListener('click', wrapWithErrorBoundary(async () => {
   try {
