@@ -288,6 +288,17 @@ const afterImport = await send({ type: 'GET_SNAPSHOT', includeHistory: true });
 assert.equal(afterImport.session.mission, 'Export import test', 'import should restore session');
 assert.equal(afterImport.session.nodes[0].url, 'https://export.example/page', 'import should restore nodes');
 
+await send({ type: 'COMPLETE_ONBOARDING' });
+await send({ type: 'UPDATE_SETTINGS', settings: { ambientMotion: false } });
+const importedWithExistingPreferences = await send({
+  type: 'IMPORT_DATA',
+  payload: { data: { sessions: [], compostItems: [], settings: { ambientMotion: true }, onboardingCompleted: false } }
+});
+assert.ok(importedWithExistingPreferences.imported, 'import should merge a valid state with existing preferences');
+const afterPreferenceImport = await send({ type: 'GET_SNAPSHOT' });
+assert.equal(afterPreferenceImport.state.onboardingCompleted, true, 'import must not erase onboarding completion');
+assert.equal(afterPreferenceImport.settings.ambientMotion, true, 'import should apply the imported settings explicitly');
+
 // Test onboarding completion
 await send({ type: 'CLEAR_DATA' });
 const beforeOnboarding = await send({ type: 'GET_SNAPSHOT' });

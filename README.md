@@ -65,6 +65,8 @@ Focus Forest targets desktop Chromium browsers: **Chrome, Brave, Edge, Opera, an
 
 Session data, URL/title metadata, navigation events, and compost items are stored in `chrome.storage.local`. The extension does not collect page text, send browsing data to a server, use an account, or run remote analytics. Local history is bounded to 12 gardens and the compost pile to 80 items. The dashboard provides an explicit delete-all-data action.
 
+Dashboard duration statistics represent elapsed time between starting and ending a garden session. They do not claim foreground-tab or keyboard/mouse activity tracking.
+
 ## Permissions
 
 The extension uses local storage for gardens and the `tabs` permission only to replace Chromium new-tab pages (including Brave's dashboard) with the planting screen. It uses declared HTTP(S) page access to render the mission chip and detect eligible link activations, plus `webNavigation` to support SPA history tracking on YouTube, Notion, Gmail, GitHub, and similar sites. Browser-internal, restricted, and other protected pages may not support the content script and degrade gracefully.
