@@ -276,9 +276,10 @@ async function recordActiveTab(tabId, windowId) {
   activeTabs.set(key, { tabId, startedAt: now });
 }
 
-async function createSession(mission, tab) {
+async function createSession(mission, tab, rawNote = '') {
   const cleanMission = compactText(mission, 140);
   if (!cleanMission) return null;
+  const note = compactText(rawNote, LIMITS.MISSION_NOTE);
   return mutate((state) => {
     const previous = activeSession(state);
     if (previous) {
@@ -289,7 +290,7 @@ async function createSession(mission, tab) {
     const title = compactText(tab?.title || 'New Tab');
     const originTabId = Number.isInteger(tab?.id) ? tab.id : null;
     const session = {
-      id: makeId('session'), mission: cleanMission, status: 'active', startedAt: Date.now(), endedAt: null, endReason: null,
+      id: makeId('session'), mission: cleanMission, note, status: 'active', startedAt: Date.now(), endedAt: null, endReason: null,
       origin: { tabId: originTabId, windowId: Number.isInteger(tab?.windowId) ? tab.windowId : null, url: originUrl, title }, nodes: [], events: [], activeIntervals: [], pendingRedirects: [], interventionPaused: false
     };
     pushNode(session, { id: makeId('node'), tabIds: Number.isInteger(tab?.id) ? [tab.id] : [], url: originUrl, title, parentId: null, depth: 0, firstSeenAt: Date.now(), relationshipConfidence: 'direct', confidence: 'high', navigationKind: 'mission-origin', state: 'normal' });
@@ -712,7 +713,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     switch (message.type) {
       case 'GET_SNAPSHOT': return isExtensionPageSender(sender) ? getSnapshot(safeId(message.sessionId) || null, Boolean(message.includeHistory)) : null;
       case 'GET_ACTIVE_VIEW': return activeView(await loadState(), tab?.id);
-      case 'START_MISSION': return typeof message.mission === 'string' ? createSession(message.mission, sanitizeTab(tab) || sanitizeTab(message.tab)) : null;
+      case 'START_MISSION': return typeof message.mission === 'string' ? createSession(message.mission, sanitizeTab(tab) || sanitizeTab(message.tab), message.missionNote) : null;
       case 'END_MISSION': return endSession(safeReason(message.reason));
       case 'LINK_CLICK': {
         if (!Number.isInteger(tab?.id)) return null;
@@ -805,7 +806,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 const SCHEMAS = {
   GET_SNAPSHOT: { sessionId: 'string?', includeHistory: 'boolean?' },
   GET_ACTIVE_VIEW: {},
-  START_MISSION: { mission: 'string', tab: 'object?' },
+  START_MISSION: { mission: 'string', missionNote: 'string?', tab: 'object?' },
   END_MISSION: { reason: 'string?' },
   LINK_CLICK: { url: 'string', title: 'string?', targetBlank: 'boolean?' },
   OBSERVE_PAGE: { url: 'string', title: 'string?' },

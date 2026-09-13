@@ -4,9 +4,9 @@ Focus Forest is a calm, local-first Chromium extension that helps you return to 
 
 ## The experience
 
-Open a new tab and plant a mission such as "Compare laptops for university." The mission chip stays quietly available on supported pages. Related links grow healthy branches. At a deeper branch, the page becomes subtly quieter and the chip says that the branch is getting long. At the interruption threshold, the extension offers three equal choices: **Return to my mission**, **Save this for later**, or **Start a new mission**.
+Open a new tab and plant a mission such as "Compare laptops for university." You can add a private, optional note about why it matters today; that note stays with the local garden as a reminder, never a score. The mission chip stays quietly available on supported pages. Related links grow healthy branches. At a deeper branch, the page becomes subtly quieter and the chip says that the branch is getting long. At the interruption threshold, the extension offers three equal choices: **Return to my mission**, **Save this for later**, or **Start a new mission**.
 
-A garden view preserves completed missions locally. It shows what grew from the intention, where the path changed, and which curiosities were composted for later. The garden is a reflection, not a productivity score.
+A garden view preserves completed missions locally. It shows what grew from the intention, where the path changed, why each path was recognized (link, new tab, search, in-page route, or unlinked exploration), and which curiosities were composted for later. The garden is a reflection, not a productivity score. When a branch reaches the choice threshold, Focus Forest describes it as deep rather than wrong: the user decides whether the detour is useful.
 
 ## Install locally (any Chromium desktop browser)
 

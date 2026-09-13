@@ -7,6 +7,7 @@ renderTreeIllustration(document.querySelector('#onboarding-tree'), 'seed');
 // DOM Elements - New Structure
 const form = document.querySelector('#mission-form');
 const input = document.querySelector('#mission-input');
+const missionNote = document.querySelector('#mission-note');
 const charCurrent = document.querySelector('#char-current');
 const status = document.querySelector('#form-status');
 const resumeBtn = document.querySelector('#resume-mission-btn');
@@ -54,7 +55,7 @@ form.addEventListener('submit', wrapWithErrorBoundary(async (event) => {
   const mission = input.value.trim();
   if (!mission) { input.focus(); return; }
   try {
-    await message('START_MISSION', { mission, tab: { url: location.href, title: 'Focus Forest' } });
+    await message('START_MISSION', { mission, missionNote: missionNote?.value.trim() || '', tab: { url: location.href, title: 'Focus Forest' } });
     status.hidden = false;
     status.textContent = '🌱 Intention planted! Your mission is ready when you are.';
     input.blur();

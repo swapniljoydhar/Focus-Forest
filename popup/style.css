@@ -35,7 +35,8 @@ body[data-motion="off"] .empty-seed { animation:none !important; }
 .empty-copy{margin:0;color:#7b8978;line-height:1.5}
 .visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
 .plant-form{display:grid;gap:8px;margin:16px 0 8px;text-align:left}
-.plant-form input{width:100%;padding:10px 12px;border:1px solid #d5e0d1;border-radius:11px;background:rgba(250,252,248,.9);color:#29432d;font:13px ui-sans-serif,system-ui,sans-serif}
+.plant-form input,.plant-form textarea{width:100%;padding:10px 12px;border:1px solid #d5e0d1;border-radius:11px;background:rgba(250,252,248,.9);color:#29432d;font:13px ui-sans-serif,system-ui,sans-serif}
+.plant-form textarea{resize:vertical;min-height:52px;line-height:1.4}
 .plant-form input:focus{outline:2px solid rgba(108,151,102,.45);outline-offset:1px}
 .plant-form button{width:100%;padding:11px 14px;border:1px solid #577f58;border-radius:11px;background:linear-gradient(135deg,#5d865c,#4c744f);color:#fff;font:650 12px ui-sans-serif,system-ui,sans-serif;cursor:pointer}
 .plant-form button:hover{transform:translateY(-1px);box-shadow:0 3px 8px rgba(74,124,89,.25)}

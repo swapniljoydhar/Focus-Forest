@@ -121,6 +121,7 @@ function renderSafely() {
 document.querySelector('#plant-form').addEventListener('submit', wrapWithErrorBoundary(async (event) => {
   event.preventDefault();
   const input = document.querySelector('#plant-input');
+  const note = document.querySelector('#plant-note');
   const status = document.querySelector('#plant-status');
   const mission = input.value.trim();
   if (!mission) { input.focus(); return; }
@@ -129,6 +130,7 @@ document.querySelector('#plant-form').addEventListener('submit', wrapWithErrorBo
     const tab = await activeTab();
     await message('START_MISSION', {
       mission,
+      missionNote: note?.value.trim() || '',
       tab: tab ? { id: tab.id, url: tab.url, title: tab.title, windowId: tab.windowId } : undefined
     });
     input.value = '';
