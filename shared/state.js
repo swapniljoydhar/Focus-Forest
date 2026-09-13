@@ -2,9 +2,9 @@ import './chromium-api.js';
 import { logError, logWarning, logCritical, ERROR_CATEGORIES } from './error-tracing.js';
 
 export const STORAGE_KEY = 'focusForestState';
-export const SCHEMA_VERSION = 2;
+export const SCHEMA_VERSION = 3;
 export const LIMITS = { SESSIONS: 12, NODES_PER_SESSION: 96, EVENTS_PER_SESSION: 72, COMPOST: 80, TITLE: 120, URL: 1024 };
-export const DEFAULT_SETTINGS = { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin' };
+export const DEFAULT_SETTINGS = { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [] };
 export const STORAGE_QUOTA_WARNING_THRESHOLD = 4 * 1024 * 1024; // 4MB warning threshold
 export const STORAGE_QUOTA_CRITICAL_THRESHOLD = 7 * 1024 * 1024; // 7MB critical threshold (Chrome's limit is ~8MB)
 
@@ -122,6 +122,7 @@ export function activeSession(state) {
 
 const SAFE_STATES = new Set(['normal', 'desaturated', 'interrupted', 'paused', 'pruned', 'composted']);
 const SAFE_CONFIDENCE = new Set(['direct', 'tab-inferred', 'external']);
+const SAFE_NAVIGATION_KINDS = new Set(['mission-origin', 'link', 'new-tab-link', 'spa', 'search', 'known-page', 'manual', 'reload', 'back-forward', 'redirect', 'external']);
 const SAFE_REASONS = new Set(['user_ended', 'mission_changed', 'browse_without_mission']);
 /** Canonical fallback when a session origin is missing or unsafe. Chromium NTP aliases are accepted separately. */
 export const DEFAULT_NEW_TAB_URL = 'chrome://newtab';
@@ -189,7 +190,7 @@ function compactNode(node) {
   if (!node || typeof node !== 'object') return null;
   const id = compactText(node.id, 120); const url = safeSessionUrl(node.url); if (!id || !url) return null;
   const parentId = typeof node.parentId === 'string' && node.parentId !== id ? compactText(node.parentId, 120) : null;
-  return { id, tabIds: Array.isArray(node.tabIds) ? node.tabIds.filter(Number.isInteger).slice(-8) : Number.isInteger(node.tabId) ? [node.tabId] : [], url, title: compactText(node.title || url, LIMITS.TITLE), parentId, depth: Math.max(0, Math.min(LIMITS.NODES_PER_SESSION, Number(node.depth) || 0)), firstSeenAt: Number.isFinite(node.firstSeenAt) ? node.firstSeenAt : Date.now(), relationshipConfidence: SAFE_CONFIDENCE.has(node.relationshipConfidence) ? node.relationshipConfidence : 'external', state: SAFE_STATES.has(node.state) ? node.state : 'normal', ...(Number.isFinite(node.closedAt) ? { closedAt: node.closedAt } : {}), ...(Number.isFinite(node.prunedAt) ? { prunedAt: node.prunedAt } : {}) };
+  return { id, tabIds: Array.isArray(node.tabIds) ? node.tabIds.filter(Number.isInteger).slice(-8) : Number.isInteger(node.tabId) ? [node.tabId] : [], url, title: compactText(node.title || url, LIMITS.TITLE), parentId, depth: Math.max(0, Math.min(LIMITS.NODES_PER_SESSION, Number(node.depth) || 0)), firstSeenAt: Number.isFinite(node.firstSeenAt) ? node.firstSeenAt : Date.now(), relationshipConfidence: SAFE_CONFIDENCE.has(node.relationshipConfidence) ? node.relationshipConfidence : 'external', confidence: ['high', 'medium', 'low'].includes(node.confidence) ? node.confidence : (node.relationshipConfidence === 'direct' ? 'high' : node.relationshipConfidence === 'tab-inferred' ? 'medium' : 'low'), navigationKind: SAFE_NAVIGATION_KINDS.has(node.navigationKind) ? node.navigationKind : 'external', state: SAFE_STATES.has(node.state) ? node.state : 'normal', ...(Number.isFinite(node.closedAt) ? { closedAt: node.closedAt } : {}), ...(Number.isFinite(node.prunedAt) ? { prunedAt: node.prunedAt } : {}) };
 }
 function compactEvent(event) {
   if (!event || typeof event !== 'object') return null;
@@ -206,7 +207,7 @@ function compactSession(session) {
   if (!session || typeof session !== 'object') return null;
   const id = compactText(session.id, 120); if (!id) return null;
   const status = session.status === 'completed' ? 'completed' : 'active';
-  return { id, mission: compactText(session.mission, 140), status, startedAt: Number.isFinite(session.startedAt) ? session.startedAt : Date.now(), endedAt: Number.isFinite(session.endedAt) ? session.endedAt : null, endReason: SAFE_REASONS.has(session.endReason) ? session.endReason : null, origin: { tabId: Number.isInteger(session.origin?.tabId) ? session.origin.tabId : null, windowId: Number.isInteger(session.origin?.windowId) ? session.origin.windowId : null, url: safeSessionUrl(session.origin?.url) || DEFAULT_NEW_TAB_URL, title: compactText(session.origin?.title || 'New Tab', LIMITS.TITLE) }, nodes: Array.isArray(session.nodes) ? session.nodes.slice(-LIMITS.NODES_PER_SESSION).map(compactNode).filter(Boolean) : [], events: Array.isArray(session.events) ? session.events.slice(-LIMITS.EVENTS_PER_SESSION).map(compactEvent).filter(Boolean) : [], pendingRedirects: Array.isArray(session.pendingRedirects) ? session.pendingRedirects.filter((entry) => Number.isInteger(entry?.tabId) && typeof entry?.parentId === 'string').slice(-4).map((entry) => ({ tabId: entry.tabId, parentId: compactText(entry.parentId, 120), createdAt: Number.isFinite(entry.createdAt) ? entry.createdAt : Date.now() })) : [], interventionPaused: Boolean(session.interventionPaused) };
+  return { id, mission: compactText(session.mission, 140), status, startedAt: Number.isFinite(session.startedAt) ? session.startedAt : Date.now(), endedAt: Number.isFinite(session.endedAt) ? session.endedAt : null, endReason: SAFE_REASONS.has(session.endReason) ? session.endReason : null, origin: { tabId: Number.isInteger(session.origin?.tabId) ? session.origin.tabId : null, windowId: Number.isInteger(session.origin?.windowId) ? session.origin.windowId : null, url: safeSessionUrl(session.origin?.url) || DEFAULT_NEW_TAB_URL, title: compactText(session.origin?.title || 'New Tab', LIMITS.TITLE) }, nodes: Array.isArray(session.nodes) ? session.nodes.slice(-LIMITS.NODES_PER_SESSION).map(compactNode).filter(Boolean) : [], events: Array.isArray(session.events) ? session.events.slice(-LIMITS.EVENTS_PER_SESSION).map(compactEvent).filter(Boolean) : [], activeIntervals: Array.isArray(session.activeIntervals) ? session.activeIntervals.filter((entry) => Number.isInteger(entry?.tabId) && Number.isFinite(entry?.startedAt)).slice(-128).map((entry) => ({ tabId: entry.tabId, windowId: Number.isInteger(entry.windowId) ? entry.windowId : null, startedAt: entry.startedAt, endedAt: Number.isFinite(entry.endedAt) ? entry.endedAt : null })) : [], pendingRedirects: Array.isArray(session.pendingRedirects) ? session.pendingRedirects.filter((entry) => Number.isInteger(entry?.tabId) && typeof entry?.parentId === 'string').slice(-4).map((entry) => ({ tabId: entry.tabId, parentId: compactText(entry.parentId, 120), createdAt: Number.isFinite(entry.createdAt) ? entry.createdAt : Date.now() })) : [], interventionPaused: Boolean(session.interventionPaused) };
 }
 
 /**
@@ -253,7 +254,8 @@ export function normalizeSettings(value, fallback = emptyState().settings) {
   const gentleDepth = Math.max(2, Math.min(8, Number(source.gentleDepth) || fallback.gentleDepth));
   const choiceDepth = Math.max(gentleDepth + 1, Math.min(10, Number(source.choiceDepth) || fallback.choiceDepth));
   const growthAnimationTrigger = ['mission-origin', 'every-branch', 'none'].includes(source.growthAnimationTrigger) ? source.growthAnimationTrigger : fallback.growthAnimationTrigger;
-  return { interventionsPaused: Boolean(source.interventionsPaused), gentleDepth, choiceDepth, ambientMotion: source.ambientMotion !== false, growthAnimationTrigger };
+  const excludedSites = Array.isArray(source.excludedSites) ? source.excludedSites.map((site) => compactText(site, 120).toLowerCase().replace(/^www\./, '')).filter((site, index, list) => site && list.indexOf(site) === index).slice(0, 40) : (Array.isArray(fallback.excludedSites) ? fallback.excludedSites : []);
+  return { interventionsPaused: Boolean(source.interventionsPaused), gentleDepth, choiceDepth, ambientMotion: source.ambientMotion !== false, growthAnimationTrigger, excludedSites };
 }
 
 let stateCache = null;

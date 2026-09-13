@@ -147,7 +147,7 @@
   actionsEl.append(makeElement('button', 'chip-btn', { 'data-action': 'pause', 'aria-label': 'Pause Focus Forest' }, 'Pause'), makeElement('button', 'chip-btn minimize', { 'data-action': 'minimize', 'aria-label': 'Minimize Focus Forest' }, '–'));
   chipEl.append(seedEl, copyEl, actionsEl);
   const choiceCardEl = makeElement('section', 'choice-card', { role: 'dialog', 'aria-modal': 'false', 'aria-labelledby': 'ff-title', hidden: true });
-  choiceCardEl.append(makeElement('button', 'close', { 'data-action': 'dismiss', 'aria-label': 'Dismiss' }, '×'), makeElement('p', 'choice-eyebrow', {}, 'A moment to choose'), makeElement('h2', '', { id: 'ff-title' }, 'You may have wandered a little.'), makeElement('p', 'choice-copy'));
+  choiceCardEl.append(makeElement('button', 'close', { 'data-action': 'dismiss', 'aria-label': 'Keep exploring' }, '×'), makeElement('p', 'choice-eyebrow', {}, 'A moment to choose'), makeElement('h2', '', { id: 'ff-title' }, 'You may have wandered a little.'), makeElement('p', 'choice-copy'));
   const choiceActionsEl = makeElement('div', 'choice-actions');
   choiceActionsEl.append(makeChoice('home', 'choice primary', '↶', 'Return to my mission', 'Go back to where this session began.'), makeChoice('compost', 'choice', '⌁', 'Save this for later', 'Put this curiosity in your compost pile.'), makeChoice('mission', 'choice', '＋', 'Start a new mission', 'Let this become the thing you are here to do.'));
   choiceCardEl.append(choiceActionsEl);
@@ -290,7 +290,7 @@
   async function update(view) {
     const previous = current;
     current = view?.session || null;
-    if (!current?.node) { cancelGrowthRitual(); chip.hidden = true; choiceCard.hidden = true; return; }
+    if (!current?.node || view?.sitePaused) { cancelGrowthRitual(); chip.hidden = true; choiceCard.hidden = true; return; }
     const previousSessionId = previous?.id || null;
     const currentSessionId = current.id || null;
     if (previousSessionId && currentSessionId && previousSessionId !== currentSessionId) {
@@ -311,12 +311,12 @@
     pauseBtn.textContent = paused ? 'Resume' : 'Pause';
     pauseBtn.setAttribute('aria-label', paused ? 'Resume Focus Forest' : 'Pause Focus Forest');
     if (isOriginLoad) await safeShowGrowthRitual(true); else if (enteredNewBranch) await safeShowGrowthRitual(false); else cancelGrowthRitual();
-    if (!paused && depth >= thresholds.INTERRUPT && choiceCard.dataset.shownFor !== location.href) showChoiceSheet(depth);
+    if (!paused && view.interventionEligible && choiceCard.dataset.shownFor !== location.href) showChoiceSheet(depth, current.node.confidence);
     stateEl.textContent = state;
   }
 
   // DOM-safe choice sheet: all dynamic content set via textContent/elements, no innerHTML.
-  function showChoiceSheet(depth) {
+  function showChoiceSheet(depth, confidence = 'medium') {
     choiceCard.dataset.shownFor = location.href;
     choiceCopy.replaceChildren();
     const missionEl = document.createElement('q');
@@ -332,7 +332,7 @@
       depthEl,
       document.createTextNode(' branches away, looking at '),
       pageEl,
-      document.createTextNode('. That may be exactly where you meant to go \u2014 or it may be a path that opened by itself.')
+      document.createTextNode(`. This is a ${confidence}-confidence branch. Keep exploring, return to your intention, or pause the forest.`)
     );
     choiceCard.hidden = false;
     shadow.querySelector('[data-action="home"]').focus();

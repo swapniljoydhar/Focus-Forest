@@ -246,6 +246,16 @@ svg.addEventListener('mouseout', wrapWithErrorBoundary(event => { const node = e
 detail.addEventListener('click', wrapWithErrorBoundary(async event => { const action = event.target.dataset.branchAction; if (!action) return; if (action === 'close') { selectedNodeId = null; await renderSafely(); return; } if (!selectedSessionId || !selectedNodeId) return; await message('PRUNE_NODE', { sessionId: selectedSessionId, nodeId: selectedNodeId, toCompost: action === 'compost' }); await renderSafely(); }, { category: ERROR_CATEGORIES.MESSAGING, function: 'detail.click', swallow: true }));
 document.querySelector('#compost').addEventListener('click', wrapWithErrorBoundary(async event => { const id = event.target.dataset.id; if (id) { await message('DELETE_COMPOST', { id }); await renderSafely(); } }, { category: ERROR_CATEGORIES.MESSAGING, function: 'compost.click', swallow: true }));
 document.querySelector('#forget').addEventListener('click', wrapWithErrorBoundary(event => { if (selectedSessionId) openCareDialog('forget', event.currentTarget); }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'forget.click', swallow: true }));
+document.querySelector('#forget-site').addEventListener('click', wrapWithErrorBoundary(async () => {
+  const session = selectedSessionId ? (await message('GET_SNAPSHOT', { sessionId: selectedSessionId })).session : null;
+  const node = session?.nodes?.find((item) => item.id === selectedNodeId) || session?.nodes?.at(-1);
+  let hostname = '';
+  try { hostname = new URL(node?.url || '').hostname; } catch {}
+  if (!hostname) return;
+  await message('FORGET_SITE', { hostname });
+  selectedNodeId = null;
+  await renderSafely();
+}, { category: ERROR_CATEGORIES.UI_RENDER, function: 'forget-site.click', swallow: true }));
 document.querySelector('#clear').addEventListener('click', wrapWithErrorBoundary(event => openCareDialog('clear', event.currentTarget), { category: ERROR_CATEGORIES.UI_RENDER, function: 'clear.click', swallow: true }));
 document.querySelector('#theme-toggle').addEventListener('click', wrapWithErrorBoundary(() => { const html = document.documentElement; const current = html.getAttribute('data-theme') || 'light'; const next = current === 'light' ? 'dark' : 'light'; html.setAttribute('data-theme', next); try { localStorage.setItem('focus-forest-theme', next); } catch (e) { /* storage may be unavailable */ } }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'theme-toggle.click', swallow: true }));
 document.querySelector('#settings').addEventListener('click', wrapWithErrorBoundary(() => chrome.runtime.openOptionsPage(), { category: ERROR_CATEGORIES.UI_RENDER, function: 'settings.click', swallow: true }));
@@ -473,15 +483,23 @@ async function loadStatsTab() {
       console.warn('Could not load dashboard stats:', response?.error);
       return;
     }
-    const { totalSessions, totalFocusTime, currentStreak, weeklyData, domainData, history, savedItems } = response;
+    const { totalSessions, totalFocusTime, totalActiveTabTime, intentionalBranches, unlinkedPaths, averageBranchDepth, currentStreak, weeklyData, domainData, history, savedItems } = response;
     const totalSessionsEl = document.getElementById('totalSessions');
     const totalFocusTimeEl = document.getElementById('totalFocusTime');
     const currentStreakEl = document.getElementById('currentStreak');
     const savedCountEl = document.getElementById('savedCount');
+    const activeTabTimeEl = document.getElementById('totalActiveTabTime');
+    const intentionalBranchesEl = document.getElementById('intentionalBranches');
+    const unlinkedPathsEl = document.getElementById('unlinkedPaths');
+    const averageBranchDepthEl = document.getElementById('averageBranchDepth');
     if (totalSessionsEl) totalSessionsEl.textContent = totalSessions;
     if (totalFocusTimeEl) totalFocusTimeEl.textContent = formatDuration(totalFocusTime);
     if (currentStreakEl) currentStreakEl.textContent = currentStreak;
     if (savedCountEl) savedCountEl.textContent = savedItems.length;
+    if (activeTabTimeEl) activeTabTimeEl.textContent = formatDuration(totalActiveTabTime);
+    if (intentionalBranchesEl) intentionalBranchesEl.textContent = intentionalBranches;
+    if (unlinkedPathsEl) unlinkedPathsEl.textContent = unlinkedPaths;
+    if (averageBranchDepthEl) averageBranchDepthEl.textContent = Number(averageBranchDepth || 0).toFixed(1);
     renderWeeklyChart(weeklyData);
     renderDomainChart(domainData);
     renderHistoryTable(history);

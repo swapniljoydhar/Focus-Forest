@@ -17,7 +17,7 @@ checkModuleSyntax('background/service-worker.js');
 checkModuleSyntax('content/content.js');
 
 assert.match(content, /function send\s*\(/, 'content script must define its runtime message helper');
-assert.match(content, /showChoiceSheet\(depth\)/, 'interruption path must call the defined choice-sheet renderer');
+assert.match(content, /showChoiceSheet\(depth(?:,\s*current\.node\.confidence)?\)/, 'interruption path must call the defined choice-sheet renderer');
 assert.doesNotMatch(content, /showChoiceCard\(depth\)/, 'interruption path must not call the removed showChoiceCard name');
 assert.doesNotMatch(content, /\bbackdrop(?:\.|\[)|\bsheetCopy\b/, 'content script must not retain stale choice-sheet variable names');
 assert.doesNotMatch(content, /rootEl\.innerHTML/, 'companion markup should be built with DOM APIs rather than an HTML sink');
