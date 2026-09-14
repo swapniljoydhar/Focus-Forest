@@ -181,7 +181,12 @@
     if (lastUrl !== location.href || lastTitle !== document.title) {
       lastUrl = location.href;
       lastTitle = document.title;
-      safeUpdate(); // Trigger update with new URL
+      void send('SPA_NAVIGATION', { url: location.href, title: document.title }).catch((error) => {
+        logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'spaNavigation' });
+      });
+      void send('GET_ACTIVE_VIEW').then(safeUpdate).catch((error) => {
+        logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'spaRefresh' });
+      });
     }
   }, { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'notifyUrlChange', swallow: true });
 

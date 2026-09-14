@@ -5,7 +5,7 @@ const messages = [];
 const tabActions = [];
 const windowActions = [];
 const tabInfo = new Map();
-const listeners = { installed: [], message: [], updated: [], removed: [], created: [], startup: [], committed: [] };
+const listeners = { installed: [], message: [], updated: [], removed: [], created: [], startup: [], committed: [], historyStateUpdated: [] };
 
 globalThis.chrome = {
   storage: {
@@ -21,7 +21,7 @@ globalThis.chrome = {
     onMessage: { addListener(fn) { listeners.message.push(fn); } },
     onStartup: { addListener(fn) { listeners.startup.push(fn); } }
   },
-  webNavigation: { onCommitted: { addListener(fn) { listeners.committed.push(fn); } }, onHistoryStateUpdated: { addListener() {} } },
+  webNavigation: { onCommitted: { addListener(fn) { listeners.committed.push(fn); } }, onHistoryStateUpdated: { addListener(fn) { listeners.historyStateUpdated.push(fn); } } },
   windows: { async update(id, patch) { windowActions.push(['update', id, patch]); } },
   tabs: {
     onCreated: { addListener(fn) { listeners.created.push(fn); } },
@@ -318,6 +318,19 @@ await send({ type: 'UPDATE_SETTINGS', settings: { gentleDepth: 6, choiceDepth: 8
 const afterSettings = await send({ type: 'GET_SNAPSHOT' });
 assert.equal(afterSettings.settings.gentleDepth, 6, 'settings update should persist');
 assert.equal(afterSettings.settings.choiceDepth, 8, 'settings update should persist');
+
+await send({ type: 'CLEAR_DATA' });
+await send({ type: 'START_MISSION', mission: 'Read the next chapter', tab: { id: 7, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
+await send({ type: 'OBSERVE_PAGE', url: 'https://example.com', title: 'Reader' }, { id: 7 });
+await send({ type: 'SPA_NAVIGATION', url: 'https://example.com/reader/chapter-2', title: 'Chapter 2' }, { id: 7 });
+assert.equal(session().nodes.at(-1).navigationKind, 'spa', 'SPA route changes must be tracked on any ordinary HTTPS domain');
+assert.equal(session().nodes.at(-1).depth, 1, 'the first SPA route must grow one branch');
+const nodeCountAfterSpa = session().nodes.length;
+await send({ type: 'SPA_NAVIGATION', url: 'https://example.com/reader/chapter-2', title: 'Chapter 2' }, { id: 7 });
+assert.equal(session().nodes.length, nodeCountAfterSpa, 'duplicate SPA route notifications must be ignored');
+await listeners.historyStateUpdated[0]({ frameId: 0, tabId: 7, url: 'https://example.com/reader/chapter-3' });
+assert.equal(session().nodes.at(-1).navigationKind, 'spa', 'webNavigation history events must track SPA routes outside the old domain allowlist');
+assert.equal(session().nodes.at(-1).url, 'https://example.com/reader/chapter-3');
 
 tabActions.length = 0;
 await listeners.updated[0](901, { status: 'loading', url: 'brave://newtab/' }, { id: 901, url: 'brave://newtab/', pendingUrl: 'brave://newtab/' });
