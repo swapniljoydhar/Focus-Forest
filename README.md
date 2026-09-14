@@ -58,7 +58,7 @@ Focus Forest targets desktop Chromium browsers: **Chrome, Brave, Edge, Opera, an
 
 - Supported via guarded `chrome.*` calls (`tabs`, `storage`, `alarms`, `contextMenus`, `webNavigation`, `commands`); every cross-browser-uncertain call uses optional chaining or an existence check, and `browser.*` is aliased to `chrome.*` where present (`shared/chromium-api.js`).
 - No Google account, telemetry, or vendor-specific service APIs are used: there is no `chrome.gcm`, `chrome.instanceID`, `identity.getAuthToken`, or `sidePanel` integration. The optional `chrome.search` call only hands the user's mission to the browser's already configured default search provider; it does not access Google services or change browser settings. There is no `update_url` override to port.
-- `chrome.storage.sync` is a best-effort settings mirror only; core state lives in `chrome.storage.local`, so Brave/Edge local-only sync changes nothing about functionality.
+- Settings, session history, and compost items remain in `chrome.storage.local`; Focus Forest does not mirror browsing-related data to `chrome.storage.sync` or an external service.
 - Install per browser: `chrome://extensions`, `brave://extensions`, `edge://extensions`, `opera://extensions`, `vivaldi://extensions` → Developer mode → Load unpacked.
 - Known limitation: Brave, Edge, and Opera may ask to confirm replacing their new-tab page; Brave Shields can stay on.
 

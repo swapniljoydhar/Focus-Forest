@@ -810,7 +810,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           });
         }
         return state.settings;
-      }).then((result) => { if (result !== NO_CHANGE) void syncSettingsToCloud(); return result; }) : null;
+      }) : null;
       case 'DELETE_COMPOST': return isExtensionPageSender(sender) && safeId(message.id) ? mutate((state) => { const before = state.compostItems.length; state.compostItems = state.compostItems.filter((item) => item.id !== message.id); return before === state.compostItems.length ? NO_CHANGE : state.compostItems; }) : null;
       case 'PRUNE_NODE': return isExtensionPageSender(sender) && safeId(message.sessionId) && safeId(message.nodeId) ? pruneNode(message.sessionId, message.nodeId, Boolean(message.toCompost)) : null;
       case 'DELETE_SESSION': return isExtensionPageSender(sender) && safeId(message.sessionId) ? mutate((state) => { const before = state.sessions.length; state.sessions = state.sessions.filter((session) => session.id !== message.sessionId); if (state.activeSessionId === message.sessionId) { state.activeSessionId = null; clearRuntimeTracking(); } return before === state.sessions.length ? NO_CHANGE : state.sessions; }) : null;
@@ -987,34 +987,3 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     });
   }, { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'tabs.onRemoved', swallow: true })(tabId);
 });
-
-// Settings sync via chrome.storage.sync
-const SETTINGS_SYNC_KEY = 'focusForestSettingsSync';
-
-async function syncSettingsToCloud() {
-  try {
-    const state = await loadState();
-    if (chrome.storage?.sync) {
-      await chrome.storage.sync.set({ [SETTINGS_SYNC_KEY]: state.settings });
-    }
-  } catch (err) {
-    logError(err, { category: ERROR_CATEGORIES.STORAGE, component: 'service-worker', function: 'syncSettingsToCloud', swallow: true });
-  }
-}
-
-if (chrome.storage?.onChanged?.addListener) {
-  chrome.storage.onChanged.addListener((changes, area) => {
-    if (area !== 'sync' || !changes[SETTINGS_SYNC_KEY]) return;
-    wrapWithErrorBoundary(async () => {
-      const remote = changes[SETTINGS_SYNC_KEY].newValue;
-      if (!isRecord(remote)) return;
-      const state = await loadState();
-      const next = normalizeSettings({ ...state.settings, ...remote });
-      if (JSON.stringify(next) === JSON.stringify(state.settings)) return;
-      const session = activeSession(state);
-      if (session) session.nodes.forEach((node) => { node.state = getDepthState(node.depth, session.interventionPaused, effectiveThresholds(next)); });
-      state.settings = next;
-      await saveState(state);
-    }, { category: ERROR_CATEGORIES.STORAGE, component: 'service-worker', function: 'storage.sync.onChanged', swallow: true })();
-  });
-}

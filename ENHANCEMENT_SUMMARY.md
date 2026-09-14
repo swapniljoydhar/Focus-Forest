@@ -78,6 +78,7 @@ const PAGE_BUD = 'M0 12 C-8 6 -8 -4 0 -10 C8 -4 8 6 0 12 Z';
 ## 🔒 Security & Privacy Maintained
 
 All enhancements preserve Focus Forest's security model:
+- ✅ Settings remain local-only; no cloud sync mirror is written
 - ✅ Uses the existing `alarms` permission for reliable MV3 quota scheduling
 - ✅ No external dependencies added
 - ✅ No remote services or tracking
@@ -150,7 +151,7 @@ All test suites pass successfully:
 - ✅ Chrome, Edge, Brave, Opera all supported
 
 ### Browser Compatibility
-- ✅ Chrome 88+ (Manifest V3)
+- ✅ Chrome 110+ (Manifest V3 minimum declared by the manifest)
 - ✅ Microsoft Edge 88+
 - ✅ Brave 1.20+
 - ✅ Opera 74+

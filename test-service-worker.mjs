@@ -5,6 +5,7 @@ const messages = [];
 const tabActions = [];
 const searchActions = [];
 const windowActions = [];
+const syncWrites = [];
 const tabInfo = new Map();
 const listeners = { installed: [], message: [], updated: [], removed: [], created: [], startup: [], committed: [], historyStateUpdated: [] };
 const alarms = [];
@@ -14,7 +15,8 @@ globalThis.chrome = {
     local: {
       async get(key) { return key in store ? { [key]: structuredClone(store[key]) } : {}; },
       async set(value) { Object.assign(store, structuredClone(value)); }
-    }
+    },
+    sync: { async set(value) { syncWrites.push(structuredClone(value)); } }
   },
   runtime: {
     id: 'test',
@@ -339,11 +341,12 @@ await send({ type: 'COMPLETE_ONBOARDING' });
 const afterOnboarding = await send({ type: 'GET_SNAPSHOT' });
 assert.equal(afterOnboarding.state.onboardingCompleted, true, 'onboarding should be marked as completed');
 
-// Test settings sync
+// Test local settings persistence
 await send({ type: 'UPDATE_SETTINGS', settings: { gentleDepth: 6, choiceDepth: 8 } });
 const afterSettings = await send({ type: 'GET_SNAPSHOT' });
 assert.equal(afterSettings.settings.gentleDepth, 6, 'settings update should persist');
 assert.equal(afterSettings.settings.choiceDepth, 8, 'settings update should persist');
+assert.equal(syncWrites.length, 0, 'settings must remain local and never mirror to chrome.storage.sync');
 
 await send({ type: 'CLEAR_DATA' });
 await send({ type: 'START_MISSION', mission: 'Read the next chapter', tab: { id: 7, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
