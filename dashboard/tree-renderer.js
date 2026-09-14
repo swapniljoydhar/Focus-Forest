@@ -65,8 +65,20 @@ function woodyStructure(tree, prefix) {
   const { crown: c, trunk: t } = tree;
   const x = t.x, y = t.baseY, f = t.forkY, w = t.boleWidth * .65;
   const layer = group('tree-structure', { 'aria-hidden': 'true', fill: `url(#${prefix}-bark)` });
-  layer.append(path('wood-limb', limb({ x: x - 3, y: f + 53 }, { x: x - c.rx * .61, y: c.y + c.ry * .03 }, w * .51, 5, -12)),
-    path('wood-limb', limb({ x, y: f + 37 }, { x: x + c.rx * .59, y: c.y - c.ry * .08 }, w * .48, 5, 11)));
+  const leftTip = { x: x - c.rx * .61, y: c.y + c.ry * .03 };
+  const rightTip = { x: x + c.rx * .59, y: c.y - c.ry * .08 };
+  layer.append(path('wood-limb', limb({ x: x - 3, y: f + 53 }, leftTip, w * .51, 5, -12)),
+    path('wood-limb', limb({ x, y: f + 37 }, rightTip, w * .48, 5, 11)));
+  const twigs = [
+    [leftTip, { x: leftTip.x - c.rx * .18, y: leftTip.y - c.ry * .34 }, -1],
+    [leftTip, { x: leftTip.x + c.rx * .06, y: leftTip.y - c.ry * .29 }, 1],
+    [rightTip, { x: rightTip.x + c.rx * .17, y: rightTip.y - c.ry * .31 }, 1],
+    [rightTip, { x: rightTip.x - c.rx * .07, y: rightTip.y - c.ry * .26 }, -1]
+  ];
+  twigs.forEach(([start, end, side]) => {
+    layer.append(path('branch-twig', `M${start.x} ${start.y} Q${(start.x + end.x) / 2 + side * 10} ${(start.y + end.y) / 2 - 8} ${end.x} ${end.y}`),
+      element('circle', { class: 'branch-bud', cx: end.x, cy: end.y, r: Math.max(3, w * .12) }));
+  });
   const bole = `M${x - w * 1.27} ${y} C${x - w * .57} ${y - 31} ${x - w * .60} ${f + 44} ${x - w * .68} ${f} C${x - w * .87} ${f - 32} ${x - w * .68} ${c.y + 29} ${x - w * .37} ${c.y + 9} Q${x + w * .22} ${c.y - 2} ${x + w * .26} ${c.y + 30} C${x + w * .40} ${f + 32} ${x + w * .51} ${y - 30} ${x + w * 1.30} ${y} Q${x + w * .8} ${y + 8} ${x + 8} ${y - 2} Q${x - w * .57} ${y + 8} ${x - w * 1.27} ${y} Z`;
   layer.append(path('tree-bole', bole),
     path('bark-light', `M${x - w * .3} ${y - 21} C${x - w * .12} ${y - 54} ${x - w * .28} ${f + 28} ${x - w * .37} ${f + 4}`),

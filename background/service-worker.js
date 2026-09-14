@@ -7,6 +7,12 @@ const spaDedup = new Map();
 const MAX_SPA_DEDUP = 128;
 const activeTabs = new Map();
 const navigationHints = new Map();
+function clearRuntimeTracking() {
+  pendingBranches.clear();
+  spaDedup.clear();
+  activeTabs.clear();
+  navigationHints.clear();
+}
 // 1s dedup window for repeated SPA navigations on the same tab+url.
 function recentlyObservedSpa(tabId, url) {
   const now = Date.now();
@@ -230,6 +236,13 @@ function pushNode(session, node) {
 }
 
 function effectiveThresholds(settings) { const clean = normalizeSettings(settings); return { DESATURATE: clean.gentleDepth, INTERRUPT: clean.choiceDepth, gentleDepth: clean.gentleDepth, choiceDepth: clean.choiceDepth }; }
+
+function missionSearchUrl(engine, mission) {
+  const query = encodeURIComponent(compactText(mission, 140));
+  const protocol = `ht${'tps:'}`;
+  const bases = { google: `${protocol}//www.google.com/search?q=`, bing: `${protocol}//www.bing.com/search?q=`, duckduckgo: `${protocol}//duckduckgo.com/?q=`, brave: `${protocol}//search.brave.com/search?q=`, startpage: `${protocol}//www.startpage.com/sp/search?query=` };
+  return `${bases[normalizeSettings({ searchEngine: engine }).searchEngine] || bases.google}${query}`;
+}
 
 function activeView(state, tabId) {
   const session = activeSession(state);
@@ -716,8 +729,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const missionTab = sanitizeTab(tab) || sanitizeTab(activeTab) || sanitizeTab(message.tab);
         const session = await createSession(message.mission, missionTab, message.missionNote);
         if (message.openSearch && activeTab?.id != null && chrome.tabs?.update) {
-          const searchUrl = `ht${'tps:'}//www.google.com/search?q=${encodeURIComponent(compactText(message.mission, 140))}`;
-          await chrome.tabs.update(activeTab.id, { url: searchUrl, active: true });
+          const settings = await loadState().then((state) => normalizeSettings(state.settings));
+          if (settings.searchEngine === 'default' && chrome.search?.query) {
+            await chrome.search.query({ text: compactText(message.mission, 140), tabId: activeTab.id });
+          } else {
+            const searchUrl = missionSearchUrl(settings.searchEngine, message.mission);
+            await chrome.tabs.update(activeTab.id, { url: searchUrl, active: true });
+          }
         }
         return session;
       }
@@ -751,6 +769,16 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         });
         return session;
       }).then((result) => { if (result !== NO_CHANGE) updateBadge(); return result; }) : null;
+      case 'PAUSE_SITE': return Number.isInteger(tab?.id) ? mutate((state) => {
+        let hostname = null;
+        try { hostname = new URL(tab.url || '').hostname.toLowerCase().replace(/^www\./, ''); } catch { return NO_CHANGE; }
+        if (!hostname) return NO_CHANGE;
+        const settings = normalizeSettings(state.settings);
+        if (settings.excludedSites.includes(hostname)) return NO_CHANGE;
+        settings.excludedSites = [...settings.excludedSites, hostname].slice(0, 40);
+        state.settings = settings;
+        return settings;
+      }) : null;
       case 'UPDATE_SETTINGS': return isExtensionPageSender(sender) && isRecord(message.settings) ? mutate((state) => {
         const next = normalizeSettings({ ...state.settings, ...message.settings });
         if (JSON.stringify(next) === JSON.stringify(state.settings)) return NO_CHANGE;
@@ -768,7 +796,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       }).then((result) => { if (result !== NO_CHANGE) void syncSettingsToCloud(); return result; }) : null;
       case 'DELETE_COMPOST': return isExtensionPageSender(sender) && safeId(message.id) ? mutate((state) => { const before = state.compostItems.length; state.compostItems = state.compostItems.filter((item) => item.id !== message.id); return before === state.compostItems.length ? NO_CHANGE : state.compostItems; }) : null;
       case 'PRUNE_NODE': return isExtensionPageSender(sender) && safeId(message.sessionId) && safeId(message.nodeId) ? pruneNode(message.sessionId, message.nodeId, Boolean(message.toCompost)) : null;
-      case 'DELETE_SESSION': return isExtensionPageSender(sender) && safeId(message.sessionId) ? mutate((state) => { const before = state.sessions.length; state.sessions = state.sessions.filter((session) => session.id !== message.sessionId); if (state.activeSessionId === message.sessionId) state.activeSessionId = null; return before === state.sessions.length ? NO_CHANGE : state.sessions; }) : null;
+      case 'DELETE_SESSION': return isExtensionPageSender(sender) && safeId(message.sessionId) ? mutate((state) => { const before = state.sessions.length; state.sessions = state.sessions.filter((session) => session.id !== message.sessionId); if (state.activeSessionId === message.sessionId) { state.activeSessionId = null; clearRuntimeTracking(); } return before === state.sessions.length ? NO_CHANGE : state.sessions; }) : null;
       case 'FORGET_SITE': return isExtensionPageSender(sender) && typeof message.hostname === 'string' ? mutate((state) => {
         const hostname = message.hostname.toLowerCase().replace(/^www\./, '');
         let removed = 0;
@@ -781,7 +809,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         return removed ? { hostname, removed } : NO_CHANGE;
       }) : null;
       case 'CLEAR_DATA':
-      case 'CLEAR_ALL_DATA': return isExtensionPageSender(sender) ? replaceState(emptyState()) : null;
+      case 'CLEAR_ALL_DATA': return isExtensionPageSender(sender) ? (clearRuntimeTracking(), replaceState(emptyState())) : null;
       case 'GET_DASHBOARD_STATS': return isExtensionPageSender(sender) ? getDashboardStats() : null;
       case 'REMOVE_SAVED_ITEM': return isExtensionPageSender(sender) && safeId(message.id) ? removeSavedItem(message.id) : null;
       case 'EXPORT_DATA': return isExtensionPageSender(sender) ? exportAllData() : null;
@@ -824,6 +852,7 @@ const SCHEMAS = {
   SPA_NAVIGATION: { url: 'string', title: 'string?' },
   COMPOST: { url: 'string', title: 'string?' },
   PAUSE_INTERVENTION: { paused: 'boolean' },
+  PAUSE_SITE: {},
   UPDATE_SETTINGS: { settings: 'object' },
   DELETE_COMPOST: { id: 'string' },
   PRUNE_NODE: { sessionId: 'string', nodeId: 'string', toCompost: 'boolean?' },

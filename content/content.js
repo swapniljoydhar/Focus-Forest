@@ -72,7 +72,7 @@
 .chip[data-state="interrupt"]{border-color:rgba(189,132,115,.5)}
 .chip[data-state="drift"]{border-color:rgba(198,165,98,.5)}
 .chip[data-state="resting"]{opacity:.78}
-.chip-seed{position:relative;width:28px;height:28px;flex:none;cursor:grab;touch-action:none}
+.chip-seed{appearance:none;border:0;background:transparent;padding:0;position:relative;width:28px;height:28px;flex:none;cursor:grab;touch-action:none;color:inherit}
 .chip-seed:active{cursor:grabbing}
 .chip-seed svg{position:absolute;inset:0;width:100%;height:100%}
 .chip-growth-ritual .chip-seed-tree{animation:ff-tree-grow 1.2s cubic-bezier(.25,.8,.25,1) both}
@@ -135,7 +135,7 @@
   const rootEl = makeElement('div');
   rootEl.id = 'ff-root';
   const chipEl = makeElement('div', 'chip', { role: 'group', 'aria-label': 'Focus Forest companion', hidden: true });
-  const seedEl = makeElement('span', 'chip-seed', { 'aria-hidden': 'true', 'data-drag-handle': '', title: 'Drag to move' });
+  const seedEl = makeElement('button', 'chip-seed', { 'data-drag-handle': '', title: 'Drag to move', 'aria-label': 'Move companion with arrow keys' });
   // A tiny version of the storybook tree, built without an HTML/Trusted Types sink.
   const treeSVG = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
   treeSVG.setAttribute('viewBox', '0 0 28 28');
@@ -156,7 +156,7 @@
   const copyEl = makeElement('span', 'chip-copy');
   copyEl.append(makeElement('span', 'chip-kicker', '', 'current mission'), makeElement('strong', 'chip-mission'), makeElement('small', 'chip-state', { 'aria-live': 'polite' }));
   const actionsEl = makeElement('div', 'chip-actions');
-  actionsEl.append(makeElement('button', 'chip-btn', { 'data-action': 'pause', 'aria-label': 'Pause Focus Forest' }, 'Pause'), makeElement('button', 'chip-btn minimize', { 'data-action': 'minimize', 'aria-label': 'Minimize Focus Forest' }, '–'));
+  actionsEl.append(makeElement('button', 'chip-btn', { 'data-action': 'pause', 'aria-label': 'Pause Focus Forest' }, 'Pause'), makeElement('button', 'chip-btn', { 'data-action': 'pause-site', 'aria-label': 'Pause Focus Forest on this site' }, 'This site'), makeElement('button', 'chip-btn minimize', { 'data-action': 'minimize', 'aria-label': 'Minimize Focus Forest' }, '–'));
   chipEl.append(seedEl, copyEl, actionsEl);
   const choiceCardEl = makeElement('section', 'choice-card', { role: 'dialog', 'aria-modal': 'false', 'aria-labelledby': 'ff-title', hidden: true });
   choiceCardEl.append(makeElement('button', 'close', { 'data-action': 'dismiss', 'aria-label': 'Keep exploring' }, '×'), makeElement('p', 'choice-eyebrow', {}, 'A moment to choose'), makeElement('h2', '', { id: 'ff-title' }, 'This path is deep, not wrong.'), makeElement('p', 'choice-copy'));
@@ -187,17 +187,18 @@
   // This ensures we detect navigation in Single Page Applications (Gmail, Twitter, YouTube, etc.)
   const originalPushState = history.pushState;
   const originalReplaceState = history.replaceState;
+  let spaUpdateChain = Promise.resolve();
   
   const notifyUrlChange = wrapWithErrorBoundary(() => {
     // Debounce rapid changes
     if (lastUrl !== location.href || lastTitle !== document.title) {
       lastUrl = location.href;
       lastTitle = document.title;
-      void send('SPA_NAVIGATION', { url: location.href, title: document.title }).catch((error) => {
+      spaUpdateChain = spaUpdateChain.then(async () => {
+        await send('SPA_NAVIGATION', { url: location.href, title: document.title });
+        await safeUpdate(await send('GET_ACTIVE_VIEW'));
+      }).catch((error) => {
         logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'spaNavigation' });
-      });
-      void send('GET_ACTIVE_VIEW').then(safeUpdate).catch((error) => {
-        logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'spaRefresh' });
       });
     }
   }, { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'notifyUrlChange', swallow: true });
@@ -260,6 +261,17 @@
     dragHandle.addEventListener('pointermove', onMove);
     dragHandle.addEventListener('pointerup', onUp);
   }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'drag.pointerdown', swallow: true }));
+  dragHandle.addEventListener('keydown', wrapWithErrorBoundary((event) => {
+    const step = event.shiftKey ? 24 : 8;
+    const rect = chip.getBoundingClientRect();
+    if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home'].includes(event.key)) return;
+    event.preventDefault();
+    if (event.key === 'Home') { chip.style.left = ''; chip.style.right = '18px'; chip.style.top = '16px'; return; }
+    const x = Math.max(8, Math.min(window.innerWidth - rect.width - 8, rect.left + (event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0)));
+    const y = Math.max(8, Math.min(window.innerHeight - rect.height - 8, rect.top + (event.key === 'ArrowDown' ? step : event.key === 'ArrowUp' ? -step : 0)));
+    applyChipPos(x, y);
+    try { sessionStorage.setItem('ff-chip-pos', JSON.stringify({ x, y })); } catch { /* ignore */ }
+  }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'drag.keydown', swallow: true }));
 
   async function loadSettings() {
     try {
@@ -365,6 +377,7 @@
     else if (action === 'mission') { await send('END_MISSION', { reason: 'mission_changed' }); hideChoiceCard(); window.location.href = chrome.runtime.getURL('newtab/index.html'); }
     else if (action === 'dismiss') { hideChoiceCard(); }
     else if (action === 'pause') { await send('PAUSE_INTERVENTION', { paused: !current?.interventionPaused }); await safeRefresh(false); }
+    else if (action === 'pause-site') { await send('PAUSE_SITE'); chip.hidden = true; choiceCard.hidden = true; }
     else if (action === 'minimize') { chip.classList.toggle('minimized'); minimizeBtn.textContent = chip.classList.contains('minimized') ? '+' : '\u2013'; }
   }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'shadow.click', swallow: true }));
 

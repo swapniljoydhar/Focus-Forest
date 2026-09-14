@@ -6,6 +6,10 @@ Focus Forest requests `host_permissions: ["http://*/*", "https://*/*"]` because 
 
 If the permission scope were narrowed, the companion would fail to appear on many sites, breaking the core browsing-companion experience.
 
+## Default Search Provider
+
+When the user leaves the first-step search setting on **Browser default**, the service worker uses Chromium's `search.query` API with the user's mission text. Focus Forest does not change the browser's search setting or install a search provider. Explicit provider choices are local overrides; browsers without the Search API use the documented URL fallback.
+
 ## WebNavigation Permission
 
 The `webNavigation` permission is used solely to track `historyStateUpdated` events in SPAs (YouTube, Notion, Gmail, GitHub, etc.) so that in-page navigations update the branch depth correctly. No additional browsing data is collected through this API.

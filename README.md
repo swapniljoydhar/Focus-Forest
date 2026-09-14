@@ -50,7 +50,7 @@ focus-forest/
 
 The origin is the first ordinary webpage after a mission is planted. A link activated in a tracked page creates one branch level. A new tab opened from a tracked page waits until the destination loads, then attaches exactly once using the opener relationship or a short-lived pending-link relationship. Unrelated tabs remain outside the tree.
 
-Manually entered URLs, bookmarks, and other unlinked navigations are recorded as neutral external paths when they occur inside a tracked tab; they do not automatically become deeper distractions. Returning to a known URL reuses its existing node instead of creating artificial depth. Browsers cannot expose every semantic relationship, so the extension records confidence internally and remains intentionally humble about what it knows.
+Manually entered URLs, bookmarks, and other unlinked navigations are recorded as neutral external paths when they occur inside a tracked tab; they do not automatically become deeper distractions. Single-page application route changes are observed through both the History API hooks and `webNavigation`, serialized before the companion refreshes, and deduplicated so one `pushState` or `replaceState` route creates at most one branch. Returning to a known URL reuses its existing node instead of creating artificial depth. Browsers cannot expose every semantic relationship, so the extension records confidence internally and remains intentionally humble about what it knows.
 
 ## Browser compatibility
 
@@ -70,7 +70,7 @@ Dashboard duration statistics represent elapsed time between starting and ending
 
 ## Permissions
 
-The extension uses local storage for gardens and the `tabs` permission to replace Chromium new-tab pages, associate mission tabs, and navigate the planting tab to its first search step. It uses declared HTTP(S) page access to render the mission chip and detect eligible link activations, plus `webNavigation` and the content script's History API hooks to support SPA route tracking on ordinary HTTP(S) sites. Browser-internal, restricted, and other protected pages may not support the content script and degrade gracefully.
+The extension uses local storage for gardens and the `tabs` permission to replace Chromium new-tab pages, associate mission tabs, and navigate the planting tab to its first search step. The `search` permission is used only when **Browser default** is selected, sending the mission through Chromium's existing default provider without changing that setting. It uses declared HTTP(S) page access to render the mission chip and detect eligible link activations, plus `webNavigation` and the content script's History API hooks to support SPA route tracking on ordinary HTTP(S) sites. Browser-internal, restricted, and other protected pages may not support the content script and degrade gracefully.
 
 ## Accessibility and agency
 

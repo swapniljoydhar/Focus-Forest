@@ -4,6 +4,8 @@ import path from 'node:path';
 
 const root = process.cwd();
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
+const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+assert.equal(manifest.version, packageJson.version, 'manifest and package versions must stay aligned');
 assert.ok(manifest.permissions.includes('storage'), 'Chromium storage APIs require the storage permission');
 assert.equal(manifest.permissions.includes('storage.sync'), false, 'storage.sync is an API, not a manifest permission');
 const required = [

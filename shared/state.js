@@ -4,7 +4,7 @@ import { logError, logWarning, logCritical, ERROR_CATEGORIES } from './error-tra
 export const STORAGE_KEY = 'focusForestState';
 export const SCHEMA_VERSION = 3;
 export const LIMITS = { SESSIONS: 12, NODES_PER_SESSION: 96, EVENTS_PER_SESSION: 72, COMPOST: 80, TITLE: 120, MISSION_NOTE: 280, URL: 1024 };
-export const DEFAULT_SETTINGS = { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [] };
+export const DEFAULT_SETTINGS = { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default' };
 export const STORAGE_QUOTA_WARNING_THRESHOLD = 4 * 1024 * 1024; // 4MB warning threshold
 export const STORAGE_QUOTA_CRITICAL_THRESHOLD = 7 * 1024 * 1024; // 7MB critical threshold (Chrome's limit is ~8MB)
 
@@ -255,7 +255,8 @@ export function normalizeSettings(value, fallback = emptyState().settings) {
   const choiceDepth = Math.max(gentleDepth + 1, Math.min(10, Number(source.choiceDepth) || fallback.choiceDepth));
   const growthAnimationTrigger = ['mission-origin', 'every-branch', 'none'].includes(source.growthAnimationTrigger) ? source.growthAnimationTrigger : fallback.growthAnimationTrigger;
   const excludedSites = Array.isArray(source.excludedSites) ? source.excludedSites.map((site) => compactText(site, 120).toLowerCase().replace(/^www\./, '')).filter((site, index, list) => site && list.indexOf(site) === index).slice(0, 40) : (Array.isArray(fallback.excludedSites) ? fallback.excludedSites : []);
-  return { interventionsPaused: Boolean(source.interventionsPaused), gentleDepth, choiceDepth, ambientMotion: source.ambientMotion !== false, growthAnimationTrigger, excludedSites };
+  const searchEngine = ['default', 'google', 'bing', 'duckduckgo', 'brave', 'startpage'].includes(source.searchEngine) ? source.searchEngine : fallback.searchEngine;
+  return { interventionsPaused: Boolean(source.interventionsPaused), gentleDepth, choiceDepth, ambientMotion: source.ambientMotion !== false, growthAnimationTrigger, excludedSites, searchEngine };
 }
 
 let stateCache = null;
