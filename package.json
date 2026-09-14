@@ -13,7 +13,7 @@
     "test:tree": "node test-tree-layout.mjs",
     "test:dashboard": "node test-dashboard-browser.mjs",
     "preview:trees": "node scripts/preview-trees.mjs",
-    "package": "rm -rf dist && mkdir -p dist && zip -rq dist/focus-forest.zip manifest.json background content dashboard icons newtab popup settings shared"
+    "package": "node scripts/package.mjs"
   },
   "devDependencies": {
     "playwright": "^1.63.0"
