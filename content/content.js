@@ -189,13 +189,13 @@
   const originalReplaceState = history.replaceState;
   let spaUpdateChain = Promise.resolve();
   
-  const notifyUrlChange = wrapWithErrorBoundary(() => {
+  const notifyUrlChange = wrapWithErrorBoundary((nextUrl = location.href, nextTitle = document.title) => {
     // Debounce rapid changes
-    if (lastUrl !== location.href || lastTitle !== document.title) {
-      lastUrl = location.href;
-      lastTitle = document.title;
+    if (lastUrl !== nextUrl || lastTitle !== nextTitle) {
+      lastUrl = nextUrl;
+      lastTitle = nextTitle;
       spaUpdateChain = spaUpdateChain.then(async () => {
-        await send('SPA_NAVIGATION', { url: location.href, title: document.title });
+        await send('SPA_NAVIGATION', { url: nextUrl, title: nextTitle });
         await safeUpdate(await send('GET_ACTIVE_VIEW'));
       }).catch((error) => {
         logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'spaNavigation' });
@@ -219,7 +219,6 @@
   // Some SPAs change titles without pushing state
   const titleObserver = new MutationObserver(wrapWithErrorBoundary(() => {
     if (document.title !== lastTitle) {
-      lastTitle = document.title;
       notifyUrlChange();
     }
   }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'titleObserver', swallow: true }));
@@ -425,9 +424,8 @@
     if (navDebounceTimer) window.clearTimeout(navDebounceTimer);
     navDebounceTimer = window.setTimeout(() => {
       if (location.href !== lastUrl) {
-        lastUrl = location.href;
         choiceCard.removeAttribute('data-shown-for');
-        safeRefresh(true);
+        notifyUrlChange(location.href, document.title);
       }
     }, 100); // 100ms debounce window - faster for responsive SPA feel while preventing flicker
   };

@@ -7,6 +7,7 @@ const searchActions = [];
 const windowActions = [];
 const tabInfo = new Map();
 const listeners = { installed: [], message: [], updated: [], removed: [], created: [], startup: [], committed: [], historyStateUpdated: [] };
+const alarms = [];
 
 globalThis.chrome = {
   storage: {
@@ -22,6 +23,7 @@ globalThis.chrome = {
     onMessage: { addListener(fn) { listeners.message.push(fn); } },
     onStartup: { addListener(fn) { listeners.startup.push(fn); } }
   },
+  alarms: { create(name, info) { alarms.push([name, info]); }, onAlarm: { addListener(fn) { listeners.alarm = fn; } } },
   search: { async query(info) { searchActions.push(info); } },
   webNavigation: { onCommitted: { addListener(fn) { listeners.committed.push(fn); } }, onHistoryStateUpdated: { addListener(fn) { listeners.historyStateUpdated.push(fn); } } },
   windows: { async update(id, patch) { windowActions.push(['update', id, patch]); } },
@@ -36,8 +38,11 @@ globalThis.chrome = {
     async create(info) { const id = 99 + tabInfo.size; tabInfo.set(id, { id, windowId: 1, ...info }); tabActions.push(['create', info]); return { id, ...info }; }
   }
 };
+globalThis.ServiceWorkerGlobalScope = class {};
+globalThis.self = new globalThis.ServiceWorkerGlobalScope();
 
 await import('./background/service-worker.js');
+assert.deepEqual(alarms, [['storageQuotaCheck', { periodInMinutes: 5 }]], 'service worker should register persistent quota maintenance');
 const handler = listeners.message[0];
 async function rawSend(message, sender) {
   return await new Promise((resolve, reject) => handler(message, sender, (response) => response?.error ? reject(new Error(response.error)) : resolve(response)));

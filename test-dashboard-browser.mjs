@@ -57,8 +57,10 @@ async function openDashboard(t, state = stateFor(), viewport = { width: 1440, he
     globalThis.chrome = {
       runtime: {
         id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-        getManifest: () => ({ version: '0.3.0' }),
+        getManifest: () => ({ version: '0.3.1' }),
         async sendMessage(message) {
+          globalThis.contentMessages ||= [];
+          globalThis.contentMessages.push(message);
           if (message.type === 'GET_SNAPSHOT') {
             const selected = state.sessions.find(session => session.id === message.sessionId);
             const active = state.sessions.find(session => session.id === state.activeSessionId);
@@ -69,6 +71,7 @@ async function openDashboard(t, state = stateFor(), viewport = { width: 1440, he
           }
           if (message.type === 'GET_ACTIVE_VIEW') return { session: null, settings: { growthAnimationTrigger: 'none' } };
           if (message.type === 'OBSERVE_PAGE') return null;
+          if (message.type === 'SPA_NAVIGATION') return null;
           if (message.type === 'GET_DASHBOARD_STATS') {
             return { totalSessions: state.sessions.length, totalFocusTime: 0, currentStreak: 0,
               weeklyData: [], domainData: [], history: [], savedItems: [] };
@@ -218,4 +221,29 @@ test('the companion cartoon icon builds under a strict Trusted Types CSP', async
   await page.waitForFunction(() => globalThis.testCompanionRoot?.querySelector('.chip-seed-tree'));
   const shapeCount = await page.evaluate(() => testCompanionRoot.querySelectorAll('.chip-seed-tree path').length);
   assert.equal(shapeCount, 4);
+});
+
+test('title-only SPA changes notify the background without changing the URL', async t => {
+  const page = await openDashboard(t);
+  await page.evaluate(() => import('/content/content.js'));
+  await page.waitForFunction(() => globalThis.contentMessages?.some(message => message.type === 'GET_ACTIVE_VIEW'));
+  await page.evaluate(() => { document.title = 'A new chapter'; });
+  await page.waitForFunction(() => globalThis.contentMessages?.some(message => message.type === 'SPA_NAVIGATION' && message.title === 'A new chapter'));
+});
+
+test('pushState snapshots and Back navigation preserve SPA route history', async t => {
+  const page = await openDashboard(t);
+  await page.evaluate(() => import('/content/content.js'));
+  await page.waitForFunction(() => globalThis.contentMessages?.some(message => message.type === 'GET_ACTIVE_VIEW'));
+  await page.evaluate(() => {
+    history.pushState({}, '', '/chapter-one');
+    history.pushState({}, '', '/chapter-two');
+  });
+  await page.waitForFunction(() => {
+    const routes = globalThis.contentMessages?.filter(message => message.type === 'SPA_NAVIGATION').map(message => new URL(message.url).pathname) || [];
+    return routes.includes('/chapter-one') && routes.includes('/chapter-two');
+  });
+  await page.goBack();
+  await page.waitForFunction(() => globalThis.contentMessages?.filter(message => message.type === 'SPA_NAVIGATION').some(message => new URL(message.url).pathname === '/chapter-one'));
+  assert.equal(new URL(page.url()).pathname, '/chapter-one');
 });
