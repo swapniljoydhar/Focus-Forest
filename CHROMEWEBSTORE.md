@@ -28,7 +28,7 @@ Key Features:
 
 How to Use:
 1. Open a new tab or click the Focus Forest toolbar icon.
-2. Enter your intention (for example: "Research camera lenses for landscape photography"). Press Enter or choose Plant Intention to save it locally and open a search-results starting point.
+2. Enter your intention (for example: "Research camera lenses for landscape photography"). Press Enter or choose Plant Intention to save it locally and navigate that same tab to a Google search-results starting point.
 3. Browse normally. Watch the discreet companion chip at the top right of the page.
 4. If you wander several links deep, choose whether to return to your intention, compost the page for later, or keep exploring.
 5. Open the Garden Dashboard anytime to see the tree you grew, why each path was recognized, and your weekly focus insights.
@@ -70,8 +70,8 @@ English
 | Permission | Type | Justification |
 |------------|------|---------------|
 | `storage` | permissions | Required to store user session trees, garden statistics, composted items, and preferences locally in `chrome.storage.local`. |
-| `tabs` | permissions | Required to associate tabs with active focus sessions, detect new-tab replacements across Chromium browsers, and return to origin tabs via "Return to my mission". |
-| `webNavigation` | permissions | Required to observe in-page client-side navigations (`onHistoryStateUpdated`) on single-page apps (such as YouTube and GitHub) so link depth is accurate. |
+| `tabs` | permissions | Required to associate tabs with active focus sessions, detect new-tab replacements across Chromium browsers, navigate the planting tab to its first search step, and return to origin tabs via "Return to my mission". |
+| `webNavigation` | permissions | Required to observe in-page client-side navigations (`onHistoryStateUpdated`) on ordinary HTTP(S) sites so SPA route depth is accurate. |
 | `alarms` | permissions | Required to schedule periodic storage quota checks to keep local extension data bounded and healthy. |
 | `contextMenus` | permissions | Required to provide right-click shortcuts for "Save Page for Later" and "End Current Focus Mission" directly from any webpage. |
 | `http://*/*`, `https://*/*` | host_permissions | Required to inject the isolated content script that renders the non-blocking companion chip and observes link clicks during active sessions. |

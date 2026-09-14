@@ -710,8 +710,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'GET_ACTIVE_VIEW': return activeView(await loadState(), tab?.id);
       case 'START_MISSION': {
         if (typeof message.mission !== 'string') return null;
-        const activeTab = message.openSearch && chrome.tabs?.query
-          ? (await chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => tabs[0]).catch(() => null))
+        const activeTab = message.openSearch
+          ? (tab?.id != null ? tab : (await chrome.tabs?.query?.({ active: true, currentWindow: true }).then((tabs) => tabs[0]).catch(() => null)))
           : null;
         const missionTab = sanitizeTab(tab) || sanitizeTab(activeTab) || sanitizeTab(message.tab);
         const session = await createSession(message.mission, missionTab, message.missionNote);

@@ -25,6 +25,7 @@ After updating the files, click **Reload** on Focus Forest's extension card, the
 - Chromium browsers share the Chrome extension format. The `chrome.*` API namespace, `chrome-extension://` sender URLs, and `chrome_url_overrides` manifest key are intentional; they should not be renamed to `brave.*`, `edge.*`, or `opera.*`. Edge and Opera may also expose `browser.*`; Focus Forest uses `chrome.*` and falls back to `browser.*` when needed.
 - New-tab placeholders are recognized across Chromium flavors, including `chrome://newtab`, `chrome://new-tab-page`, `brave://newtab`, `edge://newtab`, `opera://startpage`, and `vivaldi://newtab`. The first ordinary web page becomes the mission root.
 - The companion runs on HTTP(S) websites, not `chrome://settings`, `brave://extensions`, `edge://settings`, or other protected browser pages.
+- Planting from the Focus Forest New Tab saves the mission first, then navigates that same browser tab to a Google search for the mission so the first research step is explicit and trackable.
 - If the companion is missing on an ordinary website, check Focus Forest's site access and refresh that page after reloading the extension. In Brave, do not disable Shields globally as an installation step.
 - Another new-tab extension, or the browser's own new-tab page setting, can control the same page. Check which extension is enabled for that override if Focus Forest's planting screen does not appear. Brave, Edge, and Opera may ask you to confirm replacing their new-tab page.
 - Automated coverage uses mocked extension APIs and Chromium UI tests. A full, installed-extension walkthrough in a real profile of each browser is still required; these checks do not claim end-to-end certification for every Chromium fork.
@@ -69,7 +70,7 @@ Dashboard duration statistics represent elapsed time between starting and ending
 
 ## Permissions
 
-The extension uses local storage for gardens and the `tabs` permission only to replace Chromium new-tab pages (including Brave's dashboard) with the planting screen. It uses declared HTTP(S) page access to render the mission chip and detect eligible link activations, plus `webNavigation` to support SPA history tracking on YouTube, Notion, Gmail, GitHub, and similar sites. Browser-internal, restricted, and other protected pages may not support the content script and degrade gracefully.
+The extension uses local storage for gardens and the `tabs` permission to replace Chromium new-tab pages, associate mission tabs, and navigate the planting tab to its first search step. It uses declared HTTP(S) page access to render the mission chip and detect eligible link activations, plus `webNavigation` and the content script's History API hooks to support SPA route tracking on ordinary HTTP(S) sites. Browser-internal, restricted, and other protected pages may not support the content script and degrade gracefully.
 
 ## Accessibility and agency
 
