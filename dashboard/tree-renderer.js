@@ -149,7 +149,8 @@ function pageMark(node, point, root, count, selected, describeNode, classForNode
     // Vary leaf shapes organically based on node position for natural diversity
     const leafIndex = node.id.charCodeAt(node.id.length - 1) % 3;
     const leafShape = leafIndex === 0 ? PAGE_LEAF : (leafIndex === 1 ? PAGE_LEAF_ALT : PAGE_LEAF);
-    const isRecent = node.timestamp && Date.now() - node.timestamp < 60000; // Last 60 seconds
+    const createdAt = Number.isFinite(node.firstSeenAt) ? node.firstSeenAt : 0;
+    const isRecent = createdAt > 0 && Date.now() - createdAt < 60000; // Last 60 seconds
     const scale = count > 35 ? .69 : .90;
     const finalScale = isRecent ? scale * 0.85 : scale; // Slightly smaller for buds
     

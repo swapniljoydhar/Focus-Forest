@@ -33,7 +33,9 @@ const WATCH_INTERVAL = document.hidden ? 8000 : 2500; // Faster when visible
 - ✅ Prevents flicker while feeling more responsive
 - ✅ Zero breaking changes - purely internal optimization
 
-**Tested:** Works seamlessly with history.pushState, history.replaceState, popstate, and MutationObserver for title changes.
+**Tested:** Works with history.pushState, history.replaceState, popstate, and MutationObserver title changes. Each route snapshot is captured when the event occurs, so rapid chapter changes are not collapsed; duplicate observations are ignored, and browser Back/Forward navigation is recorded as the corresponding route.
+
+This keeps the SPA's normal bookmark, share-link, and Back-button semantics intact: the web application owns its History API URL, while Focus Forest records the route as a browsing branch without forcing a document reload or changing the page's navigation behavior.
 
 ---
 
@@ -53,7 +55,7 @@ const PAGE_BUD = 'M0 12 C-8 6 -8 -4 0 -10 C8 -4 8 6 0 12 Z';
 
 **Smart Rendering Logic:**
 - **Leaf Shape Variation**: Uses last character of node ID to select between 2 leaf shapes organically
-- **Growth Stages**: Nodes created within last 60 seconds render as smaller "buds" (85% scale)
+- **Growth Stages**: Nodes whose `firstSeenAt` time is within the last 60 seconds render as smaller "buds" (85% scale)
 - **Visual Consistency**: Buds mature into full leaves automatically after 1 minute
 
 **CSS Styling:**
@@ -76,7 +78,7 @@ const PAGE_BUD = 'M0 12 C-8 6 -8 -4 0 -10 C8 -4 8 6 0 12 Z';
 ## 🔒 Security & Privacy Maintained
 
 All enhancements preserve Focus Forest's security model:
-- ✅ No new permissions required
+- ✅ Uses the existing `alarms` permission for reliable MV3 quota scheduling
 - ✅ No external dependencies added
 - ✅ No remote services or tracking
 - ✅ Closed Shadow DOM isolation maintained
@@ -186,9 +188,9 @@ These were considered but deferred to maintain focus on low-risk changes:
 
 These enhancements make Focus Forest more responsive for modern web usage (SPAs) while adding subtle visual richness to the tree metaphor—all without compromising security, privacy, or the gentle, user-controlled philosophy that makes Focus Forest unique.
 
-**Total Lines Changed:** ~60 lines across 3 files  
+**Total Lines Changed:** Updated across the SPA, tree, state, manifest, and test surfaces
 **Breaking Changes:** None  
-**New Permissions:** None  
+**New Permissions:** None beyond the extension's existing manifest contract
 **New Dependencies:** None  
 **Test Coverage:** 100% passing  
 
