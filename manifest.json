@@ -15,7 +15,6 @@
     "search",
     "tabs",
     "webNavigation",
-    "alarms",
     "contextMenus"
   ],
   "host_permissions": [

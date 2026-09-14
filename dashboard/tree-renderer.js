@@ -4,7 +4,12 @@ const SVG_NS = 'http://www.w3.org/2000/svg';
 // Hand-drawn, softly scalloped silhouettes. Kept as vector paths so the crown
 // stays crisp at every size and doesn't depend on the shape of a browsing graph.
 const CROWN = 'M-.91 .21 C-1.09 .06 -1.02 -.23 -.82 -.29 C-.92 -.54 -.69 -.79 -.46 -.70 C-.39 -1.01 -.08 -1.08 .10 -.86 C.29 -1.03 .60 -.89 .63 -.66 C.90 -.73 1.08 -.43 .88 -.22 C1.09 -.06 1.02 .27 .82 .37 C.90 .62 .63 .79 .43 .67 C.23 .91 -.02 .86 -.18 .71 C-.42 .90 -.77 .72 -.73 .49 C-.97 .59 -1.09 .35 -.91 .21 Z';
+// Organic leaf shapes with varied curvature for more natural branching appearance
 const PAGE_LEAF = 'M0 17 C-20 9 -22 -9 -11 -23 C7 -24 24 -7 14 8 C10 14 4 16 0 17 Z';
+// Alternative leaf variant for visual diversity in dense branches
+const PAGE_LEAF_ALT = 'M0 16 C-18 8 -20 -8 -9 -21 C6 -22 22 -6 13 9 C9 14 3 15 0 16 Z';
+// Bud shape for new/recent nodes
+const PAGE_BUD = 'M0 12 C-8 6 -8 -4 0 -10 C8 -4 8 6 0 12 Z';
 
 function element(tag, attributes = {}, text) {
   const node = document.createElementNS(SVG_NS, tag);
@@ -141,8 +146,24 @@ function pageMark(node, point, root, count, selected, describeNode, classForNode
     mark.append(element('circle', { class: 'root-knot', r: 16 }),
       path('root-glyph', 'M0 7 L0 -2 M0 1 C-10 0 -11 -8 -9 -10 C-2 -10 1 -5 0 1 M0 -2 C8 -3 11 -9 9 -11 C3 -11 0 -7 0 -2'));
   } else {
-    const leaf = group('page-leaf-group', { transform: `rotate(${point.angle.toFixed(2)}) scale(${count > 35 ? .69 : .90})` });
-    leaf.append(path('page-leaf leaf-shape', PAGE_LEAF), path('page-leaf-vein', 'M0 13 Q-2 -1 -7 -17 M-1 3 L8 -3 M-3 -5 L-12 -10'));
+    // Vary leaf shapes organically based on node position for natural diversity
+    const leafIndex = node.id.charCodeAt(node.id.length - 1) % 3;
+    const leafShape = leafIndex === 0 ? PAGE_LEAF : (leafIndex === 1 ? PAGE_LEAF_ALT : PAGE_LEAF);
+    const isRecent = node.timestamp && Date.now() - node.timestamp < 60000; // Last 60 seconds
+    const scale = count > 35 ? .69 : .90;
+    const finalScale = isRecent ? scale * 0.85 : scale; // Slightly smaller for buds
+    
+    const leaf = group('page-leaf-group', { transform: `rotate(${point.angle.toFixed(2)}) scale(${finalScale})` });
+    
+    if (isRecent) {
+      // Render as a bud for very recent nodes
+      leaf.append(path('page-bud leaf-shape', PAGE_BUD), 
+                  path('page-bud-vein', 'M0 8 Q-1 -2 -4 -8 M0 5 L3 -2 M0 5 L-3 -2'));
+    } else {
+      // Render as full leaf with varied shape
+      leaf.append(path('page-leaf leaf-shape', leafShape), 
+                  path('page-leaf-vein', 'M0 13 Q-2 -1 -7 -17 M-1 3 L8 -3 M-3 -5 L-12 -10'));
+    }
     mark.append(leaf);
   }
   return mark;
@@ -159,7 +180,16 @@ export function renderGardenTree(svg, session, { selectedNodeId = null, describe
     element('desc', {}, 'A rounded cartoon tree. Each marked leaf is a browsing page; selecting it traces its path back to the mission root.'));
   drawScene(svg, tree, prefix);
   const branches = group('branch-layer', { 'aria-hidden': 'true' });
-  tree.edges.forEach(edge => branches.append(path(`branch-taper ${edge.kind}`, edge.path)));
+  // Apply dynamic classes based on depth and position for organic branching appearance
+  tree.edges.forEach(edge => {
+    const node = tree.nodes.find(n => n.id === edge.nodeId);
+    const depth = node ? node.depth : 0;
+    const isDeep = depth > 3;
+    const isRootPath = depth <= 2 && edge.kind === 'primary';
+    const kindClass = edge.kind || '';
+    const depthClass = isDeep ? ' deep' : (isRootPath ? ' root-path' : '');
+    branches.append(path(`branch-taper ${kindClass}${depthClass}`, edge.path));
+  });
   svg.append(branches);
   if (selected) {
     const ancestry = new Set();

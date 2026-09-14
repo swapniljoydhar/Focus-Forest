@@ -343,16 +343,19 @@ if (typeof chrome !== 'undefined' && chrome.storage?.onChanged?.addListener) {
 }
 
 // Periodic storage quota check every 5 minutes to catch gradual accumulation.
-// chrome.alarms is also visible on extension pages in Chromium, so limit this
-// to the background service worker to avoid duplicate alarms from the garden.
+// Replaced chrome.alarms with setInterval for better cross-Chromium compatibility
+// and to avoid requiring the 'alarms' permission when not strictly necessary.
 const isExtensionServiceWorker = typeof ServiceWorkerGlobalScope !== 'undefined' && typeof self !== 'undefined' && self instanceof ServiceWorkerGlobalScope;
-if (typeof chrome !== 'undefined' && chrome.alarms && isExtensionServiceWorker) {
-  chrome.alarms.create('storageQuotaCheck', { periodInMinutes: 5 });
-  chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name === 'storageQuotaCheck') {
-      checkStorageQuota().catch((error) => {
-        logError(error, { category: ERROR_CATEGORIES.STORAGE, operation: 'periodicQuotaCheck' });
-      });
-    }
-  });
+if (typeof chrome !== 'undefined' && isExtensionServiceWorker) {
+  // Use setInterval as fallback since alarms permission was removed
+  const quotaCheckInterval = setInterval(() => {
+    checkStorageQuota().catch((error) => {
+      logError(error, { category: ERROR_CATEGORIES.STORAGE, operation: 'periodicQuotaCheck' });
+    });
+  }, 5 * 60 * 1000); // 5 minutes
+  
+  // Clean up interval if service worker terminates (though SW lifecycle is managed by browser)
+  if (typeof self !== 'undefined' && self.addEventListener) {
+    self.addEventListener('unload', () => clearInterval(quotaCheckInterval));
+  }
 }
