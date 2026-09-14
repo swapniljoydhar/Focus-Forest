@@ -407,8 +407,9 @@
   // Adaptive SPA-URL watch: polls only while the tab is visible, backs off
   // when idle, and stops entirely on hidden tabs. The service worker also
   // receives webNavigation.onHistoryStateUpdated, so this is a render fallback.
+  // Enhanced for SPAs: Reduced interval for smoother tracking during rapid navigation
   let watchTimer = 0;
-  const WATCH_INTERVAL = 4000;
+  const WATCH_INTERVAL = document.hidden ? 8000 : 2500; // Faster polling when visible for better SPA responsiveness
   function scheduleWatch() {
     window.clearTimeout(watchTimer);
     if (document.hidden) return;
@@ -428,7 +429,7 @@
         choiceCard.removeAttribute('data-shown-for');
         safeRefresh(true);
       }
-    }, 150); // 150ms debounce window
+    }, 100); // 100ms debounce window - faster for responsive SPA feel while preventing flicker
   };
   const safeOnNavigation = wrapWithErrorBoundary(onNavigation, { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'onNavigation', swallow: true });
   window.addEventListener('popstate', safeOnNavigation, { passive: true });

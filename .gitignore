@@ -1,3 +1,4 @@
+```
 # Logs and temp files
 *.log
 *.tmp
@@ -8,23 +9,23 @@
 .env.local
 *.env.*
 
+# Dependencies
+node_modules/
+__pycache__/
+*.egg-info/
+dist/
+build/
+target/
+.venv/
+venv/
+.mypy_cache/
+.pytest_cache/
+
 # Editors
 .vscode/
 .idea/
 
-# Dependencies
-node_modules/
-.venv/
-venv/
-__pycache__/
-.mypy_cache/
-.pytest_cache/
-dist/
-build/
-target/
-.gradle/
-
-# System files
+# OS
 .DS_Store
 Thumbs.db
 
@@ -63,13 +64,4 @@ htmlcov/
 *.Z
 *.lz
 *.lzo
-*.tar.gz
-*.tar.bz2
-*.tar.xz
-*.tar.zst
-
-# Kilo IDE
-.kilo/
-
-# Jules IDE
-.jules/
+```

@@ -125,13 +125,23 @@ class ErrorTrace {
 
 const errorLog = [];
 const MAX_LOG_SIZE = 100;
+const MAX_LOG_AGE_MS = 5 * 60 * 1000; // 5 minutes - prevents unbounded growth in long-running sessions
 
 export function logError(error, context = {}) {
   const trace = new ErrorTrace(error, context);
   trace.diagnoseRootCause();
   
   errorLog.push(trace);
-  if (errorLog.length > MAX_LOG_SIZE) errorLog.shift();
+  
+  // Evict old entries first by time, then by size if still over limit
+  const now = Date.now();
+  const cutoff = now - MAX_LOG_AGE_MS;
+  while (errorLog.length > 0 && errorLog[0].timestamp < cutoff) {
+    errorLog.shift();
+  }
+  while (errorLog.length > MAX_LOG_SIZE) {
+    errorLog.shift();
+  }
 
   console.error(trace.toLogString());
 

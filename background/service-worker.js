@@ -33,7 +33,9 @@ function prunePendingBranches() {
   while (pendingBranches.size > MAX_PENDING_BRANCHES) pendingBranches.delete(pendingBranches.keys().next().value);
 }
 function pendingBranchKey(url, sourceTabId, windowId) {
-  return `${Number.isInteger(sourceTabId) ? sourceTabId : 'unknown'}::${Number.isInteger(windowId) ? windowId : 'nowin'}::${url}`;
+  // Key by tabId, windowId, and URL to prevent collisions between different tabs/windows
+  // This reduces risk of cross-attaching parent relationships when multiple tabs open same URL
+  return `${Number.isInteger(sourceTabId) ? sourceTabId : 'notab'}::${Number.isInteger(windowId) ? windowId : 'nowin'}::${url}`;
 }
 function setPendingBranch(url, sourceTabId, windowId, parentId) {
   prunePendingBranches();
@@ -730,8 +732,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         const session = await createSession(message.mission, missionTab, message.missionNote);
         if (message.openSearch && activeTab?.id != null && chrome.tabs?.update) {
           const settings = await loadState().then((state) => normalizeSettings(state.settings));
-          if (settings.searchEngine === 'default' && chrome.search?.query) {
-            await chrome.search.query({ text: compactText(message.mission, 140), tabId: activeTab.id });
+          // Use chrome.search API with try-catch for better cross-Chromium compatibility
+          // Some Chromium-based browsers (Edge, Brave) may not fully support chrome.search.query
+          if (settings.searchEngine === 'default') {
+            try {
+              if (chrome.search?.query) {
+                await chrome.search.query({ text: compactText(message.mission, 140), tabId: activeTab.id });
+              } else {
+                // Fallback to URL navigation if search API unavailable
+                const searchUrl = missionSearchUrl('google', message.mission);
+                await chrome.tabs.update(activeTab.id, { url: searchUrl, active: true });
+              }
+            } catch (error) {
+              logError(error, { category: ERROR_CATEGORIES.MESSAGING, operation: 'searchQuery' });
+              // Fallback to URL navigation on error
+              const searchUrl = missionSearchUrl('google', message.mission);
+              await chrome.tabs.update(activeTab.id, { url: searchUrl, active: true });
+            }
           } else {
             const searchUrl = missionSearchUrl(settings.searchEngine, message.mission);
             await chrome.tabs.update(activeTab.id, { url: searchUrl, active: true });
@@ -825,7 +842,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         if (originTabId && hasRealOrigin) {
           try {
             const liveTab = await chrome.tabs.get(originTabId);
-            if (sameOriginUrl(liveTab?.url, origin.url)) { if (chrome.windows?.update && Number.isInteger(liveTab.windowId)) await chrome.windows.update(liveTab.windowId, { focused: true }); await chrome.tabs.update(originTabId, { url: returnUrl, active: true }); returnedToOrigin = true; }
+            // Additional validation: ensure tab still belongs to the same window session
+            // This prevents navigating wrong tabs after browser restart when tab IDs may be reassigned
+            const tabBelongsToSession = !origin.windowId || liveTab.windowId === origin.windowId;
+            if (tabBelongsToSession && sameOriginUrl(liveTab?.url, origin.url)) { 
+              if (chrome.windows?.update && Number.isInteger(liveTab.windowId)) await chrome.windows.update(liveTab.windowId, { focused: true }); 
+              await chrome.tabs.update(originTabId, { url: returnUrl, active: true }); 
+              returnedToOrigin = true; 
+            }
           } catch { returnedToOrigin = false; }
         }
         if (!returnedToOrigin && hasRealOrigin) await chrome.tabs.create({ url: returnUrl, active: true });
