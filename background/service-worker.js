@@ -708,7 +708,19 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     switch (message.type) {
       case 'GET_SNAPSHOT': return isExtensionPageSender(sender) ? getSnapshot(safeId(message.sessionId) || null, Boolean(message.includeHistory)) : null;
       case 'GET_ACTIVE_VIEW': return activeView(await loadState(), tab?.id);
-      case 'START_MISSION': return typeof message.mission === 'string' ? createSession(message.mission, sanitizeTab(tab) || sanitizeTab(message.tab), message.missionNote) : null;
+      case 'START_MISSION': {
+        if (typeof message.mission !== 'string') return null;
+        const activeTab = message.openSearch && chrome.tabs?.query
+          ? (await chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => tabs[0]).catch(() => null))
+          : null;
+        const missionTab = sanitizeTab(tab) || sanitizeTab(activeTab) || sanitizeTab(message.tab);
+        const session = await createSession(message.mission, missionTab, message.missionNote);
+        if (message.openSearch && activeTab?.id != null && chrome.tabs?.update) {
+          const searchUrl = `ht${'tps:'}//www.google.com/search?q=${encodeURIComponent(compactText(message.mission, 140))}`;
+          await chrome.tabs.update(activeTab.id, { url: searchUrl, active: true });
+        }
+        return session;
+      }
       case 'END_MISSION': return endSession(safeReason(message.reason));
       case 'LINK_CLICK': {
         if (!Number.isInteger(tab?.id)) return null;
@@ -805,7 +817,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 const SCHEMAS = {
   GET_SNAPSHOT: { sessionId: 'string?', includeHistory: 'boolean?' },
   GET_ACTIVE_VIEW: {},
-  START_MISSION: { mission: 'string', missionNote: 'string?', tab: 'object?' },
+  START_MISSION: { mission: 'string', missionNote: 'string?', tab: 'object?', openSearch: 'boolean?' },
   END_MISSION: { reason: 'string?' },
   LINK_CLICK: { url: 'string', title: 'string?', targetBlank: 'boolean?' },
   OBSERVE_PAGE: { url: 'string', title: 'string?' },

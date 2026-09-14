@@ -84,6 +84,14 @@ assert.equal(activeView.session.node.depth, 0, 'active view should carry only th
 assert.equal('nodes' in activeView.session, false, 'active view should not serialize full branch history to page scripts');
 assert.equal((await send({ type: 'GET_ACTIVE_VIEW' }, { id: 88 })).session, null, 'untracked tabs should not receive a mission chip view');
 
+await send({ type: 'CLEAR_DATA' });
+tabInfo.clear();
+tabInfo.set(11, { id: 11, windowId: 1, url: 'chrome-extension://test/newtab/index.html', title: 'Focus Forest' });
+await send({ type: 'START_MISSION', mission: 'Find quiet study music', openSearch: true, tab: { url: 'chrome-extension://test/newtab/index.html', title: 'Focus Forest' } });
+assert.equal(tabActions.at(-1)?.[0], 'update', 'planting from New Tab should navigate the active browser tab');
+assert.equal(tabActions.at(-1)?.[1], 11);
+assert.match(tabActions.at(-1)?.[2]?.url || '', /google\.com\/search\?q=Find%20quiet%20study%20music/, 'planting should open search results for the mission');
+
 await send({ type: 'OBSERVE_PAGE', url: 'https://unrelated.example', title: 'Unrelated' }, { id: 88 });
 assert.equal(session().nodes.length, 1, 'unrelated tabs must not become branches');
 

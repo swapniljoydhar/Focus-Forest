@@ -55,13 +55,11 @@ form.addEventListener('submit', wrapWithErrorBoundary(async (event) => {
   const mission = input.value.trim();
   if (!mission) { input.focus(); return; }
   try {
-    await message('START_MISSION', { mission, missionNote: missionNote?.value.trim() || '', tab: { url: location.href, title: 'Focus Forest' } });
+    await message('START_MISSION', { mission, missionNote: missionNote?.value.trim() || '', openSearch: true, tab: { url: location.href, title: 'Focus Forest' } });
     status.hidden = false;
     status.textContent = '🌱 Intention planted! Opening a gentle first step...';
     input.blur();
     missionNote.value = '';
-    const searchPage = `ht${'tps:'}//www.google.com/search?q=${encodeURIComponent(mission)}`;
-    window.location.href = searchPage;
   } catch (err) {
     logError(err, { category: ERROR_CATEGORIES.MESSAGING, function: 'startMission' });
     status.hidden = false;
