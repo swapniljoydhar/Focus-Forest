@@ -50,6 +50,9 @@
 .forest-scene .canopy-shine { fill: #e0edac; opacity: .48; }
 .forest-scene .foliage-dash { fill: none; stroke: #537d43; stroke-width: 2.3; stroke-linecap: round; opacity: .36; }
 .forest-scene .tree-bole, .forest-scene .wood-limb { fill: inherit; stroke: #8c643e; stroke-width: 2.6; stroke-linejoin: round; opacity: 1; }
+.forest-scene .branch-twig { fill: none; stroke: #79583a; stroke-width: 3.2; stroke-linecap: round; opacity: .92; }
+.forest-scene .branch-bud { fill: #9fc878; stroke: #557844; stroke-width: 1.5; opacity: .95; }
+.forest-scene .branch-bud:nth-of-type(2n) { fill: #d5b867; }
 .forest-scene .bark-light { fill: none; stroke: #eed0a0; stroke-width: 5; stroke-linecap: round; opacity: .65; }
 .forest-scene .bark-line { fill: none; stroke: #8f623a; stroke-width: 2.7; stroke-linecap: round; opacity: .6; }
 .forest-scene .bark-line.fine { stroke-width: 2; }

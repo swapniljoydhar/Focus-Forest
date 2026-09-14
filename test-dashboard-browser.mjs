@@ -57,7 +57,7 @@ async function openDashboard(t, state = stateFor(), viewport = { width: 1440, he
     globalThis.chrome = {
       runtime: {
         id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-        getManifest: () => ({ version: '0.2.0' }),
+        getManifest: () => ({ version: '0.3.0' }),
         async sendMessage(message) {
           if (message.type === 'GET_SNAPSHOT') {
             const selected = state.sessions.find(session => session.id === message.sessionId);
@@ -112,6 +112,8 @@ test('young trees have a filled cartoon crown, a wooden trunk, and selectable pa
     assert.equal(await page.locator('#tree .foliage-puff').count(), 6);
     assert.equal(await page.locator('#tree .tree-bole').count(), 1);
     assert.equal(await page.locator('#tree .wood-limb').count(), 2);
+    assert.equal(await page.locator('#tree .branch-twig').count(), 4);
+    assert.equal(await page.locator('#tree .branch-bud').count(), 4);
     const crownFill = await page.locator('#tree .canopy-silhouette').evaluate(el => getComputedStyle(el).fill);
     assert.notEqual(crownFill, 'none');
     assert.notEqual(crownFill, 'rgb(0, 0, 0)');
@@ -195,6 +197,8 @@ test('the new-tab illustration shares the cartoon artwork without fake selectabl
   await page.goto('https://focus-forest.test/newtab/index.html');
   await page.locator('#welcome-tree .canopy-silhouette').waitFor({ state: 'attached' });
   assert.equal(await page.locator('#welcome-tree .foliage-puff').count(), 6);
+  assert.equal(await page.locator('#welcome-tree .branch-twig').count(), 4);
+  assert.equal(await page.locator('#welcome-tree .branch-bud').count(), 4);
   assert.equal(await page.locator('#welcome-tree [tabindex]').count(), 0);
   assert.notEqual(await page.locator('#welcome-tree .canopy-silhouette').evaluate(el => getComputedStyle(el).fill), 'rgb(0, 0, 0)');
 });

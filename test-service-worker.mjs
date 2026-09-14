@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 const store = {};
 const messages = [];
 const tabActions = [];
+const searchActions = [];
 const windowActions = [];
 const tabInfo = new Map();
 const listeners = { installed: [], message: [], updated: [], removed: [], created: [], startup: [], committed: [], historyStateUpdated: [] };
@@ -21,6 +22,7 @@ globalThis.chrome = {
     onMessage: { addListener(fn) { listeners.message.push(fn); } },
     onStartup: { addListener(fn) { listeners.startup.push(fn); } }
   },
+  search: { async query(info) { searchActions.push(info); } },
   webNavigation: { onCommitted: { addListener(fn) { listeners.committed.push(fn); } }, onHistoryStateUpdated: { addListener(fn) { listeners.historyStateUpdated.push(fn); } } },
   windows: { async update(id, patch) { windowActions.push(['update', id, patch]); } },
   tabs: {
@@ -83,14 +85,25 @@ assert.equal(activeView.session.mission, 'Find a good laptop to buy.', 'active v
 assert.equal(activeView.session.node.depth, 0, 'active view should carry only the current node depth');
 assert.equal('nodes' in activeView.session, false, 'active view should not serialize full branch history to page scripts');
 assert.equal((await send({ type: 'GET_ACTIVE_VIEW' }, { id: 88 })).session, null, 'untracked tabs should not receive a mission chip view');
+await send({ type: 'SPA_NAVIGATION', url: 'https://example.com/route', title: 'Route' }, { id: 7 });
+assert.equal(session().nodes.at(-1).navigationKind, 'spa', 'history-state route changes should create SPA branches');
+const spaCount = session().nodes.length;
+await send({ type: 'SPA_NAVIGATION', url: 'https://example.com/route', title: 'Route' }, { id: 7 });
+assert.equal(session().nodes.length, spaCount, 'duplicate SPA route observations should not grow the garden twice');
 
 await send({ type: 'CLEAR_DATA' });
-tabInfo.clear();
-tabInfo.set(11, { id: 11, windowId: 1, url: 'chrome-extension://test/newtab/index.html', title: 'Focus Forest' });
-await send({ type: 'START_MISSION', mission: 'Find quiet study music', openSearch: true, tab: { url: 'chrome-extension://test/newtab/index.html', title: 'Focus Forest' } });
+	tabInfo.clear();
+	tabInfo.set(11, { id: 11, windowId: 1, url: 'chrome-extension://test/newtab/index.html', title: 'Focus Forest' });
+	await send({ type: 'START_MISSION', mission: 'Use browser default', openSearch: true, tab: { url: 'chrome-extension://test/newtab/index.html', title: 'Focus Forest' } });
+	assert.deepEqual(searchActions.at(-1), { text: 'Use browser default', tabId: 11 }, 'Browser default should use the browser search provider API');
+	await send({ type: 'CLEAR_DATA' });
+	await send({ type: 'UPDATE_SETTINGS', settings: { searchEngine: 'brave' } });
+	await send({ type: 'START_MISSION', mission: 'Find quiet study music', openSearch: true, tab: { url: 'chrome-extension://test/newtab/index.html', title: 'Focus Forest' } });
 assert.equal(tabActions.at(-1)?.[0], 'update', 'planting from New Tab should navigate the active browser tab');
 assert.equal(tabActions.at(-1)?.[1], 11);
-assert.match(tabActions.at(-1)?.[2]?.url || '', /google\.com\/search\?q=Find%20quiet%20study%20music/, 'planting should open search results for the mission');
+	assert.match(tabActions.at(-1)?.[2]?.url || '', /search\.brave\.com\/search\?q=Find%20quiet%20study%20music/, 'planting should open the selected search engine for the mission');
+	await send({ type: 'PAUSE_SITE' }, { id: 11, url: 'https://search.brave.com/search?q=Find%20quiet%20study%20music', title: 'Search' });
+	assert.deepEqual((await send({ type: 'GET_SNAPSHOT' })).settings.excludedSites, ['search.brave.com'], 'the companion can pause itself on the current site');
 
 await send({ type: 'OBSERVE_PAGE', url: 'https://unrelated.example', title: 'Unrelated' }, { id: 88 });
 assert.equal(session().nodes.length, 1, 'unrelated tabs must not become branches');

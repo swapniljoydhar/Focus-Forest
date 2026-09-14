@@ -102,11 +102,12 @@ describe('shared/state.js core functions', () => {
   });
 
   it('normalizeSettings clamps and defaults', () => {
-    const base = { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [] };
+    const base = { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default' };
     assert.deepStrictEqual(normalizeSettings(base), { interventionsPaused: false, ...base });
-    assert.deepStrictEqual(normalizeSettings({}), { interventionsPaused: false, gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [] });
-    assert.deepStrictEqual(normalizeSettings({ gentleDepth: 1, choiceDepth: 1 }), { interventionsPaused: false, gentleDepth: 2, choiceDepth: 3, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [] });
-    assert.deepStrictEqual(normalizeSettings({ growthAnimationTrigger: 'invalid' }), { interventionsPaused: false, gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [] });
+    assert.deepStrictEqual(normalizeSettings({}), { interventionsPaused: false, gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default' });
+    assert.deepStrictEqual(normalizeSettings({ gentleDepth: 1, choiceDepth: 1 }), { interventionsPaused: false, gentleDepth: 2, choiceDepth: 3, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default' });
+    assert.deepStrictEqual(normalizeSettings({ growthAnimationTrigger: 'invalid' }), { interventionsPaused: false, gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default' });
+    assert.equal(normalizeSettings({ searchEngine: 'brave' }).searchEngine, 'brave');
     assert.deepStrictEqual(normalizeSettings({ excludedSites: ['WWW.Example.com', 'example.com', ''] }).excludedSites, ['example.com']);
   });
 
