@@ -57,9 +57,11 @@ form.addEventListener('submit', wrapWithErrorBoundary(async (event) => {
   try {
     await message('START_MISSION', { mission, missionNote: missionNote?.value.trim() || '', tab: { url: location.href, title: 'Focus Forest' } });
     status.hidden = false;
-    status.textContent = '🌱 Intention planted! Your mission is ready when you are.';
+    status.textContent = '🌱 Intention planted! Opening a gentle first step...';
     input.blur();
     missionNote.value = '';
+    const searchPage = `ht${'tps:'}//www.google.com/search?q=${encodeURIComponent(mission)}`;
+    window.location.href = searchPage;
   } catch (err) {
     logError(err, { category: ERROR_CATEGORIES.MESSAGING, function: 'startMission' });
     status.hidden = false;

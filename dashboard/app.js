@@ -36,7 +36,7 @@ function renderTree(session) {
     ? 'Plant an intention, and give your curiosity a place to grow.'
     : tree.nodes.length === 1
       ? 'Your intention is planted. Follow a link to grow your first leaf.'
-      : 'Each marked leaf is a page. Pick one to trace its path home.';
+      : 'Golden threads show how discoveries grew. Pick a leaf to trace its path home.';
   const picker = document.querySelector('#tree-page-select');
   picker.replaceChildren(makeTextElement('option', 'Choose a leaf…'));
   picker.firstChild.value = '';

@@ -28,7 +28,7 @@ Key Features:
 
 How to Use:
 1. Open a new tab or click the Focus Forest toolbar icon.
-2. Enter your intention (for example: "Research camera lenses for landscape photography").
+2. Enter your intention (for example: "Research camera lenses for landscape photography"). Press Enter or choose Plant Intention to save it locally and open a search-results starting point.
 3. Browse normally. Watch the discreet companion chip at the top right of the page.
 4. If you wander several links deep, choose whether to return to your intention, compost the page for later, or keep exploring.
 5. Open the Garden Dashboard anytime to see the tree you grew, why each path was recognized, and your weekly focus insights.

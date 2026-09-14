@@ -38,7 +38,19 @@
   }
 
   function initContentScript() {
-    async function send(type, payload = {}) { return chrome.runtime.sendMessage({ type, ...payload }); }
+    function isInvalidatedContext(error) {
+      return /extension context invalidated|message port closed|receiving end does not exist/i.test(String(error?.message || error));
+    }
+    async function send(type, payload = {}) {
+      try {
+        return await chrome.runtime.sendMessage({ type, ...payload });
+      } catch (error) {
+        // A page can outlive an extension reload. Do not turn that expected
+        // lifecycle race into a visible error or interrupt the page.
+        if (isInvalidatedContext(error)) return null;
+        throw error;
+      }
+    }
 
   // Root host: pointer-events:none so the page behind stays fully interactive.
   // Only specific children (the chip, the choice card) opt back in with auto.

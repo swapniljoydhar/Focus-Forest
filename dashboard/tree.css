@@ -67,11 +67,16 @@
 .forest-scene .sprout-vein { fill: none; stroke: #deedaf; stroke-width: 3; stroke-linecap: round; }
 /* Normal artwork is not covered in graph connectors. The real trail lights up
    only when a leaf is selected; every edge still comes from the stored graph. */
-.forest-scene .branch-layer { opacity: 0; pointer-events: none; }
-.forest-scene .branch-taper { fill: none; stroke: #fff1bf; stroke-width: 3; stroke-linecap: round; }
+.forest-scene .branch-layer { opacity: .46; pointer-events: none; }
+.forest-scene .branch-taper { fill: none; stroke: #d7bd79; stroke-width: 2.7; stroke-linecap: round; stroke-linejoin: round; opacity: .72; stroke-dasharray: 1 0; }
+.forest-scene .branch-taper.primary { stroke: #c5a35e; stroke-width: 4.2; opacity: .82; }
+.forest-scene .branch-taper.secondary { stroke: #e2cf9a; stroke-width: 2.3; opacity: .64; }
 .forest-scene .highlight-layer { pointer-events: none; }
 .forest-scene .branch-taper.highlight, .forest-scene .root-trail { fill: none; stroke: #fff1bf; stroke-width: 3.5; stroke-linecap: round; stroke-linejoin: round; opacity: .92; filter: none; }
 .forest-scene .root-trail { stroke-dasharray: 3 6; }
+.forest-scene .branch-layer .branch-taper { animation: branchPulse 4.8s ease-in-out infinite; }
+.forest-scene .branch-layer .branch-taper:nth-child(2n) { animation-delay: -1.7s; }
+@keyframes branchPulse { 0%, 100% { opacity: .54; } 50% { opacity: .82; } }
 .forest-scene .node { cursor: pointer; outline: none; }
 .forest-scene .node .node-hit-target { fill: transparent; stroke: none; pointer-events: all; }
 .forest-scene .page-leaf { fill: var(--page-leaf); stroke: var(--leaf-outline); stroke-width: 2.3; stroke-linejoin: round; opacity: 1; transition: fill .16s, stroke .16s, filter .16s; }
