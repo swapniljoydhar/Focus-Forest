@@ -79,6 +79,7 @@ const PAGE_BUD = 'M0 12 C-8 6 -8 -4 0 -10 C8 -4 8 6 0 12 Z';
 
 All enhancements preserve Focus Forest's security model:
 - ✅ Settings remain local-only; no cloud sync mirror is written
+- ✅ New Tab atmospheric animation uses CSS-only transform/opacity motion and respects reduced-motion preferences
 - ✅ Uses the existing `alarms` permission for reliable MV3 quota scheduling
 - ✅ No external dependencies added
 - ✅ No remote services or tracking
