@@ -1,0 +1,87 @@
+*{box-sizing:border-box}body{position:relative;isolation:isolate;margin:0;width:340px;min-height:420px;overflow:hidden;background:linear-gradient(180deg,#f5f7ef,#edf3e8);color:#29432d;font:13px/1.45 ui-sans-serif,system-ui,-apple-system,sans-serif}
+.popup-ambient{position:absolute;z-index:-1;inset:0;overflow:hidden;pointer-events:none}
+.popup-ambient span:first-child{position:absolute;top:-42px;right:-45px;width:190px;height:155px;border-radius:50%;background:radial-gradient(circle,rgba(232,239,190,.5),rgba(232,239,190,0) 68%);animation:ambientPulse 6s ease-in-out infinite}
+.popup-ambient span:last-child{position:absolute;right:-32px;bottom:-83px;width:245px;height:150px;border-radius:50% 50% 0 0;background:#d7e7d3;opacity:.7;animation:ambientPulse 8s ease-in-out infinite reverse}
+@keyframes ambientPulse{0%,100%{transform:scale(1);opacity:.7}50%{transform:scale(1.05);opacity:.85}}
+body[data-motion="off"] .popup-ambient span,
+body[data-motion="off"] .local-dot:before,
+body[data-motion="off"] .empty,
+body[data-motion="off"] .empty-seed { animation:none !important; }
+.popup-shell{min-height:420px;padding:16px 18px 12px;display:flex;flex-direction:column}
+.popup-brand{display:flex;align-items:center;gap:8px;color:#527154;font-size:13px}
+.brand-mark{width:20px;height:20px}
+.brand-mark svg{display:block;width:100%;height:100%}
+.brand-trunk,.brand-branch{fill:none;stroke:#7b5538;stroke-width:1.7;stroke-linecap:round}
+.brand-leaf{fill:#79a96a;stroke:#4d7d50;stroke-width:.55}
+.brand-leaf-right{fill:#91ba78}
+.local-dot{margin-left:auto;color:#8b9b87;font-size:10px;font-weight:500;display:flex;align-items:center;gap:5px}
+.local-dot:before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:#83a578;vertical-align:1px;animation:localPulse 3s ease-in-out infinite}
+@keyframes localPulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.6;transform:scale(.85)}}
+.eyebrow{margin:28px 0 8px;color:#779071;font-size:9px;font-weight:800;letter-spacing:.16em}
+.empty{text-align:center;padding:30px 15px;animation:fadeIn .4s ease-out}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:translateY(0)}}
+.empty .eyebrow{margin-top:10px}
+.empty-seed{margin-bottom:14px;display:inline-block;animation:sproutGrow .8s ease-out}
+@keyframes sproutGrow{from{opacity:0;transform:scale(.7) translateY(4px)}to{opacity:1;transform:scale(1) translateY(0)}}
+.empty-seed svg{display:block;filter:drop-shadow(0 2px 4px rgba(74,124,89,.2))}
+.sprout-stem,.sprout-branch{fill:none;stroke:#7b5538;stroke-width:2.5;stroke-linecap:round;stroke-linejoin:round;opacity:.9}
+.sprout-leaf{fill:#79a96a;stroke:#4d7d50;stroke-width:.7;opacity:.95;transform-origin:center}
+.sprout-right{fill:#91ba78}
+.sprout-ground{fill:none;stroke:rgba(74,124,89,.3);stroke-width:1.2;stroke-linecap:round}
+.sprout-left{animation:leafSway 3s ease-in-out infinite}
+.sprout-right{animation:leafSway 3s ease-in-out infinite .5s}
+@keyframes leafSway{0%,100%{transform:rotate(-3deg)}50%{transform:rotate(3deg)}}
+.empty h1{font:500 23px/1.1 Georgia,serif;margin:0 0 12px}
+.empty-copy{margin:0;color:#7b8978;line-height:1.5}
+.visually-hidden{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap;border:0}
+.plant-form{display:grid;gap:8px;margin:16px 0 8px;text-align:left}
+.plant-form input,.plant-form textarea{width:100%;padding:10px 12px;border:1px solid #d5e0d1;border-radius:11px;background:rgba(250,252,248,.9);color:#29432d;font:13px ui-sans-serif,system-ui,sans-serif}
+.plant-form textarea{resize:vertical;min-height:52px;line-height:1.4}
+.plant-form input:focus{outline:2px solid rgba(108,151,102,.45);outline-offset:1px}
+.plant-form button{width:100%;padding:11px 14px;border:1px solid #577f58;border-radius:11px;background:linear-gradient(135deg,#5d865c,#4c744f);color:#fff;font:650 12px ui-sans-serif,system-ui,sans-serif;cursor:pointer}
+.plant-form button:hover{transform:translateY(-1px);box-shadow:0 3px 8px rgba(74,124,89,.25)}
+.plant-status{margin:0 0 8px;color:#7b8978;font-size:12px;min-height:16px}
+.empty .text-action{width:100%;padding:7px 0;border:0;background:none;color:#5d7b5b;font:650 12px ui-sans-serif,system-ui,sans-serif;cursor:pointer}
+h1{margin:0;font:500 26px/1.15 Georgia,serif;letter-spacing:-.02em;overflow-wrap:anywhere}
+.state-line{min-height:20px;margin:8px 0 18px;color:#728270;font-size:12px}
+.branch-meter{margin-bottom:20px}
+.meter-track{height:8px;border-radius:8px;background:#e0eadc;overflow:hidden;box-shadow:inset 0 1px 2px rgba(62,101,61,.08);position:relative}
+.meter-track span{display:block;height:100%;min-width:4%;border-radius:8px;background:linear-gradient(90deg,#79a873,#c5a15e);transition:width .4s cubic-bezier(.4,0,.2,1);position:relative}
+.meter-track span:after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.3),transparent);animation:meterShimmer 2s ease-in-out infinite}
+@keyframes meterShimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
+.meter-labels{display:flex;justify-content:space-between;margin-top:7px;color:#9aa697;font-size:10px}
+.quiet-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:18px}
+.quiet-stats div{padding:10px 11px;border:1px solid rgba(190,211,184,.5);border-radius:12px;background:rgba(243,247,239,.75);transition:transform .2s ease,box-shadow .2s ease}
+.quiet-stats div:hover{transform:translateY(-1px);box-shadow:0 2px 8px rgba(74,124,89,.08)}
+.quiet-stats strong{display:block;color:#466947;font:500 21px Georgia,serif}
+.quiet-stats span{display:block;margin-top:2px;color:#849181;font-size:10px}
+.actions{display:grid;gap:7px}
+.actions button{width:100%;border-radius:11px;cursor:pointer;font:650 12px ui-sans-serif,system-ui,sans-serif;transition:transform .15s cubic-bezier(.4,0,.2,1),box-shadow .15s ease}
+.actions .primary{display:flex;justify-content:space-between;padding:11px 14px;border:1px solid #577f58;background:linear-gradient(135deg,#5d865c,#4c744f);color:#fff;box-shadow:0 1px 3px rgba(74,124,89,.2)}
+.actions .primary:hover{transform:translateY(-1px);box-shadow:0 3px 8px rgba(74,124,89,.25)}
+.actions .primary span{font-size:17px;font-weight:400;transition:transform .2s ease}
+.actions .primary:hover span{transform:translateX(2px)}
+.actions .secondary{padding:9px 14px;border:1px solid #d5e0d1;background:rgba(250,252,248,.84);color:#5c775a}
+.actions .secondary:hover{background:rgba(250,252,248,.95);border-color:#c5d4c1}
+.actions .text-action{display:flex;align-items:center;justify-content:space-between;gap:16px;padding:9px 0;border:0;background:none;color:#5d7b5b;text-align:left;line-height:1.5;position:relative}
+.actions .text-action:not(:last-child){margin-bottom:2px}
+.actions .text-action::first-line{line-height:1.5}
+.actions .text-action span{flex:none;font-size:16px;font-weight:400;line-height:1;transition:transform .2s ease}
+.actions .text-action:hover span{transform:translateX(2px)}
+.completion{padding-top:24px;animation:fadeIn .3s ease-out}
+.completion h2{margin:0;font:500 26px/1.15 Georgia,serif;letter-spacing:-.02em}
+.completion p:not(.eyebrow){margin:11px 0 18px;color:#71816d;font-size:13px;line-height:1.55}
+.completion-actions{display:grid;gap:7px}
+.completion-actions button{width:100%;border-radius:11px;cursor:pointer;font:650 12px ui-sans-serif,system-ui,sans-serif;transition:transform .15s cubic-bezier(.4,0,.2,1)}
+.completion-actions .primary{padding:11px 14px;border:1px solid #577f58;background:linear-gradient(135deg,#5d865c,#4c744f);color:#fff}
+.completion-actions .primary:hover{transform:translateY(-1px);box-shadow:0 3px 8px rgba(74,124,89,.25)}
+.completion-actions .secondary{padding:9px 14px;border:1px solid #d5e0d1;background:rgba(250,252,248,.84);color:#5c775a}
+.completion-actions .secondary:hover{background:rgba(250,252,248,.95)}
+.completion-actions .text-action{padding:7px 0;border:0;background:none;color:#5d7b5b;text-align:left}
+.actions button:hover,.completion-actions button:hover{outline:3px solid rgba(108,151,102,.16);outline-offset:1px}
+.actions button:active,.completion-actions button:active{transform:scale(.97)}
+footer{display:flex;justify-content:center;align-items:center;gap:5px;margin-top:auto;padding-top:14px;text-align:center}
+.footer-sprig{color:#82a578;font-size:15px;animation:sproutGrow 1s ease-out}
+footer button{border:0;background:none;color:#91a08d;font:11px ui-sans-serif;cursor:pointer;transition:color .2s ease}
+footer button:hover{color:#527154;text-decoration:underline}
+@media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}

@@ -1,0 +1,46 @@
+name: Validate Focus Forest
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Validate manifest JSON
+        run: node -e "JSON.parse(require('fs').readFileSync('manifest.json', 'utf8'))"
+      - name: Run unit and integration tests
+        run: npm test
+      - name: Run browser-oriented dashboard test
+        run: npm run test:dashboard
+      - name: Stress-test 50 rapid SPA history transitions
+        run: npm run test:spa-stress
+      - name: Profile New Tab performance and memory
+        run: node scripts/profile-newtab.mjs --assert | tee profile-newtab.json
+      - name: Upload performance profile
+        uses: actions/upload-artifact@v4
+        with:
+          name: focus-forest-performance-profile
+          path: profile-newtab.json
+      - name: Package extension
+        run: npm run package
+      - name: Upload extension artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: focus-forest-extension
+          path: dist/focus-forest.zip
