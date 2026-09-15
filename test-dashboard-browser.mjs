@@ -57,7 +57,7 @@ async function openDashboard(t, state = stateFor(), viewport = { width: 1440, he
     globalThis.chrome = {
       runtime: {
         id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-        getManifest: () => ({ version: '0.3.2' }),
+        getManifest: () => ({ version: '0.3.3' }),
         async sendMessage(message) {
           globalThis.contentMessages ||= [];
           globalThis.contentMessages.push(message);
@@ -204,6 +204,8 @@ test('the new-tab illustration shares the cartoon artwork without fake selectabl
   assert.equal(await page.locator('#welcome-tree .branch-bud').count(), 4);
   assert.equal(await page.locator('#welcome-tree [tabindex]').count(), 0);
   assert.notEqual(await page.locator('#welcome-tree .canopy-silhouette').evaluate(el => getComputedStyle(el).fill), 'rgb(0, 0, 0)');
+  assert.equal(await page.locator('.ambient').evaluate(el => getComputedStyle(el, '::before').animationName), 'none', 'reduced-motion mode must disable atmospheric animation');
+  assert.equal(await page.locator('.ambient').evaluate(el => getComputedStyle(el, '::after').animationName), 'none', 'reduced-motion mode must disable the second atmospheric animation');
 });
 
 test('the companion cartoon icon builds under a strict Trusted Types CSP', async t => {
