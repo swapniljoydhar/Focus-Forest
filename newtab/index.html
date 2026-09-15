@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Focus Forest — Plant Your Intention</title>
+  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="../dashboard/tree.css">
+</head>
+<body>
+  <!-- Ambient background with subtle nature elements -->
+  <div class="ambient" aria-hidden="true">
+    <div class="sky-gradient"></div>
+    <div class="sun-glow"></div>
+    <div class="distant-hills">
+      <svg viewBox="0 0 1200 200" preserveAspectRatio="none">
+        <path class="hill-path hill-back" d="M0,120 C150,80 300,140 450,100 C600,60 750,110 900,90 C1050,70 1200,130 1200,130 L1200,200 L0,200 Z"/>
+        <path class="hill-path hill-front" d="M0,150 C200,130 350,160 500,140 C650,120 800,150 950,135 C1100,120 1200,145 1200,145 L1200,200 L0,200 Z"/>
+      </svg>
+    </div>
+    <div class="floating-particles"></div>
+    <!-- Additional atmospheric layers -->
+    <div class="atmospheric-layer">
+      <div class="atmo-gradient-1"></div>
+      <div class="atmo-gradient-2"></div>
+    </div>
+    <div class="leaf-drift-container" aria-hidden="true">
+      <div class="leaf-drift"></div>
+      <div class="leaf-drift"></div>
+      <div class="leaf-drift"></div>
+      <div class="leaf-drift"></div>
+      <div class="leaf-drift"></div>
+    </div>
+    <div class="light-rays"></div>
+  </div>
+  
+  <main class="planting-container">
+    <!-- Onboarding overlay (first run) -->
+    <div id="onboarding-overlay" class="onboarding-overlay" role="dialog" aria-modal="true" aria-labelledby="onboarding-title" hidden>
+      <div class="onboarding-card">
+        <div class="onboarding-visual" aria-hidden="true">
+          <svg id="onboarding-tree" class="onboarding-tree" viewBox="195 0 510 520"></svg>
+        </div>
+        <h2 id="onboarding-title" class="onboarding-title">Welcome to Focus Forest</h2>
+        <div class="onboarding-steps">
+          <div class="onboarding-step">
+            <span class="step-icon" aria-hidden="true">🌱</span>
+            <div class="step-content">
+              <strong>Plant an intention</strong>
+              <p>Start each session with a clear, gentle goal for your browsing.</p>
+            </div>
+          </div>
+          <div class="onboarding-step">
+            <span class="step-icon" aria-hidden="true">🔍</span>
+            <div class="step-content">
+              <strong>Notice your path</strong>
+              <p>Focus Forest gently highlights when you wander far from your intention.</p>
+            </div>
+          </div>
+          <div class="onboarding-step">
+            <span class="step-icon" aria-hidden="true">🌿</span>
+            <div class="step-content">
+              <strong>Grow awareness</strong>
+              <p>No blocking, no guilt — just a clearer view of your browsing habits.</p>
+            </div>
+          </div>
+        </div>
+        <button id="onboarding-start" type="button" class="plant-btn onboarding-start-btn">
+          <span class="btn-text">Start Growing</span>
+        </button>
+      </div>
+    </div>
+    
+    <!-- Header with brand -->
+    <header class="page-header">
+      <div class="logo-container">
+        <svg class="logo-mark" viewBox="0 0 40 40" aria-hidden="true">
+          <path class="logo-trunk" d="M17 35 C18 29 17 23 19 18 C20 15 22 13 24 11"/>
+          <path class="logo-branch logo-branch-left" d="M18 27 C15 24 12 22 9 21"/>
+          <path class="logo-branch logo-branch-right" d="M19 23 C23 20 26 18 29 16"/>
+          <path class="logo-leaf logo-leaf-1" d="M15 24 C9 25 6 22 7 18 C12 17 16 19 15 24Z"/>
+          <path class="logo-leaf logo-leaf-2" d="M25 19 C25 13 29 10 34 11 C34 16 30 20 25 19Z"/>
+          <path class="logo-leaf logo-leaf-3" d="M21 17 C17 14 17 10 20 7 C24 9 25 13 21 17Z"/>
+          <path class="logo-ground" d="M11 35 Q19 31 29 35"/>
+        </svg>
+      </div>
+      <div class="brand-text">
+        <h1 class="brand-name">Focus Forest</h1>
+        <span class="privacy-badge">
+          <span class="lock-icon" aria-hidden="true">🔒</span>
+          Local & Private
+        </span>
+      </div>
+    </header>
+    
+    <!-- Main hero section -->
+    <section class="hero-section" aria-labelledby="main-heading">
+    <!-- Shared storybook tree; decorative, with no fabricated browsing leaves. -->
+    <div class="sapling-container" aria-hidden="true">
+      <svg id="welcome-tree" class="sapling-svg" viewBox="140 0 620 560"></svg>
+    </div>
+
+      <div class="hero-content">
+        <p class="intro-eyebrow">INTENTIONAL BROWSING</p>
+        <h2 id="main-heading" class="main-heading">
+          What would you like<br/>
+          <em class="highlight-text">to cultivate today?</em>
+        </h2>
+        <p class="hero-description">
+          Set a gentle intention before exploring the web. 
+          Focus Forest helps you notice when you're wandering, 
+          without blocking or judging your curiosity.
+        </p>
+      </div>
+      
+      <!-- Mission input form -->
+      <form id="mission-form" class="mission-form" novalidate>
+        <div class="form-group">
+          <label for="mission-input" class="form-label">
+            <span class="label-icon" aria-hidden="true">🌱</span>
+            My intention for this session:
+          </label>
+          <div class="input-container">
+            <input 
+              id="mission-input" 
+              type="text" 
+              maxlength="140" 
+              autocomplete="off" 
+              placeholder="e.g., Research universities for computer science programs..." 
+              required
+              aria-describedby="input-hint char-count"
+            />
+            <div class="char-counter">
+              <span id="char-current">0</span><span class="char-separator">/</span><span id="char-max">140</span>
+            </div>
+          </div>
+          <p id="input-hint" class="input-hint">Be specific but flexible. This guides your awareness, not a rigid rule.</p>
+          <label class="form-label note-label" for="mission-note">
+            <span class="label-icon" aria-hidden="true">✦</span>
+            Why does this matter today? <span class="optional-label">(optional)</span>
+          </label>
+          <textarea id="mission-note" maxlength="280" rows="2" placeholder="A small reason can help you return to the root."></textarea>
+          <p class="input-hint">This stays in your local garden as a reminder, never a score.</p>
+        </div>
+        
+        <button type="submit" class="plant-btn" aria-label="Plant your intention and start browsing">
+          <span class="btn-content">
+            <span class="btn-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="20" height="20">
+                <path d="M12,2 C12,2 8,6 8,10 C8,14 10,16 12,18 C14,16 16,14 16,10 C16,6 12,2 12,2 Z"/>
+                <path d="M12,18 L12,22"/>
+                <path d="M12,20 L10,22"/>
+                <path d="M12,20 L14,22"/>
+              </svg>
+            </span>
+            <span class="btn-text">Plant Intention</span>
+          </span>
+          <span class="btn-arrow" aria-hidden="true">→</span>
+        </button>
+      </form>
+      
+      <!-- Status message area -->
+      <div id="form-status" class="status-message" role="status" aria-live="polite" hidden></div>
+      
+      <!-- Alternative actions -->
+      <div class="alternative-actions">
+        <button id="resume-mission-btn" type="button" class="action-btn action-secondary" hidden>
+          <span class="action-icon" aria-hidden="true">↺</span>
+          <span class="action-text">Continue Current Session</span>
+        </button>
+        <button id="browse-freely-btn" type="button" class="action-btn action-ghost">
+          <span class="action-text">Explore Without Intention</span>
+        </button>
+      </div>
+    </section>
+    
+    <!-- Footer with gentle messaging -->
+    <footer class="page-footer">
+      <div class="footer-divider"></div>
+      <div class="footer-content">
+        <span class="footer-symbol" aria-hidden="true">🍃</span>
+        <p class="footer-tagline">Your curiosity belongs here.</p>
+        <p class="footer-note">All data stays on this device • No tracking • Open source</p>
+      </div>
+    </footer>
+  </main>
+  
+  <script type="module" src="app.js"></script>
+</body>
+</html>

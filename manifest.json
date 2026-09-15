@@ -1,0 +1,70 @@
+{
+  "manifest_version": 3,
+  "name": "Focus Forest",
+  "version": "0.3.3",
+  "minimum_chrome_version": "110",
+  "description": "A gentle mission-aware browsing companion that helps you notice rabbit holes without blocking the web.",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
+  "permissions": [
+    "storage",
+    "search",
+    "tabs",
+    "webNavigation",
+    "alarms",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "http://*/*",
+    "https://*/*"
+  ],
+  "background": {
+    "service_worker": "background/service-worker.js",
+    "type": "module"
+  },
+  "action": {
+    "default_title": "Focus Forest",
+    "default_popup": "popup/index.html",
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png",
+      "48": "icons/icon-48.png"
+    }
+  },
+  "commands": {
+    "toggle-mission": {
+      "suggested_key": {
+        "default": "Alt+F"
+      },
+      "description": "Start or end a focus mission"
+    }
+  },
+  "chrome_url_overrides": {
+    "newtab": "newtab/index.html"
+  },
+  "options_ui": {
+    "page": "settings/index.html",
+    "open_in_tab": true
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "http://*/*",
+        "https://*/*"
+      ],
+      "js": [
+        "content/content.js"
+      ],
+      "run_at": "document_idle",
+      "all_frames": false
+    }
+  ],
+  "web_accessible_resources": [],
+  "content_security_policy": {
+    "extension_pages": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self'; object-src 'none'; base-uri 'none'; require-trusted-types-for 'script';"
+  }
+}
