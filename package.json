@@ -12,6 +12,8 @@
     "test:integrity": "node test-repository-integrity.mjs",
     "test:tree": "node test-tree-layout.mjs",
     "test:dashboard": "node test-dashboard-browser.mjs",
+    "test:spa-stress": "node --test --test-name-pattern=\"50 rapid SPA transitions\" test-dashboard-browser.mjs",
+    "profile:performance": "node scripts/profile-newtab.mjs --assert",
     "preview:trees": "node scripts/preview-trees.mjs",
     "package": "node scripts/package.mjs"
   },
