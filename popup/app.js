@@ -1,7 +1,19 @@
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
 
+/**
+ * Send a message to the service worker with error handling
+ * @param {string} type - Message type
+ * @param {object} payload - Message payload
+ * @returns {Promise<any>} Response from service worker
+ */
 async function message(type, payload = {}) {
-  return chrome.runtime.sendMessage({ type, ...payload });
+  try {
+    return await chrome.runtime.sendMessage({ type, ...payload });
+  } catch (error) {
+    // Service worker may be unavailable during startup or after crash
+    logError(error, { category: ERROR_CATEGORIES.MESSAGING, operation: 'sendMessage', messageType: type });
+    throw error; // Re-throw so caller can handle fallback
+  }
 }
 
 async function activeTab() {

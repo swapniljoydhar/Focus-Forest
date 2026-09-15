@@ -1,6 +1,20 @@
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
 
-async function message(type, payload = {}) { return chrome.runtime.sendMessage({ type, ...payload }); }
+/**
+ * Send a message to the service worker with error handling
+ * @param {string} type - Message type
+ * @param {object} payload - Message payload
+ * @returns {Promise<any>} Response from service worker
+ */
+async function message(type, payload = {}) {
+  try {
+    return await chrome.runtime.sendMessage({ type, ...payload });
+  } catch (error) {
+    // Service worker may be unavailable during startup or after crash
+    logError(error, { category: ERROR_CATEGORIES.MESSAGING, operation: 'sendMessage', messageType: type });
+    throw error; // Re-throw so caller can handle fallback
+  }
+}
 const gentle = document.querySelector('#gentle'); const choice = document.querySelector('#choice'); const motion = document.querySelector('#motion'); const searchEngine = document.querySelector('#search-engine'); const excludedSites = document.querySelector('#excluded-sites'); const status = document.querySelector('#status'); const save = document.querySelector('#save');
 const gentleValue = document.querySelector('#gentle-value'); const choiceValue = document.querySelector('#choice-value');
 const gentlePreviewLabel = document.querySelector('#gentle-preview-label'); const choicePreviewLabel = document.querySelector('#choice-preview-label');

@@ -292,6 +292,47 @@ export async function checkStorageQuota() {
 }
 
 /**
+ * Automatically compact state when storage approaches quota
+ * Removes oldest completed sessions first to free up space
+ * @returns {Promise<boolean>} True if compaction was performed
+ */
+export async function compactStateIfNeeded() {
+  const quota = await checkStorageQuota();
+  // If quota check failed (e.g., in test environment), skip compaction
+  if (!quota) return false;
+  if (!quota.warning && !quota.critical) return false;
+  
+  let compactionAttempts = 0;
+  const MAX_COMPACTION_ATTEMPTS = 5;
+  
+  await mutate((state) => {
+    let changed = false;
+    // Remove oldest completed sessions first (keep at least 3 recent ones)
+    while (state.sessions.length > 3 && compactionAttempts < MAX_COMPACTION_ATTEMPTS) {
+      const sessionIndex = state.sessions.findIndex(s => s.status === 'completed');
+      if (sessionIndex === -1) break; // No more completed sessions to remove
+      
+      // Don't remove the active session
+      if (state.sessions[sessionIndex].id === state.activeSessionId) break;
+      
+      state.sessions.splice(sessionIndex, 1);
+      changed = true;
+      compactionAttempts++;
+    }
+    
+    // If still critical, also trim compost items (keep last 20)
+    if (quota.critical && state.compostItems.length > 20) {
+      state.compostItems = state.compostItems.slice(-20);
+      changed = true;
+    }
+    
+    return changed ? state : NO_CHANGE;
+  });
+  
+  return compactionAttempts > 0;
+}
+
+/**
  * Loads the persisted Focus Forest state from chrome.storage.local.
  * Returns a cached copy if available and not invalidated.
  * @returns {Promise<object>} Normalized state object.
@@ -309,11 +350,16 @@ export async function loadState() {
 
 /**
  * Persists a state object to chrome.storage.local and updates the cache.
+ * Automatically compacts state if storage quota is approaching limits.
  * @param {object} state - State object to persist.
  * @returns {Promise<object>} The saved state.
  */
 export async function saveState(state) {
   const normalized = normalizeState(state);
+  
+  // Check if compaction is needed before saving
+  await compactStateIfNeeded();
+  
   ownWritesInFlight += 1;
   try {
     await chrome.storage.local.set({ [STORAGE_KEY]: normalized });

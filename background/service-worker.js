@@ -1,5 +1,5 @@
-import { LIMITS, SCHEMA_VERSION, STORAGE_KEY, activeSession, clearStateCache, compactText, emptyState, getDepthState, isBrowserNewTabUrl, isExtensionNewTabUrl, isPlaceholderOriginUrl, isSearchUrl, loadState, makeId, normalizeSettings, safeHttpUrl, safeSessionUrl, saveState, checkStorageQuota, normalizeState } from '../shared/state.js';
-import { logError, ERROR_CATEGORIES, wrapMutationWithErrorBoundary, wrapWithErrorBoundary } from '../shared/error-tracing.js';
+import { LIMITS, SCHEMA_VERSION, STORAGE_KEY, activeSession, clearStateCache, compactText, emptyState, getDepthState, isBrowserNewTabUrl, isExtensionNewTabUrl, isPlaceholderOriginUrl, isSearchUrl, loadState, makeId, normalizeSettings, safeHttpUrl, safeSessionUrl, saveState, checkStorageQuota, normalizeState, compactStateIfNeeded } from '../shared/state.js';
+import { logError, logWarning, ERROR_CATEGORIES, wrapMutationWithErrorBoundary, wrapWithErrorBoundary } from '../shared/error-tracing.js';
 
 const pendingBranches = new Map();
 const MAX_PENDING_BRANCHES = 64;
@@ -7,11 +7,45 @@ const spaDedup = new Map();
 const MAX_SPA_DEDUP = 128;
 const activeTabs = new Map();
 const navigationHints = new Map();
+// Rate limiting for messages from content scripts (prevents spam attacks)
+const messageCounts = new Map();
+const MAX_MESSAGES_PER_MINUTE = 60;
+const RATE_LIMIT_WINDOW_MS = 60000;
+
 function clearRuntimeTracking() {
   pendingBranches.clear();
   spaDedup.clear();
   activeTabs.clear();
   navigationHints.clear();
+  messageCounts.clear();
+}
+
+/**
+ * Check if sender has exceeded message rate limit
+ * @param {string} senderId - Unique identifier for the sender (tab ID or URL)
+ * @returns {boolean} True if message is allowed, false if rate limited
+ */
+function checkRateLimit(senderId) {
+  if (!senderId) return true; // Allow messages without sender ID
+  
+  const count = messageCounts.get(senderId) || 0;
+  if (count >= MAX_MESSAGES_PER_MINUTE) {
+    return false; // Rate limit exceeded
+  }
+  
+  messageCounts.set(senderId, count + 1);
+  
+  // Schedule decrement after window expires
+  setTimeout(() => {
+    const current = messageCounts.get(senderId) - 1;
+    if (current <= 0) {
+      messageCounts.delete(senderId);
+    } else {
+      messageCounts.set(senderId, current);
+    }
+  }, RATE_LIMIT_WINDOW_MS);
+  
+  return true;
 }
 // 1s dedup window for repeated SPA navigations on the same tab+url.
 function recentlyObservedSpa(tabId, url) {
@@ -717,6 +751,19 @@ chrome.contextMenus?.onClicked?.addListener((info, tab) => {
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!isRecord(message) || typeof message.type !== 'string') { sendResponse(null); return false; }
   if (sender?.id !== chrome.runtime.id) { sendResponse(null); return false; }
+  
+  // Rate limit messages from content scripts to prevent spam attacks
+  const senderId = sender?.tab?.id ? `tab:${sender.tab.id}` : sender?.url ? `url:${sender.url}` : null;
+  if (!checkRateLimit(senderId)) {
+    logWarning(new Error('Message rate limit exceeded'), { 
+      category: ERROR_CATEGORIES.MESSAGING, 
+      senderId,
+      messageType: message.type 
+    });
+    sendResponse(null);
+    return false;
+  }
+  
   const tab = sender && typeof sender === 'object' && sender.tab && typeof sender.tab === 'object' ? sender.tab : null;
   if (!validateMessage(message)) { sendResponse(null); return false; }
   (async () => {

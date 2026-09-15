@@ -61,10 +61,84 @@ button, input { font: inherit; color: inherit; }
 .hill-front { opacity: 0.7; fill: #cdd9cc; }
 .floating-particles { position: absolute; inset: 0; background-image: radial-gradient(circle at 20% 30%, rgba(74, 124, 89, 0.15) 1px, transparent 1px), radial-gradient(circle at 50% 60%, rgba(74, 124, 89, 0.1) 1.5px, transparent 1.5px); background-size: 120px 120px, 180px 180px; mask-image: linear-gradient(to bottom, rgba(0, 0, 0, 0.4) 0%, transparent 50%); opacity: 0.4; animation: particleFloat 20s linear infinite; }
 @keyframes particleFloat { from { background-position: 0 0, 40px 60px; } to { background-position: 120px 120px, 220px 240px; } }
+
+/* Additional subtle atmospheric layers */
+.atmospheric-layer { position: absolute; inset: 0; pointer-events: none; opacity: 0.15; }
+.atmo-gradient-1 { 
+  background: linear-gradient(120deg, 
+    rgba(138, 177, 132, 0.08) 0%, 
+    transparent 40%, 
+    rgba(232, 217, 168, 0.06) 60%, 
+    transparent 80%);
+  animation: atmosphereShift 25s ease-in-out infinite alternate;
+}
+.atmo-gradient-2 { 
+  background: linear-gradient(240deg, 
+    rgba(74, 124, 89, 0.06) 0%, 
+    transparent 50%, 
+    rgba(107, 155, 122, 0.08) 100%);
+  animation: atmosphereShift 30s ease-in-out -10s infinite alternate-reverse;
+}
+@keyframes atmosphereShift { 
+  0% { transform: translate3d(-2%, -1%, 0) scale(1.02); opacity: 0.12; } 
+  50% { transform: translate3d(1%, 2%, 0) scale(0.98); opacity: 0.18; } 
+  100% { transform: translate3d(3%, -2%, 0) scale(1.01); opacity: 0.15; } 
+}
+
+/* Subtle leaf drift effect */
+.leaf-drift-container { position: absolute; inset: 0; overflow: hidden; }
+.leaf-drift { 
+  position: absolute; 
+  width: 8px; 
+  height: 8px; 
+  background: rgba(74, 124, 89, 0.12); 
+  border-radius: 50% 0 50% 0;
+  animation: leafDrift 35s linear infinite;
+  opacity: 0;
+}
+.leaf-drift:nth-child(1) { left: 10%; top: 20%; animation-delay: 0s; animation-duration: 40s; }
+.leaf-drift:nth-child(2) { left: 30%; top: 60%; animation-delay: -12s; animation-duration: 45s; }
+.leaf-drift:nth-child(3) { left: 60%; top: 40%; animation-delay: -25s; animation-duration: 38s; }
+.leaf-drift:nth-child(4) { left: 80%; top: 70%; animation-delay: -8s; animation-duration: 42s; }
+.leaf-drift:nth-child(5) { left: 45%; top: 15%; animation-delay: -18s; animation-duration: 48s; }
+@keyframes leafDrift { 
+  0% { transform: translateY(-10vh) rotate(0deg) translateX(0); opacity: 0; } 
+  10% { opacity: 0.6; } 
+  90% { opacity: 0.6; } 
+  100% { transform: translateY(110vh) rotate(720deg) translateX(30px); opacity: 0; } 
+}
+
+/* Gentle light rays */
+.light-rays { 
+  position: absolute; 
+  top: -50%; 
+  left: 50%; 
+  transform: translateX(-50%); 
+  width: 120%; 
+  height: 100%; 
+  background: repeating-linear-gradient( 
+    160deg, 
+    transparent, 
+    transparent 50px, 
+    rgba(255, 248, 220, 0.03) 50px, 
+    rgba(255, 248, 220, 0.03) 100px 
+  );
+  animation: rayShift 45s linear infinite;
+  pointer-events: none;
+  opacity: 0.5;
+}
+@keyframes rayShift { 
+  from { transform: translateX(-50%) rotate(0deg); } 
+  to { transform: translateX(-50%) rotate(360deg); } 
+}
 body[data-motion="off"] .sun-glow,
 body[data-motion="off"] .floating-particles,
 body[data-motion="off"] .ambient::before,
 body[data-motion="off"] .ambient::after,
+body[data-motion="off"] .atmo-gradient-1,
+body[data-motion="off"] .atmo-gradient-2,
+body[data-motion="off"] .leaf-drift,
+body[data-motion="off"] .light-rays,
 body[data-motion="off"] .leaf-cluster,
 body[data-motion="off"] .sapling-growth,
 body[data-motion="off"] .sapling-trunk,

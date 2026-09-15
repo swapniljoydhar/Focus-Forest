@@ -13,8 +13,21 @@ const status = document.querySelector('#form-status');
 const resumeBtn = document.querySelector('#resume-mission-btn');
 const browseBtn = document.querySelector('#browse-freely-btn');
 
-// Message helper
-async function message(type, payload = {}) { return chrome.runtime.sendMessage({ type, ...payload }); }
+/**
+ * Send a message to the service worker with error handling
+ * @param {string} type - Message type
+ * @param {object} payload - Message payload
+ * @returns {Promise<any>} Response from service worker
+ */
+async function message(type, payload = {}) {
+  try {
+    return await chrome.runtime.sendMessage({ type, ...payload });
+  } catch (error) {
+    // Service worker may be unavailable during startup or after crash
+    logError(error, { category: ERROR_CATEGORIES.MESSAGING, operation: 'sendMessage', messageType: type });
+    throw error; // Re-throw so caller can handle fallback
+  }
+}
 
 // Update character counter
 function updateCount() { if (charCurrent) { charCurrent.textContent = input.value.length.toString(); } }
