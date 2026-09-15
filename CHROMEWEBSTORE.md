@@ -123,3 +123,4 @@ Run `npm ci`, then `npm run test:all` and `npm run package`. The resulting `dist
 |---------|------|---------|--------|
 | 0.3.0 | 2026-09-14 | Added Browser-default search through Chromium's Search API, stronger SPA route serialization, richer storybook tree twigs and buds, site-level pause controls, release CI, and reproducible packaging. | Draft |
 | 0.3.1 | 2026-09-15 | Fixed recent-bud rendering, title-only SPA updates, rapid History API route snapshots, Back/Forward tracking, and reliable MV3 quota scheduling. | Draft |
+| 0.3.2 | 2026-09-15 | Removed an unintended settings sync mirror so all session, settings, and compost data remain local-only; corrected browser compatibility documentation. | Draft |
