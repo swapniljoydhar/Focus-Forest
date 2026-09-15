@@ -48,7 +48,7 @@ body {
 button, input { font: inherit; color: inherit; }
 
 .ambient { position: fixed; z-index: -1; inset: 0; overflow: hidden; pointer-events: none; }
-.ambient::before, .ambient::after { content: ''; position: absolute; width: min(54vw, 720px); aspect-ratio: 1; border-radius: 50%; pointer-events: none; opacity: .32; filter: blur(28px); will-change: transform, opacity; }
+.ambient::before, .ambient::after { content: ''; position: absolute; width: min(54vw, 720px); aspect-ratio: 1; border-radius: 50%; pointer-events: none; opacity: .32; filter: blur(20px); will-change: transform, opacity; }
 .ambient::before { top: 8%; left: -18%; background: radial-gradient(circle, rgba(138, 177, 132, .22) 0%, rgba(138, 177, 132, 0) 68%); animation: mistDrift 18s ease-in-out infinite alternate; }
 .ambient::after { right: -20%; bottom: 9%; background: radial-gradient(circle, rgba(231, 207, 145, .22) 0%, rgba(231, 207, 145, 0) 68%); animation: mistDrift 23s ease-in-out -7s infinite alternate-reverse; }
 @keyframes mistDrift { 0% { transform: translate3d(0, 12px, 0) scale(.92); opacity: .2; } 100% { transform: translate3d(10vw, -18px, 0) scale(1.08); opacity: .42; } }
@@ -252,6 +252,18 @@ body[data-motion="off"] .sapling-branch { animation: none !important; }
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
   .ambient::before, .ambient::after, .floating-particles { animation: none; }
+}
+
+/* Battery Optimization: Pause animations when tab is hidden */
+body[data-page-visibility="hidden"] .ambient::before,
+body[data-page-visibility="hidden"] .ambient::after,
+body[data-page-visibility="hidden"] .sun-glow,
+body[data-page-visibility="hidden"] .floating-particles,
+body[data-page-visibility="hidden"] .atmo-gradient-1,
+body[data-page-visibility="hidden"] .atmo-gradient-2,
+body[data-page-visibility="hidden"] .leaf-drift,
+body[data-page-visibility="hidden"] .light-rays {
+  animation-play-state: paused !important;
 }
 
 /* Onboarding overlay */

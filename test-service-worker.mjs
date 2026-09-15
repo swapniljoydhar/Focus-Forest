@@ -126,7 +126,7 @@ assert.equal(session().nodes.at(-1).state, 'interrupted', 'depth 5 should be int
 assert.equal(session().nodes.slice(0, -1).some((node) => node.tabIds?.includes(7)), false, 'a navigating tab should not remain attached to historical nodes');
 
 await send({ type: 'COMPOST', url: 'https://example.com/weapons', title: 'Weapons' }, { id: 7 });
-assert.equal(store.focusForestState.schemaVersion, 3, 'state should use the current compact schema');
+assert.equal(store.focusForestState.schemaVersion, 4, 'state should use the current compact schema');
 assert.equal('transitions' in session(), false, 'nodes should be the only branch relationship source');
 assert.equal(store.focusForestState.compostItems.length, 1, 'compost should save one item');
 assert.equal(tabActions.some((action) => action[0] === 'remove' && action[1] === 7), false, 'compost must not close the current tab');

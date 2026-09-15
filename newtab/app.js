@@ -120,6 +120,17 @@ browseBtn.addEventListener('click', wrapWithErrorBoundary(async () => {
 updateCount();
 initSafely();
 
+// Battery Optimization: Pause animations when tab is hidden
+function updatePageVisibility() {
+  document.body.dataset.pageVisibility = document.hidden ? 'hidden' : 'visible';
+}
+
+// Set initial state
+updatePageVisibility();
+
+// Listen for visibility changes
+document.addEventListener('visibilitychange', updatePageVisibility);
+
 // Onboarding dismiss
 const onboardingStart = document.getElementById('onboarding-start');
 if (onboardingStart) {

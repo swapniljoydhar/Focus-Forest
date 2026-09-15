@@ -1,4 +1,4 @@
-import { LIMITS, SCHEMA_VERSION, STORAGE_KEY, activeSession, clearStateCache, compactText, emptyState, getDepthState, isBrowserNewTabUrl, isExtensionNewTabUrl, isPlaceholderOriginUrl, isSearchUrl, loadState, makeId, normalizeSettings, safeHttpUrl, safeSessionUrl, saveState, checkStorageQuota, normalizeState, compactStateIfNeeded } from '../shared/state.js';
+import { LIMITS, SCHEMA_VERSION, STORAGE_KEY, activeSession, clearStateCache, compactText, emptyState, getDepthState, isBrowserNewTabUrl, isExtensionNewTabUrl, isPlaceholderOriginUrl, isSearchUrl, loadState, makeId, normalizeSettings, safeHttpUrl, safeSessionUrl, saveState, checkStorageQuota, normalizeState, compactStateIfNeeded, earnReward, canEarnReward } from '../shared/state.js';
 import { logError, logWarning, ERROR_CATEGORIES, wrapMutationWithErrorBoundary, wrapWithErrorBoundary } from '../shared/error-tracing.js';
 
 const pendingBranches = new Map();
@@ -355,6 +355,13 @@ async function endSession(reason = 'user_ended') {
     activeTabs.clear();
     addEvent(session, reason === 'mission_changed' ? 'mission_changed' : 'mission_ended', { reason });
     state.activeSessionId = null;
+    
+    // Earn bloom reward for completing mission (if rewards enabled)
+    if (canEarnReward(state)) {
+      const tier = reason === 'user_ended' ? 'blooms' : 'discoveries';
+      earnReward(state, tier, `session_end_${reason}`);
+    }
+    
     return session;
   }).then((result) => { if (result !== NO_CHANGE) updateBadge(); return result; });
 }
@@ -498,7 +505,14 @@ async function compost(tabId, rawUrl, title) {
       if (state.compostItems.length > LIMITS.COMPOST) state.compostItems.splice(LIMITS.COMPOST);
     }
     if (node) { node.state = 'composted'; node.closedAt = Date.now(); node.tabIds = []; delete node.tabId; }
-    addEvent(session, 'composted', { url }); return true;
+    addEvent(session, 'composted', { url });
+    
+    // Earn leaf reward for intentional choice to compost (if rewards enabled)
+    if (canEarnReward(state)) {
+      earnReward(state, 'leaves', 'compost_choice');
+    }
+    
+    return true;
   });
 }
 
@@ -896,6 +910,14 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               if (chrome.windows?.update && Number.isInteger(liveTab.windowId)) await chrome.windows.update(liveTab.windowId, { focused: true }); 
               await chrome.tabs.update(originTabId, { url: returnUrl, active: true }); 
               returnedToOrigin = true; 
+              
+              // Earn seed reward for returning to root (if rewards enabled)
+              mutate((state) => {
+                if (canEarnReward(state)) {
+                  earnReward(state, 'seeds', 'return_to_root');
+                }
+                return state;
+              });
             }
           } catch { returnedToOrigin = false; }
         }

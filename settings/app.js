@@ -15,13 +15,13 @@ async function message(type, payload = {}) {
     throw error; // Re-throw so caller can handle fallback
   }
 }
-const gentle = document.querySelector('#gentle'); const choice = document.querySelector('#choice'); const motion = document.querySelector('#motion'); const searchEngine = document.querySelector('#search-engine'); const excludedSites = document.querySelector('#excluded-sites'); const status = document.querySelector('#status'); const save = document.querySelector('#save');
+const gentle = document.querySelector('#gentle'); const choice = document.querySelector('#choice'); const motion = document.querySelector('#motion'); const searchEngine = document.querySelector('#search-engine'); const excludedSites = document.querySelector('#excluded-sites'); const status = document.querySelector('#status'); const save = document.querySelector('#save'); const enableRewardsToggle = document.querySelector('#enable-rewards');
 const gentleValue = document.querySelector('#gentle-value'); const choiceValue = document.querySelector('#choice-value');
 const gentlePreviewLabel = document.querySelector('#gentle-preview-label'); const choicePreviewLabel = document.querySelector('#choice-preview-label');
 const previewGentle = document.querySelector('#preview-gentle'); const previewChoice = document.querySelector('#preview-choice');
 const previewCopy = document.querySelector('#preview-copy');
-const original = { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default' }; let saved = { ...original }; let ready = false;
-function currentSettings() { return { gentleDepth: Number(gentle.value), choiceDepth: Number(choice.value), ambientMotion: motion.checked, growthAnimationTrigger: document.querySelector('input[name="growth-animation"]:checked')?.value || 'mission-origin', excludedSites: excludedSites.value.split(/\r?\n/).map((site) => site.trim().toLowerCase().replace(/^www\./, '')).filter(Boolean), searchEngine: searchEngine.value }; }
+const original = { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false }; let saved = { ...original }; let ready = false;
+function currentSettings() { return { gentleDepth: Number(gentle.value), choiceDepth: Number(choice.value), ambientMotion: motion.checked, growthAnimationTrigger: document.querySelector('input[name="growth-animation"]:checked')?.value || 'mission-origin', excludedSites: excludedSites.value.split(/\r?\n/).map((site) => site.trim().toLowerCase().replace(/^www\./, '')).filter(Boolean), searchEngine: searchEngine.value, enableRewards: enableRewardsToggle?.checked === true }; }
 function markDirty() { if (!ready) return; const dirty = JSON.stringify(currentSettings()) !== JSON.stringify(saved); save.disabled = !dirty; if (dirty) status.textContent = 'You have a rhythm change ready to save.'; }
 function sync() {
   const g = Number(gentle.value);
@@ -41,7 +41,7 @@ async function load() {
   try { 
     const snap = await message('GET_SNAPSHOT'); 
     const settings = snap.settings || original; 
-    saved = { gentleDepth: settings.gentleDepth || original.gentleDepth, choiceDepth: settings.choiceDepth || original.choiceDepth, ambientMotion: settings.ambientMotion !== false, growthAnimationTrigger: ['mission-origin', 'every-branch', 'none'].includes(settings.growthAnimationTrigger) ? settings.growthAnimationTrigger : original.growthAnimationTrigger, excludedSites: Array.isArray(settings.excludedSites) ? settings.excludedSites : [], searchEngine: ['default', 'google', 'bing', 'duckduckgo', 'brave', 'startpage'].includes(settings.searchEngine) ? settings.searchEngine : original.searchEngine };
+    saved = { gentleDepth: settings.gentleDepth || original.gentleDepth, choiceDepth: settings.choiceDepth || original.choiceDepth, ambientMotion: settings.ambientMotion !== false, growthAnimationTrigger: ['mission-origin', 'every-branch', 'none'].includes(settings.growthAnimationTrigger) ? settings.growthAnimationTrigger : original.growthAnimationTrigger, excludedSites: Array.isArray(settings.excludedSites) ? settings.excludedSites : [], searchEngine: ['default', 'google', 'bing', 'duckduckgo', 'brave', 'startpage'].includes(settings.searchEngine) ? settings.searchEngine : original.searchEngine, enableRewards: settings.enableRewards === true };
     gentle.value = saved.gentleDepth; 
     choice.value = saved.choiceDepth; 
     motion.checked = saved.ambientMotion; 
@@ -49,6 +49,7 @@ async function load() {
     excludedSites.value = saved.excludedSites.join('\n');
     const radio = document.querySelector(`input[name="growth-animation"][value="${saved.growthAnimationTrigger}"]`); 
     if (radio) radio.checked = true; 
+    if (enableRewardsToggle) enableRewardsToggle.checked = saved.enableRewards;
     ready = true; 
     sync(); 
     save.disabled = true; 
@@ -64,6 +65,7 @@ motion.addEventListener('change', wrapWithErrorBoundary(markDirty, { category: E
 searchEngine.addEventListener('change', wrapWithErrorBoundary(markDirty, { category: ERROR_CATEGORIES.UI_RENDER, function: 'search-engine.change', swallow: true }));
 excludedSites.addEventListener('input', wrapWithErrorBoundary(markDirty, { category: ERROR_CATEGORIES.UI_RENDER, function: 'excluded-sites.input', swallow: true }));
 document.querySelectorAll('input[name="growth-animation"]').forEach((radio) => radio.addEventListener('change', wrapWithErrorBoundary(markDirty, { category: ERROR_CATEGORIES.UI_RENDER, function: 'growth-animation.change', swallow: true })));
+if (enableRewardsToggle) enableRewardsToggle.addEventListener('change', wrapWithErrorBoundary(markDirty, { category: ERROR_CATEGORIES.UI_RENDER, function: 'enable-rewards.change', swallow: true }));
 save.addEventListener('click', wrapWithErrorBoundary(async () => { 
   sync(); 
   try { 
@@ -87,6 +89,7 @@ document.querySelector('#reset').addEventListener('click', wrapWithErrorBoundary
     excludedSites.value = '';
     const radio = document.querySelector(`input[name="growth-animation"][value="${original.growthAnimationTrigger}"]`); 
     if (radio) radio.checked = true; 
+    if (enableRewardsToggle) enableRewardsToggle.checked = original.enableRewards;
     sync(); 
     save.disabled = true; 
     status.textContent = 'The original rhythm has returned.'; 

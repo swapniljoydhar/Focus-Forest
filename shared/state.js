@@ -2,18 +2,71 @@ import './chromium-api.js';
 import { logError, logWarning, logCritical, ERROR_CATEGORIES } from './error-tracing.js';
 
 export const STORAGE_KEY = 'focusForestState';
-export const SCHEMA_VERSION = 3;
+export const SCHEMA_VERSION = 4; // Incremented for reward system
 export const LIMITS = { SESSIONS: 12, NODES_PER_SESSION: 96, EVENTS_PER_SESSION: 72, COMPOST: 80, TITLE: 120, MISSION_NOTE: 280, URL: 1024 };
-export const DEFAULT_SETTINGS = { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default' };
+export const DEFAULT_SETTINGS = { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false };
 export const STORAGE_QUOTA_WARNING_THRESHOLD = 4 * 1024 * 1024; // 4MB warning threshold
 export const STORAGE_QUOTA_CRITICAL_THRESHOLD = 7 * 1024 * 1024; // 7MB critical threshold (Chrome's limit is ~8MB)
+
+/**
+ * Curated offline reward catalog - deterministic, bounded, meaningful
+ * Rewards reinforce reflection and intentional choice, not browsing duration
+ */
+export const REWARD_CATALOG = {
+  // Seed tier: Returning to mission root
+  seeds: [
+    { id: 'seed_1', text: 'The root is still here.', icon: '🌱' },
+    { id: 'seed_2', text: 'You remembered your intention.', icon: '🌰' },
+    { id: 'seed_3', text: 'A clear beginning awaits.', icon: '🍃' },
+    { id: 'seed_4', text: 'Return is a form of progress.', icon: '🌿' }
+  ],
+  // Leaf tier: Making intentional choices at intervention points
+  leaves: [
+    { id: 'leaf_1', text: 'You noticed the branch.', icon: '🍁' },
+    { id: 'leaf_2', text: 'A clear choice is a form of progress.', icon: '🌾' },
+    { id: 'leaf_3', text: 'Curiosity preserved with care.', icon: '🌻' },
+    { id: 'leaf_4', text: 'You chose deliberately.', icon: '🌷' },
+    { id: 'leaf_5', text: 'Awareness blooms here.', icon: '🌸' },
+    { id: 'leaf_6', text: 'This branch taught you something.', icon: '🍂' }
+  ],
+  // Bloom tier: Completing or resting a mission
+  blooms: [
+    { id: 'bloom_1', text: 'Your garden grows with intention.', icon: '🌺' },
+    { id: 'bloom_2', text: 'A session tended with care.', icon: '🌹' },
+    { id: 'bloom_3', text: 'The forest remembers this path.', icon: '🌳' },
+    { id: 'bloom_4', text: 'Seasons change, wisdom remains.', icon: '🍄' },
+    { id: 'bloom_5', text: 'A new pattern takes root.', icon: '🪴' }
+  ],
+  // Special discoveries: Rare seasonal details
+  discoveries: [
+    { id: 'disc_1', text: 'A visiting bird left a feather.', icon: '🐦' },
+    { id: 'disc_2', text: 'Morning dew catches the light.', icon: '💧' },
+    { id: 'disc_3', text: 'A mushroom appears after rain.', icon: '🍄' },
+    { id: 'disc_4', text: 'Seasonal berries ripen quietly.', icon: '🫐' }
+  ]
+};
+
+// Reward cooldowns and limits
+export const REWARD_LIMITS = {
+  COOLDOWN_MS: 5 * 60 * 1000, // 5 minutes between rewards
+  MAX_PER_SESSION: 3, // Maximum rewards per session
+  REWARD_HISTORY_DAYS: 30 // Keep reward history for 30 days
+};
 
 /**
  * Returns a fresh empty state object with default settings.
  * @returns {object} Empty state matching the current schema version.
  */
 export function emptyState() {
-  return { schemaVersion: SCHEMA_VERSION, activeSessionId: null, sessions: [], compostItems: [], settings: { interventionsPaused: false, ...DEFAULT_SETTINGS }, onboardingCompleted: false };
+  return { 
+    schemaVersion: SCHEMA_VERSION, 
+    activeSessionId: null, 
+    sessions: [], 
+    compostItems: [], 
+    settings: { interventionsPaused: false, ...DEFAULT_SETTINGS }, 
+    onboardingCompleted: false,
+    rewardHistory: [] // Track earned rewards with timestamps
+  };
 }
 
 /**
@@ -256,7 +309,8 @@ export function normalizeSettings(value, fallback = emptyState().settings) {
   const growthAnimationTrigger = ['mission-origin', 'every-branch', 'none'].includes(source.growthAnimationTrigger) ? source.growthAnimationTrigger : fallback.growthAnimationTrigger;
   const excludedSites = Array.isArray(source.excludedSites) ? source.excludedSites.map((site) => compactText(site, 120).toLowerCase().replace(/^www\./, '')).filter((site, index, list) => site && list.indexOf(site) === index).slice(0, 40) : (Array.isArray(fallback.excludedSites) ? fallback.excludedSites : []);
   const searchEngine = ['default', 'google', 'bing', 'duckduckgo', 'brave', 'startpage'].includes(source.searchEngine) ? source.searchEngine : fallback.searchEngine;
-  return { interventionsPaused: Boolean(source.interventionsPaused), gentleDepth, choiceDepth, ambientMotion: source.ambientMotion !== false, growthAnimationTrigger, excludedSites, searchEngine };
+  const enableRewards = source.enableRewards === true;
+  return { interventionsPaused: Boolean(source.interventionsPaused), gentleDepth, choiceDepth, ambientMotion: source.ambientMotion !== false, growthAnimationTrigger, excludedSites, searchEngine, enableRewards };
 }
 
 let stateCache = null;
@@ -399,4 +453,106 @@ if (typeof chrome !== 'undefined' && chrome.alarms && isExtensionServiceWorker) 
       });
     }
   });
+}
+
+/**
+ * Reward system functions - offline, deterministic, bounded
+ */
+
+/**
+ * Check if a reward can be earned based on cooldowns and limits
+ * @param {object} state - Current application state
+ * @returns {boolean} True if reward can be earned
+ */
+export function canEarnReward(state) {
+  if (!state.settings.enableRewards) return false;
+  
+  const now = Date.now();
+  const recentRewards = state.rewardHistory.filter(
+    r => now - r.timestamp < REWARD_LIMITS.COOLDOWN_MS
+  );
+  
+  if (recentRewards.length >= 1) return false; // Cooldown active
+  
+  // Count rewards in current session
+  const currentSessionId = state.activeSessionId;
+  if (currentSessionId) {
+    const sessionRewards = state.rewardHistory.filter(
+      r => r.sessionId === currentSessionId
+    );
+    if (sessionRewards.length >= REWARD_LIMITS.MAX_PER_SESSION) return false;
+  }
+  
+  return true;
+}
+
+/**
+ * Select a random reward from the appropriate tier
+ * Uses crypto.getRandomValues for true randomness when available
+ * @param {string} tier - Reward tier ('seeds', 'leaves', 'blooms', 'discoveries')
+ * @param {number} seed - Optional seed for deterministic selection
+ * @returns {object|null} Selected reward or null if tier empty
+ */
+export function selectRandomReward(tier, seed = null) {
+  const catalog = REWARD_CATALOG[tier];
+  if (!catalog || catalog.length === 0) return null;
+  
+  let index;
+  if (seed !== null) {
+    // Deterministic selection for testing
+    index = seed % catalog.length;
+  } else if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
+    // True random using Web Crypto API
+    const array = new Uint32Array(1);
+    crypto.getRandomValues(array);
+    index = array[0] % catalog.length;
+  } else {
+    // Fallback to Math.random (less ideal but works)
+    index = Math.floor(Math.random() * catalog.length);
+  }
+  
+  return catalog[index];
+}
+
+/**
+ * Record an earned reward in state
+ * @param {object} state - Current application state
+ * @param {string} tier - Reward tier
+ * @param {string} trigger - What triggered this reward
+ * @returns {object|null} The earned reward or null if cannot earn
+ */
+export function earnReward(state, tier, trigger) {
+  if (!canEarnReward(state)) return null;
+  
+  const reward = selectRandomReward(tier);
+  if (!reward) return null;
+  
+  const rewardRecord = {
+    id: makeId('reward'),
+    rewardId: reward.id,
+    tier,
+    trigger,
+    timestamp: Date.now(),
+    sessionId: state.activeSessionId,
+    text: reward.text,
+    icon: reward.icon
+  };
+  
+  state.rewardHistory.push(rewardRecord);
+  
+  // Trim old rewards beyond history limit
+  const cutoff = Date.now() - (REWARD_LIMITS.REWARD_HISTORY_DAYS * 24 * 60 * 60 * 1000);
+  state.rewardHistory = state.rewardHistory.filter(r => r.timestamp > cutoff);
+  
+  return reward;
+}
+
+/**
+ * Get the most recent unclaimed reward
+ * @param {object} state - Current application state
+ * @returns {object|null} Recent reward or null
+ */
+export function getRecentReward(state) {
+  if (!state.rewardHistory || state.rewardHistory.length === 0) return null;
+  return state.rewardHistory[state.rewardHistory.length - 1];
 }
