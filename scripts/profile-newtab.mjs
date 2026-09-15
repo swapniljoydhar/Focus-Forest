@@ -46,4 +46,16 @@ const result = {
   paintImageLoaded: a.get('PaintImageCount') || 0,
 };
 console.log(JSON.stringify(result, null, 2));
+if (process.argv.includes('--assert')) {
+  const heapUsed = result.jsHeapBytes?.used || 0;
+  const maxLongTask = Math.max(0, ...result.longTasksMs);
+  const failures = [
+    result.domNodes > 160 && `DOM node count ${result.domNodes} exceeds 160`,
+    maxLongTask > 100 && `long task ${maxLongTask.toFixed(1)}ms exceeds 100ms`,
+    result.layoutDurationDeltaMs > 100 && `layout duration ${result.layoutDurationDeltaMs.toFixed(1)}ms exceeds 100ms`,
+    result.recalcStyleDurationDeltaMs > 250 && `style recalculation ${result.recalcStyleDurationDeltaMs.toFixed(1)}ms exceeds 250ms`,
+    heapUsed > 32 * 1024 * 1024 && `heap ${heapUsed} bytes exceeds 32MiB`
+  ].filter(Boolean);
+  if (failures.length) throw new Error(`performance regression: ${failures.join('; ')}`);
+}
 await browser.close();

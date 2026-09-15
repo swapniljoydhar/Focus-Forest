@@ -249,3 +249,24 @@ test('pushState snapshots and Back navigation preserve SPA route history', async
   await page.waitForFunction(() => globalThis.contentMessages?.filter(message => message.type === 'SPA_NAVIGATION').some(message => new URL(message.url).pathname === '/chapter-one'));
   assert.equal(new URL(page.url()).pathname, '/chapter-one');
 });
+
+test('50 rapid SPA transitions remain distinct without runaway heap growth', async t => {
+  const page = await openDashboard(t);
+  const client = await page.context().newCDPSession(page);
+  await page.evaluate(() => import('/content/content.js'));
+  await page.waitForFunction(() => globalThis.contentMessages?.some(message => message.type === 'GET_ACTIVE_VIEW'));
+  await client.send('HeapProfiler.enable');
+  await client.send('HeapProfiler.collectGarbage');
+  const before = await page.evaluate(() => performance.memory?.usedJSHeapSize || 0);
+  await page.evaluate(() => {
+    for (let index = 1; index <= 50; index += 1) history.pushState({ chapter: index }, '', `/rapid-chapter-${index}`);
+  });
+  await page.waitForFunction(() => (globalThis.contentMessages?.filter(message => message.type === 'SPA_NAVIGATION').length || 0) >= 50);
+  await page.waitForTimeout(100);
+  await client.send('HeapProfiler.collectGarbage');
+  const after = await page.evaluate(() => performance.memory?.usedJSHeapSize || 0);
+  const routes = await page.evaluate(() => globalThis.contentMessages.filter(message => message.type === 'SPA_NAVIGATION').map(message => new URL(message.url).pathname));
+  assert.ok(routes.filter(route => route.startsWith('/rapid-chapter-')).length >= 50, 'all rapid SPA routes should be reported');
+  assert.equal(new Set(routes.filter(route => route.startsWith('/rapid-chapter-'))).size, 50, 'rapid SPA routes should remain distinct');
+  if (before && after) assert.ok(after - before < 2 * 1024 * 1024, `SPA heap growth should stay below 2 MiB (got ${after - before} bytes)`);
+});

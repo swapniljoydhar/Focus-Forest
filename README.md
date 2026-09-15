@@ -8,6 +8,12 @@ Open a new tab and plant a mission such as "Compare laptops for university." Pre
 
 A garden view preserves completed missions locally. It shows what grew from the intention, where the path changed, why each path was recognized (link, new tab, search, in-page route, or unlinked exploration), and which curiosities were composted for later. The garden is a reflection, not a productivity score. When a branch reaches the choice threshold, Focus Forest describes it as deep rather than wrong: the user decides whether the detour is useful.
 
+## v0.3.3 release notes
+
+Version 0.3.3 adds a calm animated atmosphere to the New Tab planting page without changing the extension’s core browsing model. Two lightweight CSS light fields drift behind the existing forest scene, using only compositor-friendly `transform` and `opacity` animation. The effect automatically respects browser reduced-motion preferences and the extension’s local **Ambient motion** setting.
+
+This release also adds automated protection against SPA performance regressions. CI now stress-tests 50 rapid `history.pushState` transitions, checks that every route remains distinct, measures post-GC heap growth, and enforces conservative thresholds for DOM size, long tasks, layout work, style recalculation, and JavaScript heap usage. See the complete [`CHANGELOG.md`](CHANGELOG.md) for the release history.
+
 ## Install locally (any Chromium desktop browser)
 
 Focus Forest is a Manifest V3 extension for Chromium. It loads the same unpacked folder in Chrome, Brave, Edge, Opera, Vivaldi, Chromium, and other Chromium-based browsers.

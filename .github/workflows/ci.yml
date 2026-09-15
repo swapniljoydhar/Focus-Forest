@@ -28,6 +28,15 @@ jobs:
         run: npm test
       - name: Run browser-oriented dashboard test
         run: npm run test:dashboard
+      - name: Stress-test 50 rapid SPA history transitions
+        run: npm run test:spa-stress
+      - name: Profile New Tab performance and memory
+        run: node scripts/profile-newtab.mjs --assert | tee profile-newtab.json
+      - name: Upload performance profile
+        uses: actions/upload-artifact@v4
+        with:
+          name: focus-forest-performance-profile
+          path: profile-newtab.json
       - name: Package extension
         run: npm run package
       - name: Upload extension artifact
