@@ -1,6 +1,30 @@
+import { TREE_LAYOUT, MEMORY_LIMITS } from '../shared/constants.js';
+
 const VIEWBOX_WIDTH = 900;
 const CENTER_X = VIEWBOX_WIDTH / 2;
-const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
+const GOLDEN_ANGLE = TREE_LAYOUT.GOLDEN_ANGLE * (Math.PI / 180); // Convert degrees to radians
+
+// Memory-conscious node pooling for large trees
+let nodePool = [];
+let poolIndex = 0;
+
+function allocateNodeObject() {
+  if (poolIndex < nodePool.length) {
+    return nodePool[poolIndex++];
+  }
+  const newObj = {};
+  nodePool.push(newObj);
+  poolIndex++;
+  if (nodePool.length > MEMORY_LIMITS.DOM_POOL_SIZE) {
+    nodePool = nodePool.slice(-MEMORY_LIMITS.DOM_POOL_SIZE);
+    poolIndex = MEMORY_LIMITS.DOM_POOL_SIZE;
+  }
+  return newObj;
+}
+
+function resetNodePool() {
+  poolIndex = 0;
+}
 
 // The silhouette is an illustration, not a graph stretched into a tree shape.
 // Pages sit inside its crown; the true parent graph is retained for path tracing.
@@ -22,7 +46,12 @@ function modeFor(nodes, maxDepth) {
   if (nodes.length <= 18 && maxDepth <= 4) return 'canopy';
   return 'deep';
 }
-export function branchWidth(depth) { return Math.max(2, 5 - Math.max(0, depth - 1) * 0.35); }
+export function branchWidth(depth) { 
+  return Math.max(
+    TREE_LAYOUT.BRANCH_WIDTH_MIN, 
+    TREE_LAYOUT.BRANCH_WIDTH_BASE - Math.max(0, depth - 1) * 0.35
+  ); 
+}
 export function labelPlacement(point, nodeId, root = false) {
   return { nodeId, x: Math.max(200, Math.min(700, point.x)), y: point.y + (root ? 62 : 39), anchor: 'middle' };
 }
@@ -45,6 +74,8 @@ function edgePath(parent, child) {
 }
 
 export function layoutTree(inputNodes = []) {
+  resetNodePool(); // Reset pool at start of each layout
+  
   const valid = Array.isArray(inputNodes) ? inputNodes.filter(node => node && typeof node.id === 'string' && node.id) : [];
   const nodes = [...new Map(valid.map(node => [node.id, node])).values()];
   const empty = { ...treeStage('empty'), nodes: [], root: null, positions: new Map(), parentById: new Map(),
@@ -91,7 +122,7 @@ export function layoutTree(inputNodes = []) {
   // Sunflower packing fills a rounded crown even for a single long browsing
   // chain. Depth is data, not a reason to turn the artwork into a vertical pole.
   ordered.forEach((node, index) => {
-    const radius = .24 + .64 * Math.sqrt((index + .5) / Math.max(3, ordered.length));
+    const radius = TREE_LAYOUT.NODE_RADIUS_MIN / 50 + (TREE_LAYOUT.NODE_RADIUS_BASE / 50) * Math.sqrt((index + .5) / Math.max(3, ordered.length));
     const angle = -2.32 + index * GOLDEN_ANGLE;
     positions.set(node.id, {
       x: crown.x + Math.cos(angle) * crown.rx * .82 * radius,

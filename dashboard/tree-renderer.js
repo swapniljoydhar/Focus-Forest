@@ -1,6 +1,42 @@
 import { layoutTree, treeStage, labelPlacement } from './tree-layout.js';
+import { TREE_LAYOUT, MEMORY_LIMITS, SERVICE_WORKER } from '../shared/constants.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+
+// Memory-conscious DOM element pooling to reduce GC pressure during re-renders
+let elementPool = [];
+let poolCursor = 0;
+
+function pooledElement(tag, attributes = {}, text) {
+  if (poolCursor < elementPool.length) {
+    const el = elementPool[poolCursor++];
+    // Reset element
+    while (el.lastChild) el.removeChild(el.lastChild);
+    for (let i = el.attributes.length - 1; i >= 0; i--) {
+      el.removeAttribute(el.attributes[i].name);
+    }
+    // Reapply attributes
+    for (const [key, value] of Object.entries(attributes)) el.setAttribute(key, String(value));
+    if (text != null) el.textContent = text;
+    return el;
+  }
+  const newEl = document.createElementNS(SVG_NS, tag);
+  for (const [key, value] of Object.entries(attributes)) newEl.setAttribute(key, String(value));
+  if (text != null) newEl.textContent = text;
+  elementPool.push(newEl);
+  poolCursor++;
+  // Trim pool if it exceeds limit
+  if (elementPool.length > MEMORY_LIMITS.DOM_POOL_SIZE) {
+    elementPool = elementPool.slice(-MEMORY_LIMITS.DOM_POOL_SIZE);
+    poolCursor = MEMORY_LIMITS.DOM_POOL_SIZE;
+  }
+  return newEl;
+}
+
+function resetElementPool() {
+  poolCursor = 0;
+}
+
 // Hand-drawn, softly scalloped silhouettes. Kept as vector paths so the crown
 // stays crisp at every size and doesn't depend on the shape of a browsing graph.
 const CROWN = 'M-.91 .21 C-1.09 .06 -1.02 -.23 -.82 -.29 C-.92 -.54 -.69 -.79 -.46 -.70 C-.39 -1.01 -.08 -1.08 .10 -.86 C.29 -1.03 .60 -.89 .63 -.66 C.90 -.73 1.08 -.43 .88 -.22 C1.09 -.06 1.02 .27 .82 .37 C.90 .62 .63 .79 .43 .67 C.23 .91 -.02 .86 -.18 .71 C-.42 .90 -.77 .72 -.73 .49 C-.97 .59 -1.09 .35 -.91 .21 Z';
@@ -150,7 +186,7 @@ function pageMark(node, point, root, count, selected, describeNode, classForNode
     const leafIndex = node.id.charCodeAt(node.id.length - 1) % 3;
     const leafShape = leafIndex === 0 ? PAGE_LEAF : (leafIndex === 1 ? PAGE_LEAF_ALT : PAGE_LEAF);
     const createdAt = Number.isFinite(node.firstSeenAt) ? node.firstSeenAt : 0;
-    const isRecent = createdAt > 0 && Date.now() - createdAt < 60000; // Last 60 seconds
+    const isRecent = createdAt > 0 && Date.now() - createdAt < SERVICE_WORKER.RATE_LIMIT_WINDOW_MS; // Last 60 seconds
     const scale = count > 35 ? .69 : .90;
     const finalScale = isRecent ? scale * 0.85 : scale; // Slightly smaller for buds
     
@@ -172,6 +208,8 @@ function pageMark(node, point, root, count, selected, describeNode, classForNode
 
 export function renderGardenTree(svg, session, { selectedNodeId = null, describeNode = node => node.title || node.id,
   classForNode = () => 'healthy', shortLabel = node => node.title || node.id } = {}) {
+  resetElementPool(); // Reset DOM pool before rendering
+  
   const tree = layoutTree(session?.nodes);
   const selected = tree.nodes.find(node => node.id === selectedNodeId);
   const prefix = `${svg.id || 'forest'}-art`;

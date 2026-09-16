@@ -1,16 +1,18 @@
 import { LIMITS, SCHEMA_VERSION, STORAGE_KEY, activeSession, clearStateCache, compactText, emptyState, getDepthState, isBrowserNewTabUrl, isExtensionNewTabUrl, isPlaceholderOriginUrl, isSearchUrl, loadState, makeId, normalizeSettings, safeHttpUrl, safeSessionUrl, saveState, checkStorageQuota, normalizeState, compactStateIfNeeded, earnReward, canEarnReward } from '../shared/state.js';
 import { logError, logWarning, ERROR_CATEGORIES, wrapMutationWithErrorBoundary, wrapWithErrorBoundary } from '../shared/error-tracing.js';
+import { SERVICE_WORKER, MEMORY_LIMITS, VALIDATION } from '../shared/constants.js';
 
 const pendingBranches = new Map();
-const MAX_PENDING_BRANCHES = 64;
+const MAX_PENDING_BRANCHES = MEMORY_LIMITS.LRU_CACHE_SIZE;
 const spaDedup = new Map();
-const MAX_SPA_DEDUP = 128;
+const MAX_SPA_DEDUP = MEMORY_LIMITS.LRU_CACHE_SIZE;
 const activeTabs = new Map();
 const navigationHints = new Map();
 // Rate limiting for messages from content scripts (prevents spam attacks)
 const messageCounts = new Map();
-const MAX_MESSAGES_PER_MINUTE = 60;
-const RATE_LIMIT_WINDOW_MS = 60000;
+const MAX_MESSAGES_PER_MINUTE = SERVICE_WORKER.RATE_LIMIT_MAX_REQUESTS;
+const RATE_LIMIT_WINDOW_MS = SERVICE_WORKER.RATE_LIMIT_WINDOW_MS;
+const RATE_LIMIT_TIMESTAMP = Date.now();
 
 function clearRuntimeTracking() {
   pendingBranches.clear();
@@ -21,40 +23,49 @@ function clearRuntimeTracking() {
 }
 
 /**
- * Check if sender has exceeded message rate limit
+ * Check if sender has exceeded message rate limit using absolute timestamps
  * @param {string} senderId - Unique identifier for the sender (tab ID or URL)
  * @returns {boolean} True if message is allowed, false if rate limited
  */
 function checkRateLimit(senderId) {
   if (!senderId) return true; // Allow messages without sender ID
   
-  const count = messageCounts.get(senderId) || 0;
-  if (count >= MAX_MESSAGES_PER_MINUTE) {
+  const now = Date.now();
+  const entry = messageCounts.get(senderId) || { count: 0, windowStart: RATE_LIMIT_TIMESTAMP };
+  
+  // Reset counter if window has expired
+  if (now - entry.windowStart >= RATE_LIMIT_WINDOW_MS) {
+    entry.count = 0;
+    entry.windowStart = now;
+  }
+  
+  if (entry.count >= MAX_MESSAGES_PER_MINUTE) {
     return false; // Rate limit exceeded
   }
   
-  messageCounts.set(senderId, count + 1);
-  
-  // Schedule decrement after window expires
-  setTimeout(() => {
-    const current = messageCounts.get(senderId) - 1;
-    if (current <= 0) {
-      messageCounts.delete(senderId);
-    } else {
-      messageCounts.set(senderId, current);
-    }
-  }, RATE_LIMIT_WINDOW_MS);
+  entry.count++;
+  messageCounts.set(senderId, entry);
   
   return true;
 }
 // 1s dedup window for repeated SPA navigations on the same tab+url.
 function recentlyObservedSpa(tabId, url) {
   const now = Date.now();
-  for (const [entryKey, seenAt] of spaDedup) if (now - seenAt >= 1500) spaDedup.delete(entryKey);
+  const DEDUP_WINDOW_MS = SERVICE_WORKER.SESSION_TIMEOUT_MS; // 15 seconds
+  const DEDUP_MAX_AGE_MS = MEMORY_LIMITS.THROTTLE_DELAY_MS; // 1000ms
+  
+  for (const [entryKey, seenAt] of spaDedup) {
+    if (now - seenAt >= DEDUP_WINDOW_MS) spaDedup.delete(entryKey);
+  }
+  
   const key = `${tabId}::${url}`;
   const previous = spaDedup.get(key);
-  if (previous != null && now - previous < 1000) return true;
-  if (!spaDedup.has(key) && spaDedup.size >= MAX_SPA_DEDUP) spaDedup.delete(spaDedup.keys().next().value);
+  if (previous != null && now - previous < DEDUP_MAX_AGE_MS) return true;
+  
+  if (!spaDedup.has(key) && spaDedup.size >= MAX_SPA_DEDUP) {
+    spaDedup.delete(spaDedup.keys().next().value);
+  }
+  
   spaDedup.set(key, now);
   return false;
 }
@@ -62,9 +73,13 @@ function recentlyObservedSpa(tabId, url) {
 function prunePendingBranches() {
   const now = Date.now();
   for (const [key, entry] of pendingBranches) {
-    if (now - entry.createdAt >= 15000) pendingBranches.delete(key);
+    if (now - entry.createdAt >= SERVICE_WORKER.SESSION_TIMEOUT_MS) {
+      pendingBranches.delete(key);
+    }
   }
-  while (pendingBranches.size > MAX_PENDING_BRANCHES) pendingBranches.delete(pendingBranches.keys().next().value);
+  while (pendingBranches.size > MAX_PENDING_BRANCHES) {
+    pendingBranches.delete(pendingBranches.keys().next().value);
+  }
 }
 function pendingBranchKey(url, sourceTabId, windowId) {
   // Key by tabId, windowId, and URL to prevent collisions between different tabs/windows
@@ -159,7 +174,10 @@ function moveTabToNode(session, tabId, targetId) {
 
 function prunePendingRedirects(session) {
   const now = Date.now();
-  session.pendingRedirects = (session.pendingRedirects || []).filter((entry) => now - entry.createdAt < 15000).slice(-4);
+  const MAX_PENDING_REDIRECTS = 4;
+  session.pendingRedirects = (session.pendingRedirects || [])
+    .filter((entry) => now - entry.createdAt < SERVICE_WORKER.SESSION_TIMEOUT_MS)
+    .slice(-MAX_PENDING_REDIRECTS);
 }
 function setPendingRedirect(session, tabId, parentId) {
   prunePendingRedirects(session);
@@ -314,7 +332,11 @@ async function recordActiveTab(tabId, windowId) {
     const open = session.activeIntervals.find((entry) => entry.tabId === previous?.tabId && !entry.endedAt);
     if (open) open.endedAt = now;
     session.activeIntervals.push({ tabId, windowId: Number.isInteger(windowId) ? windowId : null, startedAt: now, endedAt: null });
-    if (session.activeIntervals.length > 128) session.activeIntervals.splice(0, session.activeIntervals.length - 128);
+    // Limit active intervals to prevent unbounded growth (LRU-style eviction)
+    const MAX_ACTIVE_INTERVALS = MEMORY_LIMITS.LRU_CACHE_SIZE / 2; // 100 intervals max
+    if (session.activeIntervals.length > MAX_ACTIVE_INTERVALS) {
+      session.activeIntervals.splice(0, session.activeIntervals.length - MAX_ACTIVE_INTERVALS);
+    }
     return session;
   });
   activeTabs.set(key, { tabId, startedAt: now });
@@ -540,7 +562,7 @@ function formatHistoryDomain(url) {
 async function getDashboardStats() {
   const state = await loadState();
   const now = Date.now();
-  const oneDayMs = 24 * 60 * 60 * 1000;
+  const ONE_DAY_MS = SERVICE_WORKER.CLEANUP_INTERVAL_MS * 24; // 24 hours in ms
 
   // Calculate total sessions and focus time
   let totalSessions = 0;
@@ -559,7 +581,7 @@ async function getDashboardStats() {
   
   // Initialize last 7 days using ISO date keys (not weekday names)
   for (let i = 6; i >= 0; i--) {
-    const date = new Date(now - (i * oneDayMs));
+    const date = new Date(now - (i * ONE_DAY_MS));
     const key = date.toISOString().slice(0, 10); // YYYY-MM-DD
     dailySeconds[key] = 0;
   }
@@ -598,14 +620,14 @@ async function getDashboardStats() {
     returnToMission += session.events.filter((event) => event.type === 'return_to_path').length;
     
     // Split sessions at UTC midnight so a long session is represented on each day it touched.
-    const firstDay = Math.floor(sessionStart / oneDayMs) * oneDayMs;
-    const lastDay = Math.floor(Math.max(sessionStart, sessionEnd - 1) / oneDayMs) * oneDayMs;
-    for (let dayStart = firstDay; dayStart <= lastDay; dayStart += oneDayMs) {
+    const firstDay = Math.floor(sessionStart / ONE_DAY_MS) * ONE_DAY_MS;
+    const lastDay = Math.floor(Math.max(sessionStart, sessionEnd - 1) / ONE_DAY_MS) * ONE_DAY_MS;
+    for (let dayStart = firstDay; dayStart <= lastDay; dayStart += ONE_DAY_MS) {
       const dayKey = new Date(dayStart).toISOString().slice(0, 10);
       activeDays.add(dayKey);
       if (Object.hasOwn(dailySeconds, dayKey)) {
         const overlapStart = Math.max(sessionStart, dayStart);
-        const overlapEnd = Math.min(sessionEnd, dayStart + oneDayMs);
+        const overlapEnd = Math.min(sessionEnd, dayStart + ONE_DAY_MS);
         dailySeconds[dayKey] += Math.max(0, (overlapEnd - overlapStart) / 1000);
       }
     }
@@ -615,7 +637,7 @@ async function getDashboardStats() {
   // Bolt optimization: O(1) Set lookup per day instead of O(N) array scanning per day
   let currentStreak = 0;
   for (let i = 0; i < 365; i++) {
-    const checkDate = new Date(now - (i * oneDayMs));
+    const checkDate = new Date(now - (i * ONE_DAY_MS));
     const dayKey = checkDate.toISOString().slice(0, 10);
     if (activeDays.has(dayKey)) {
       currentStreak++;
@@ -697,6 +719,54 @@ async function importAllData(payload) {
   if (!isRecord(payload) || !isRecord(payload.data)) throw new Error('invalid_payload');
   const incoming = payload.data;
   const incomingState = isRecord(incoming.state) ? incoming.state : incoming;
+  
+  // Validate session IDs, URLs, and timestamps before normalization
+  if (Array.isArray(incomingState.sessions)) {
+    for (const session of incomingState.sessions) {
+      if (!session || typeof session !== 'object') continue;
+      // Validate session ID format
+      if (typeof session.id !== 'string' || !/^[A-Za-z0-9_-]{1,160}$/.test(session.id)) {
+        logWarning(new Error('Invalid session ID in import'), { category: ERROR_CATEGORIES.STORAGE, component: 'import', sessionId: session.id });
+        continue;
+      }
+      // Validate origin URL
+      if (session.origin?.url && !safeSessionUrl(session.origin.url)) {
+        logWarning(new Error('Invalid origin URL in import'), { category: ERROR_CATEGORIES.STORAGE, component: 'import', url: session.origin.url });
+        session.origin.url = 'chrome://newtab';
+      }
+      // Validate timestamp ranges (not in future, not too old)
+      const now = Date.now();
+      const ONE_DAY_MS = SERVICE_WORKER.CLEANUP_INTERVAL_MS * 24; // 24 hours in ms
+      const MAX_TIMESTAMP_FUTURE_MS = SERVICE_WORKER.RATE_LIMIT_WINDOW_MS; // 1 minute tolerance
+      const MAX_AGE_MS = VALIDATION.MAX_TIMESTAMP_AGE_YEARS * 365 * ONE_DAY_MS;
+      
+      if (session.startedAt && (session.startedAt > now + MAX_TIMESTAMP_FUTURE_MS || session.startedAt < now - MAX_AGE_MS)) {
+        logWarning(new Error('Invalid startedAt timestamp in import'), { category: ERROR_CATEGORIES.STORAGE, component: 'import', startedAt: session.startedAt });
+        session.startedAt = now;
+      }
+      if (session.endedAt && (session.endedAt > now + MAX_TIMESTAMP_FUTURE_MS || session.endedAt < session.startedAt - MAX_AGE_MS)) {
+        logWarning(new Error('Invalid endedAt timestamp in import'), { category: ERROR_CATEGORIES.STORAGE, component: 'import', endedAt: session.endedAt });
+        session.endedAt = null;
+      }
+      // Validate nodes
+      if (Array.isArray(session.nodes)) {
+        for (const node of session.nodes) {
+          if (!node || typeof node !== 'object') continue;
+          if (node.url && !safeSessionUrl(node.url)) {
+            logWarning(new Error('Invalid node URL in import'), { category: ERROR_CATEGORIES.STORAGE, component: 'import', url: node.url });
+            node.url = 'chrome://newtab';
+          }
+          if (node.firstSeenAt && (node.firstSeenAt > now + MAX_TIMESTAMP_FUTURE_MS || node.firstSeenAt < now - MAX_AGE_MS)) {
+            node.firstSeenAt = now;
+          }
+          if (node.depth && (typeof node.depth !== 'number' || node.depth < 0 || node.depth > LIMITS.NODES_PER_SESSION)) {
+            node.depth = 0;
+          }
+        }
+      }
+    }
+  }
+  
   const next = await normalizeState(incomingState);
   const current = await loadState();
   const mergedSessions = [...current.sessions, ...next.sessions].slice(-LIMITS.SESSIONS);
