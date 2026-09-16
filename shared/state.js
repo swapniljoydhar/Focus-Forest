@@ -322,6 +322,10 @@ let ownWritesInFlight = 0;
  */
 export async function checkStorageQuota() {
   try {
+    // getBytesInUse is only available in actual Chrome browser, not in test environments
+    if (!chrome.storage?.local?.getBytesInUse) {
+      return null;
+    }
     const bytesInUse = await chrome.storage.local.getBytesInUse();
     const warning = bytesInUse > STORAGE_QUOTA_WARNING_THRESHOLD;
     const critical = bytesInUse > STORAGE_QUOTA_CRITICAL_THRESHOLD;
@@ -340,6 +344,10 @@ export async function checkStorageQuota() {
     }
     return { bytesInUse, warning, critical };
   } catch (error) {
+    // Silently handle missing API in test environments
+    if (error.message?.includes('getBytesInUse')) {
+      return null;
+    }
     logError(error, { category: ERROR_CATEGORIES.STORAGE, operation: 'getBytesInUse' });
     return null;
   }
