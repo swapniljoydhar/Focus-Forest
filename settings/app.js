@@ -1,4 +1,5 @@
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
+import { normalizeSettings } from '../shared/state.js';
 
 /**
  * Send a message to the service worker with error handling
@@ -8,7 +9,9 @@ import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/err
  */
 async function message(type, payload = {}) {
   try {
-    return await chrome.runtime.sendMessage({ type, ...payload });
+    const response = await chrome.runtime.sendMessage({ type, ...payload });
+    if (response?.error) throw new Error(response.error);
+    return response;
   } catch (error) {
     // Service worker may be unavailable during startup or after crash
     logError(error, { category: ERROR_CATEGORIES.MESSAGING, operation: 'sendMessage', messageType: type });
@@ -22,7 +25,48 @@ const previewGentle = document.querySelector('#preview-gentle'); const previewCh
 const previewCopy = document.querySelector('#preview-copy');
 const original = { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false }; let saved = { ...original }; let ready = false;
 function currentSettings() { return { gentleDepth: Number(gentle.value), choiceDepth: Number(choice.value), ambientMotion: motion.checked, growthAnimationTrigger: document.querySelector('input[name="growth-animation"]:checked')?.value || 'mission-origin', excludedSites: excludedSites.value.split(/\r?\n/).map((site) => site.trim().toLowerCase().replace(/^www\./, '')).filter(Boolean), searchEngine: searchEngine.value, enableRewards: enableRewardsToggle?.checked === true }; }
-function markDirty() { if (!ready) return; const dirty = JSON.stringify(currentSettings()) !== JSON.stringify(saved); save.disabled = !dirty; if (dirty) status.textContent = 'You have a rhythm change ready to save.'; }
+let saving = false;
+const reset = document.querySelector('#reset');
+function sameSettings(left, right) { return JSON.stringify(left) === JSON.stringify(right); }
+function projectSettings(settings) {
+  return Object.fromEntries(Object.keys(original).map(key => [key, key === 'excludedSites' ? [...settings[key]] : settings[key]]));
+}
+function editableSettings(settings) {
+  if (!settings || typeof settings !== 'object' || Array.isArray(settings)
+    || !Number.isInteger(settings.gentleDepth) || !Number.isInteger(settings.choiceDepth)
+    || typeof settings.ambientMotion !== 'boolean' || typeof settings.enableRewards !== 'boolean'
+    || !Array.isArray(settings.excludedSites) || !settings.excludedSites.every(site => typeof site === 'string')) {
+    throw new Error('Invalid settings acknowledgement');
+  }
+  const editable = projectSettings(settings);
+  if (!sameSettings(editable, projectSettings(normalizeSettings(settings)))) throw new Error('Invalid settings acknowledgement');
+  return editable;
+}
+function markDirty() {
+  const dirty = !sameSettings(currentSettings(), saved);
+  save.disabled = !ready || saving || !dirty;
+  reset.disabled = !ready || saving;
+  if (ready && !saving) status.textContent = dirty ? 'You have a rhythm change ready to save.' : 'Your current rhythm is already tending the forest.';
+}
+function applySettings(settings) {
+  gentle.value = settings.gentleDepth;
+  choice.value = settings.choiceDepth;
+  motion.checked = settings.ambientMotion;
+  searchEngine.value = settings.searchEngine;
+  excludedSites.value = settings.excludedSites.join('\n');
+  document.querySelector(`input[name="growth-animation"][value="${settings.growthAnimationTrigger}"]`).checked = true;
+  if (enableRewardsToggle) enableRewardsToggle.checked = settings.enableRewards;
+  sync();
+}
+async function saveSettings(candidate) {
+  const submitted = projectSettings(normalizeSettings(candidate));
+  const response = await message('UPDATE_SETTINGS', { settings: submitted });
+  if (response !== null) return editableSettings(response);
+  const snapshot = await message('GET_SNAPSHOT');
+  const confirmed = editableSettings(snapshot?.settings);
+  if (!sameSettings(confirmed, submitted)) throw new Error('Settings save could not be confirmed');
+  return confirmed;
+}
 function sync() {
   const g = Number(gentle.value);
   if (Number(choice.value) <= g) choice.value = String(Math.min(10, g + 1));
@@ -40,20 +84,9 @@ const safeLoad = wrapWithErrorBoundary(load, { category: ERROR_CATEGORIES.UI_REN
 async function load() { 
   try { 
     const snap = await message('GET_SNAPSHOT'); 
-    const settings = snap.settings || original; 
-    saved = { gentleDepth: settings.gentleDepth || original.gentleDepth, choiceDepth: settings.choiceDepth || original.choiceDepth, ambientMotion: settings.ambientMotion !== false, growthAnimationTrigger: ['mission-origin', 'every-branch', 'none'].includes(settings.growthAnimationTrigger) ? settings.growthAnimationTrigger : original.growthAnimationTrigger, excludedSites: Array.isArray(settings.excludedSites) ? settings.excludedSites : [], searchEngine: ['default', 'google', 'bing', 'duckduckgo', 'brave', 'startpage'].includes(settings.searchEngine) ? settings.searchEngine : original.searchEngine, enableRewards: settings.enableRewards === true };
-    gentle.value = saved.gentleDepth; 
-    choice.value = saved.choiceDepth; 
-    motion.checked = saved.ambientMotion; 
-    searchEngine.value = saved.searchEngine;
-    excludedSites.value = saved.excludedSites.join('\n');
-    const radio = document.querySelector(`input[name="growth-animation"][value="${saved.growthAnimationTrigger}"]`); 
-    if (radio) radio.checked = true; 
-    if (enableRewardsToggle) enableRewardsToggle.checked = saved.enableRewards;
-    ready = true; 
-    sync(); 
-    save.disabled = true; 
-    status.textContent = 'Your current rhythm is already tending the forest.'; 
+    saved = editableSettings(snap?.settings);
+    ready = true;
+    applySettings(saved);
   } catch (error) { 
     logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'load' });
     status.textContent = 'The forest could not read its local rhythm. Try again.'; 
@@ -66,36 +99,35 @@ searchEngine.addEventListener('change', wrapWithErrorBoundary(markDirty, { categ
 excludedSites.addEventListener('input', wrapWithErrorBoundary(markDirty, { category: ERROR_CATEGORIES.UI_RENDER, function: 'excluded-sites.input', swallow: true }));
 document.querySelectorAll('input[name="growth-animation"]').forEach((radio) => radio.addEventListener('change', wrapWithErrorBoundary(markDirty, { category: ERROR_CATEGORIES.UI_RENDER, function: 'growth-animation.change', swallow: true })));
 if (enableRewardsToggle) enableRewardsToggle.addEventListener('change', wrapWithErrorBoundary(markDirty, { category: ERROR_CATEGORIES.UI_RENDER, function: 'enable-rewards.change', swallow: true }));
-save.addEventListener('click', wrapWithErrorBoundary(async () => { 
-  sync(); 
-  try { 
-    await message('UPDATE_SETTINGS', { settings: currentSettings() }); 
-    saved = currentSettings(); 
-    save.disabled = true; 
-    status.textContent = 'Your rhythm is tending the forest now.'; 
-  } catch (error) { 
-    logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'save.click' });
-    status.textContent = 'The rhythm could not be saved. Nothing was changed.'; 
-  } 
-}, { category: ERROR_CATEGORIES.MESSAGING, function: 'save.click', swallow: true }));
-document.querySelector('#reset').addEventListener('click', wrapWithErrorBoundary(async () => { 
-  try { 
-    await message('UPDATE_SETTINGS', { settings: original }); 
-    saved = { ...original }; 
-    gentle.value = original.gentleDepth; 
-    choice.value = original.choiceDepth; 
-    motion.checked = original.ambientMotion; 
-    searchEngine.value = original.searchEngine;
-    excludedSites.value = '';
-    const radio = document.querySelector(`input[name="growth-animation"][value="${original.growthAnimationTrigger}"]`); 
-    if (radio) radio.checked = true; 
-    if (enableRewardsToggle) enableRewardsToggle.checked = original.enableRewards;
-    sync(); 
-    save.disabled = true; 
-    status.textContent = 'The original rhythm has returned.'; 
-  } catch (error) { 
-    logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'reset.click' });
-    status.textContent = 'The original rhythm could not be restored.'; 
-  } 
-}, { category: ERROR_CATEGORIES.MESSAGING, function: 'reset.click', swallow: true }));
+async function persistSettings(restoring = false) {
+  if (!ready || saving) return;
+  sync();
+  const before = currentSettings();
+  // Keep a raw text fingerprint too: formatting-only edits must not be overwritten.
+  const beforeSites = excludedSites.value;
+  saving = true;
+  markDirty();
+  status.textContent = restoring ? 'Restoring the original rhythm…' : 'Saving your rhythm…';
+  let confirmed = false;
+  try {
+    saved = await saveSettings(restoring ? original : before);
+    confirmed = true;
+    if (sameSettings(currentSettings(), before) && excludedSites.value === beforeSites) applySettings(saved);
+  } catch (error) {
+    logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: restoring ? 'reset.click' : 'save.click' });
+  } finally {
+    saving = false;
+    markDirty();
+  }
+  if (!confirmed) {
+    status.textContent = restoring ? 'The original rhythm could not be restored. Your edits are still here; try again.' : 'The rhythm could not be confirmed as saved. Your edits are still here; try again.';
+  } else if (sameSettings(currentSettings(), saved)) {
+    status.textContent = restoring ? 'The original rhythm has returned.' : 'Your rhythm is tending the forest now.';
+  } else {
+    status.textContent = 'Your earlier rhythm was saved. You have newer edits ready to save.';
+  }
+}
+save.addEventListener('click', wrapWithErrorBoundary(() => persistSettings(), { category: ERROR_CATEGORIES.MESSAGING, function: 'save.click', swallow: true }));
+reset.addEventListener('click', wrapWithErrorBoundary(() => persistSettings(true), { category: ERROR_CATEGORIES.MESSAGING, function: 'reset.click', swallow: true }));
+markDirty();
 safeLoad();

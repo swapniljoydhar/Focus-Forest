@@ -3,7 +3,7 @@ import { after, before, test } from 'node:test';
 import fs from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
-import { emptyState, STORAGE_KEY } from './shared/state.js';
+import { emptyState, normalizeSettings, STORAGE_KEY } from './shared/state.js';
 
 // Exercise the real HTML, CSS, modules, and extension CSP in Chromium.
 // Only Chrome's messaging/storage APIs are mocked; no external website is used.
@@ -93,6 +93,240 @@ async function openDashboard(t, state = stateFor(), viewport = { width: 1440, he
   await page.goto('https://focus-forest.test/dashboard/index.html');
   await page.waitForFunction(() => document.querySelector('#tree').dataset.treeMode);
   return page;
+}
+
+async function openSettings(t, options = {}) {
+  const context = await browser.newContext({ reducedMotion: 'reduce' });
+  t.after(() => context.close());
+  const page = await context.newPage();
+  const pageErrors = [];
+  const consoleErrors = [];
+  page.on('pageerror', error => pageErrors.push(error.message));
+  page.on('console', message => { if (message.type() === 'error') consoleErrors.push(message.text()); });
+  t.after(() => assert.deepEqual(pageErrors, [], 'settings must not raise unhandled errors'));
+  await page.route('**/*', async route => {
+    const url = new URL(route.request().url());
+    if (url.origin !== 'https://focus-forest.test') return route.abort();
+    const pathname = url.pathname.slice(1);
+    const contentType = pathname.endsWith('.css') ? 'text/css' : pathname.endsWith('.js') ? 'text/javascript' : 'text/html';
+    await route.fulfill({
+      body: await readFile(new URL(pathname, root)), contentType,
+      headers: { 'Content-Security-Policy': manifest.content_security_policy.extension_pages }
+    });
+  });
+  let settings = { ...emptyState().settings, ...options.settings };
+  let snapshotCount = 0;
+  let updateCount = 0;
+  await page.exposeFunction('settingsReply', async (message, failUpdate) => {
+    if (message.type === 'GET_SNAPSHOT') {
+      snapshotCount += 1;
+      if (options.snapshot) return options.snapshot(snapshotCount, settings);
+      return { settings };
+    }
+    if (message.type === 'UPDATE_SETTINGS') {
+      updateCount += 1;
+      if (options.update) return options.update(message.settings, updateCount, settings);
+      if (failUpdate) return { error: 'INTERNAL_ERROR' };
+      settings = normalizeSettings({ ...settings, ...message.settings });
+      return settings;
+    }
+    throw new Error(`Unexpected settings test message: ${message.type}`);
+  });
+  await page.addInitScript(failUpdate => {
+    globalThis.settingsCalls = [];
+    globalThis.failSettingsUpdate = failUpdate;
+    globalThis.chrome = {
+      runtime: {
+        getManifest: () => ({ version: '0.3.4' }),
+        async sendMessage(message) {
+          globalThis.settingsCalls.push(structuredClone(message));
+          return globalThis.settingsReply(message, globalThis.failSettingsUpdate);
+        }
+      },
+      storage: { onChanged: { addListener() {} } }
+    };
+  }, options.failUpdate ?? true);
+  await page.goto('https://focus-forest.test/settings/index.html');
+  await page.waitForFunction(() => /already tending|could not read/.test(document.querySelector('#status').textContent));
+  return { page, consoleErrors };
+}
+
+test('settings save preserves edits on worker error', async t => {
+  const { page, consoleErrors } = await openSettings(t);
+  assert.equal(await page.locator('#save').isDisabled(), true);
+  await page.locator('#search-engine').selectOption('brave');
+  await page.locator('#save').click();
+  await waitForSettingsResult(page);
+  assert.equal(await page.locator('#status').textContent(), 'The rhythm could not be confirmed as saved. Your edits are still here; try again.');
+  assert.equal(await page.locator('#search-engine').inputValue(), 'brave');
+  assert.equal(await page.locator('#save').isEnabled(), true, 'failed save must remain retryable');
+  assert.equal(consoleErrors.length, 2, 'helper and save boundary should log the handled error');
+  for (const error of consoleErrors) {
+    assert.match(error, /Category: messaging/);
+    assert.match(error, /Message: INTERNAL_ERROR/);
+  }
+  assert.match(consoleErrors[0], /"operation": "sendMessage"/);
+  assert.match(consoleErrors[1], /"function": "save.click"/);
+
+  // Returning to the last acknowledged value must clear dirty state after failure.
+  await page.locator('#search-engine').selectOption('default');
+  assert.equal(await page.locator('#save').isDisabled(), true);
+  await page.locator('#search-engine').selectOption('brave');
+  await page.evaluate(() => { globalThis.failSettingsUpdate = false; });
+  await page.locator('#save').click();
+  await page.waitForFunction(() => document.querySelector('#status').textContent === 'Your rhythm is tending the forest now.');
+  assert.equal(await page.locator('#search-engine').inputValue(), 'brave');
+  assert.equal(await page.locator('#save').isDisabled(), true);
+  const updates = await page.evaluate(() => settingsCalls.filter(message => message.type === 'UPDATE_SETTINGS'));
+  assert.equal(updates.length, 2);
+  assert.equal(updates[0].settings.searchEngine, 'brave');
+  assert.deepEqual(updates[1], updates[0], 'retry must submit the preserved settings');
+  assert.equal(consoleErrors.length, 2, 'retry must not introduce unexpected console errors');
+});
+
+
+async function waitForSettingsResult(page) {
+  await page.waitForFunction(() => /could not|tending the forest now|original rhythm has returned/.test(document.querySelector('#status').textContent));
+}
+function assertSettingsErrors(errors, message, count) {
+  assert.equal(errors.length, count);
+  for (const error of errors) {
+    assert.match(error, /Category: messaging/);
+    assert.ok(error.includes(`Message: ${message}`), error);
+  }
+}
+
+test('settings normalize successful acknowledgements without changing worker-owned fields', async t => {
+  const { page, consoleErrors } = await openSettings(t, { failUpdate: false, settings: { interventionsPaused: true } });
+  await page.locator('#excluded-sites').fill('WWW.Example.COM\nexample.com\nother.test');
+  await page.locator('#motion').focus();
+  await page.keyboard.press('Space');
+  await page.locator('#save').click();
+  await waitForSettingsResult(page);
+  assert.equal(await page.locator('#excluded-sites').inputValue(), 'example.com\nother.test');
+  assert.equal(await page.locator('#motion').isChecked(), false);
+  assert.equal(await page.locator('#save').isDisabled(), true);
+  const submitted = await page.evaluate(() => settingsCalls.find(call => call.type === 'UPDATE_SETTINGS').settings);
+  assert.equal(Object.hasOwn(submitted, 'interventionsPaused'), false);
+  await page.locator('#search-engine').selectOption('brave');
+  await page.locator('#search-engine').selectOption('default');
+  assert.equal(await page.locator('#save').isDisabled(), true);
+  assert.deepEqual(consoleErrors, []);
+});
+
+for (const scenario of [
+  { name: 'transport rejection', update: () => { throw new Error('Transport unavailable'); }, error: 'Transport unavailable', logs: 2 },
+  { name: 'malformed acknowledgement', update: () => ({}), error: 'Invalid settings acknowledgement', logs: 1 },
+  { name: 'missing acknowledgement', update: () => undefined, error: 'Invalid settings acknowledgement', logs: 1 },
+  { name: 'invalid acknowledgement fields', update: candidate => ({ ...candidate, ambientMotion: 'yes' }), error: 'Invalid settings acknowledgement', logs: 1 },
+  { name: 'null with mismatching snapshot', update: () => null, error: 'Settings save could not be confirmed', logs: 1 },
+  { name: 'null with invalid snapshot', update: () => null, snapshot: (count, settings) => count === 1 ? { settings } : {}, error: 'Invalid settings acknowledgement', logs: 1 },
+  { name: 'null with failed snapshot', update: () => null, snapshot: (count, settings) => count === 1 ? { settings } : { error: 'INTERNAL_ERROR' }, error: 'INTERNAL_ERROR', logs: 2 }
+]) {
+  test(`settings preserve edits after ${scenario.name}`, async t => {
+    const { page, consoleErrors } = await openSettings(t, scenario);
+    await page.locator('#search-engine').selectOption('brave');
+    await page.locator('#save').click();
+    await waitForSettingsResult(page);
+    assert.match(await page.locator('#status').textContent(), /could not/);
+    assert.doesNotMatch(await page.locator('#status').textContent(), /Nothing was changed/);
+    assert.equal(await page.locator('#search-engine').inputValue(), 'brave');
+    assert.equal(await page.locator('#save').isEnabled(), true);
+    await page.locator('#search-engine').selectOption('default');
+    assert.equal(await page.locator('#save').isDisabled(), true);
+    assertSettingsErrors(consoleErrors, scenario.error, scenario.logs);
+  });
+}
+
+test('settings confirm null using a matching normalized snapshot', async t => {
+  let acknowledged;
+  const { page, consoleErrors } = await openSettings(t, {
+    update: candidate => { acknowledged = normalizeSettings(candidate); return null; },
+    snapshot: (count, settings) => ({ settings: count === 1 ? settings : acknowledged })
+  });
+  await page.locator('#excluded-sites').fill('example.test\nexample.test');
+  await page.locator('#save').click();
+  await waitForSettingsResult(page);
+  assert.equal(await page.locator('#excluded-sites').inputValue(), 'example.test');
+  assert.equal(await page.locator('#save').isDisabled(), true);
+  assert.equal(await page.evaluate(() => settingsCalls.filter(call => call.type === 'GET_SNAPSHOT').length), 2);
+  assert.deepEqual(consoleErrors, []);
+});
+
+for (const snapshot of [null, {}, { settings: {} }, { settings: { ...emptyState().settings, gentleDepth: 99 } }]) {
+  test(`settings reject invalid initial snapshot ${JSON.stringify(snapshot)}`, async t => {
+    const { page, consoleErrors } = await openSettings(t, { snapshot: () => snapshot });
+    assert.match(await page.locator('#status').textContent(), /could not read/);
+    await page.locator('#search-engine').selectOption('brave');
+    assert.equal(await page.locator('#save').isDisabled(), true);
+    assert.equal(await page.locator('#reset').isDisabled(), true);
+    assertSettingsErrors(consoleErrors, 'Invalid settings acknowledgement', 1);
+  });
+}
+
+test('settings reset preserves edits on failure and supports a successful retry', async t => {
+  const { page, consoleErrors } = await openSettings(t, { settings: { searchEngine: 'brave', ambientMotion: false } });
+  await page.locator('#excluded-sites').fill('keep.test');
+  await page.locator('#reset').click();
+  await waitForSettingsResult(page);
+  assert.match(await page.locator('#status').textContent(), /could not be restored/);
+  assert.equal(await page.locator('#search-engine').inputValue(), 'brave');
+  assert.equal(await page.locator('#excluded-sites').inputValue(), 'keep.test');
+  assert.equal(await page.locator('#motion').isChecked(), false);
+  assert.equal(await page.locator('#reset').isEnabled(), true);
+  await page.locator('#excluded-sites').fill('');
+  assert.equal(await page.locator('#save').isDisabled(), true, 'failed reset must retain the acknowledged baseline');
+  await page.evaluate(() => { globalThis.failSettingsUpdate = false; });
+  await page.locator('#reset').click();
+  await waitForSettingsResult(page);
+  assert.equal(await page.locator('#status').textContent(), 'The original rhythm has returned.');
+  assert.equal(await page.locator('#search-engine').inputValue(), 'default');
+  assert.equal(await page.locator('#motion').isChecked(), true);
+  assert.equal(await page.locator('#save').isDisabled(), true);
+  assertSettingsErrors(consoleErrors, 'INTERNAL_ERROR', 2);
+  assert.match(consoleErrors[1], /"function": "reset.click"/);
+});
+
+test('settings reset confirms an already-default null reply', async t => {
+  const { page, consoleErrors } = await openSettings(t, { update: () => null });
+  await page.locator('#excluded-sites').fill('discard.test');
+  await page.locator('#reset').click();
+  await waitForSettingsResult(page);
+  assert.equal(await page.locator('#status').textContent(), 'The original rhythm has returned.');
+  assert.equal(await page.locator('#excluded-sites').inputValue(), '');
+  assert.equal(await page.locator('#save').isDisabled(), true);
+  assert.equal(await page.evaluate(() => settingsCalls.filter(call => call.type === 'GET_SNAPSHOT').length), 2);
+  assert.deepEqual(consoleErrors, []);
+});
+
+for (const restoring of [false, true]) {
+  test(`settings preserve newer edits while ${restoring ? 'reset' : 'save'} is pending`, async t => {
+    let release;
+    const pending = new Promise(resolve => { release = resolve; });
+    t.after(() => release());
+    const { page, consoleErrors } = await openSettings(t, {
+      update: async candidate => { await pending; return normalizeSettings(candidate); }
+    });
+    await page.locator('#search-engine').selectOption('brave');
+    await page.locator(restoring ? '#reset' : '#save').click();
+    await page.waitForFunction(() => settingsCalls.some(call => call.type === 'UPDATE_SETTINGS'));
+    await page.locator('#search-engine').selectOption('google');
+    assert.equal(await page.locator('#save').isDisabled(), true);
+    assert.equal(await page.locator('#reset').isDisabled(), true);
+    // Dispatch directly to exercise the handler guard as well as disabled buttons.
+    await page.evaluate(() => {
+      document.querySelector('#save').dispatchEvent(new Event('click'));
+      document.querySelector('#reset').dispatchEvent(new Event('click'));
+    });
+    release();
+    await page.waitForFunction(() => /newer edits/.test(document.querySelector('#status').textContent));
+    assert.equal(await page.locator('#search-engine').inputValue(), 'google');
+    assert.equal(await page.locator('#save').isEnabled(), true);
+    assert.equal(await page.evaluate(() => settingsCalls.filter(call => call.type === 'UPDATE_SETTINGS').length), 1);
+    await page.locator('#search-engine').selectOption(restoring ? 'default' : 'brave');
+    assert.equal(await page.locator('#save').isDisabled(), true, 'baseline must be the acknowledgement, not the newer edit');
+    assert.deepEqual(consoleErrors, []);
+  });
 }
 
 test('empty garden is visible immediately, including when the active Map button is clicked', async t => {
