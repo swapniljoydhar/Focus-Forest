@@ -57,7 +57,7 @@ async function openDashboard(t, state = stateFor(), viewport = { width: 1440, he
     globalThis.chrome = {
       runtime: {
         id: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
-        getManifest: () => ({ version: '0.3.3' }),
+        getManifest: () => ({ version: '0.3.4' }),
         async sendMessage(message) {
           globalThis.contentMessages ||= [];
           globalThis.contentMessages.push(message);

@@ -1,41 +1,7 @@
 import { layoutTree, treeStage, labelPlacement } from './tree-layout.js';
-import { TREE_LAYOUT, MEMORY_LIMITS, SERVICE_WORKER } from '../shared/constants.js';
+import { TREE_LAYOUT, SERVICE_WORKER } from '../shared/constants.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
-
-// Memory-conscious DOM element pooling to reduce GC pressure during re-renders
-let elementPool = [];
-let poolCursor = 0;
-
-function pooledElement(tag, attributes = {}, text) {
-  if (poolCursor < elementPool.length) {
-    const el = elementPool[poolCursor++];
-    // Reset element
-    while (el.lastChild) el.removeChild(el.lastChild);
-    for (let i = el.attributes.length - 1; i >= 0; i--) {
-      el.removeAttribute(el.attributes[i].name);
-    }
-    // Reapply attributes
-    for (const [key, value] of Object.entries(attributes)) el.setAttribute(key, String(value));
-    if (text != null) el.textContent = text;
-    return el;
-  }
-  const newEl = document.createElementNS(SVG_NS, tag);
-  for (const [key, value] of Object.entries(attributes)) newEl.setAttribute(key, String(value));
-  if (text != null) newEl.textContent = text;
-  elementPool.push(newEl);
-  poolCursor++;
-  // Trim pool if it exceeds limit
-  if (elementPool.length > MEMORY_LIMITS.DOM_POOL_SIZE) {
-    elementPool = elementPool.slice(-MEMORY_LIMITS.DOM_POOL_SIZE);
-    poolCursor = MEMORY_LIMITS.DOM_POOL_SIZE;
-  }
-  return newEl;
-}
-
-function resetElementPool() {
-  poolCursor = 0;
-}
 
 // Hand-drawn, softly scalloped silhouettes. Kept as vector paths so the crown
 // stays crisp at every size and doesn't depend on the shape of a browsing graph.
@@ -208,8 +174,6 @@ function pageMark(node, point, root, count, selected, describeNode, classForNode
 
 export function renderGardenTree(svg, session, { selectedNodeId = null, describeNode = node => node.title || node.id,
   classForNode = () => 'healthy', shortLabel = node => node.title || node.id } = {}) {
-  resetElementPool(); // Reset DOM pool before rendering
-  
   const tree = layoutTree(session?.nodes);
   const selected = tree.nodes.find(node => node.id === selectedNodeId);
   const prefix = `${svg.id || 'forest'}-art`;
