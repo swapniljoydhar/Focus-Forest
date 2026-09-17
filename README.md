@@ -8,7 +8,11 @@ Open a new tab and plant a mission such as "Compare laptops for university." Pre
 
 A garden view preserves completed missions locally. It shows what grew from the intention, where the path changed, why each path was recognized (link, new tab, search, in-page route, or unlinked exploration), and which curiosities were composted for later. The garden is a reflection, not a productivity score. When a branch reaches the choice threshold, Focus Forest describes it as deep rather than wrong: the user decides whether the detour is useful.
 
-## v0.3.3 release notes
+## v0.3.4 release notes
+
+Version 0.3.4 repairs the opt-in **Forest Finds** path without changing Focus Forest’s gentle, non-blocking purpose. Rewards remain offline and bounded: the extension stores only a reward ID and timestamp, applies a cooldown, and shows a small discovery only after an intentional choice or mission action. Storage-pressure compaction is now self-contained and safe, and unused tree-pooling scaffolding has been removed.
+
+The previous v0.3.3 release added the calm animated atmosphere and SPA performance regression checks described below.
 
 Version 0.3.3 adds a calm animated atmosphere to the New Tab planting page without changing the extension’s core browsing model. Two lightweight CSS light fields drift behind the existing forest scene, using only compositor-friendly `transform` and `opacity` animation. The effect automatically respects browser reduced-motion preferences and the extension’s local **Ambient motion** setting.
 
@@ -31,7 +35,7 @@ After updating the files, click **Reload** on Focus Forest's extension card, the
 - Chromium browsers share the Chrome extension format. The `chrome.*` API namespace, `chrome-extension://` sender URLs, and `chrome_url_overrides` manifest key are intentional; they should not be renamed to `brave.*`, `edge.*`, or `opera.*`. Edge and Opera may also expose `browser.*`; Focus Forest uses `chrome.*` and falls back to `browser.*` when needed.
 - New-tab placeholders are recognized across Chromium flavors, including `chrome://newtab`, `chrome://new-tab-page`, `brave://newtab`, `edge://newtab`, `opera://startpage`, and `vivaldi://newtab`. The first ordinary web page becomes the mission root.
 - The companion runs on HTTP(S) websites, not `chrome://settings`, `brave://extensions`, `edge://settings`, or other protected browser pages.
-- Planting from the Focus Forest New Tab saves the mission first, then navigates that same browser tab to a Google search for the mission so the first research step is explicit and trackable.
+- Planting from the Focus Forest New Tab saves the mission first, then navigates that same browser tab to the browser’s configured default search provider, unless a local provider override is selected in Settings.
 - If the companion is missing on an ordinary website, check Focus Forest's site access and refresh that page after reloading the extension. In Brave, do not disable Shields globally as an installation step.
 - Another new-tab extension, or the browser's own new-tab page setting, can control the same page. Check which extension is enabled for that override if Focus Forest's planting screen does not appear. Brave, Edge, and Opera may ask you to confirm replacing their new-tab page.
 - Automated coverage uses mocked extension APIs and Chromium UI tests. A full, installed-extension walkthrough in a real profile of each browser is still required; these checks do not claim end-to-end certification for every Chromium fork.

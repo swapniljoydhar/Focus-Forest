@@ -29,6 +29,10 @@ async function message(type, payload = {}) {
   }
 }
 
+function statusWithReward(prefix, result) {
+  return result?.reward?.text ? `${prefix} · Forest Find: ${result.reward.text}` : prefix;
+}
+
 // Update character counter
 function updateCount() { if (charCurrent) { charCurrent.textContent = input.value.length.toString(); } }
 
@@ -98,9 +102,9 @@ resumeBtn.addEventListener('click', wrapWithErrorBoundary(async () => {
       hasRealDestination = parsed.protocol === 'http:' || parsed.protocol === 'https:';
     } catch {}
     if (hasRealDestination) {
-      status.textContent = '✓ Returning to your active session...';
+      status.textContent = statusWithReward('✓ Returning to your active session...', view);
     } else {
-      status.textContent = 'Active intention ready — search or enter a URL to explore.';
+      status.textContent = statusWithReward('Active intention ready — search or enter a URL to explore.', view);
     }
     setTimeout(() => { status.hidden = true; }, 3000);
   } catch (err) { logError(err, { category: ERROR_CATEGORIES.MESSAGING, function: 'resumeClick' }); }
@@ -108,10 +112,10 @@ resumeBtn.addEventListener('click', wrapWithErrorBoundary(async () => {
 
 browseBtn.addEventListener('click', wrapWithErrorBoundary(async () => {
   try {
-    await message('END_MISSION', { reason: 'browse_without_mission' });
+    const result = await message('END_MISSION', { reason: 'browse_without_mission' });
     resumeBtn.hidden = true;
     status.hidden = false;
-    status.textContent = 'Browse freely — plant an intention whenever you\'re ready.';
+    status.textContent = statusWithReward('Browse freely — plant an intention whenever you\'re ready.', result);
     input.focus();
     setTimeout(() => { status.hidden = true; }, 4000);
   } catch (err) { logError(err, { category: ERROR_CATEGORIES.MESSAGING, function: 'browseClick' }); }

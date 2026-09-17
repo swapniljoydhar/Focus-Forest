@@ -48,6 +48,9 @@ const {
   DEFAULT_SETTINGS,
   normalizeState,
   emptyState,
+  earnReward,
+  canEarnReward,
+  selectRandomReward,
   loadState,
   saveState,
   clearStateCache,
@@ -109,6 +112,21 @@ describe('shared/state.js core functions', () => {
     assert.deepStrictEqual(normalizeSettings({ growthAnimationTrigger: 'invalid' }), { interventionsPaused: false, gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false });
     assert.equal(normalizeSettings({ searchEngine: 'brave' }).searchEngine, 'brave');
     assert.deepStrictEqual(normalizeSettings({ excludedSites: ['WWW.Example.com', 'example.com', ''] }).excludedSites, ['example.com']);
+  });
+
+  it('persists bounded reward history and keeps reward records minimal', () => {
+    const state = emptyState();
+    state.settings.enableRewards = true;
+    state.sessions.push({ id: 'reward-session', startedAt: Date.now(), status: 'active', nodes: [], events: [] });
+    state.activeSessionId = 'reward-session';
+    const reward = earnReward(state, 'leaves', 'test-choice');
+    assert.ok(reward?.id);
+    assert.deepEqual(Object.keys(state.rewardHistory[0]).sort(), ['rewardId', 'timestamp']);
+    const normalized = normalizeState(state);
+    assert.equal(normalized.rewardHistory.length, 1);
+    assert.equal(normalized.rewardHistory[0].rewardId, reward.id);
+    assert.equal(canEarnReward(normalized), false, 'cooldown should prevent an immediate second reward');
+    assert.equal(selectRandomReward('leaves', 0).id, 'leaf_1');
   });
 
   it('getDepthState maps explicit and default thresholds to states', () => {

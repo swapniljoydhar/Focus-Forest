@@ -1,4 +1,4 @@
-import { LIMITS, SCHEMA_VERSION, STORAGE_KEY, activeSession, clearStateCache, compactText, emptyState, getDepthState, isBrowserNewTabUrl, isExtensionNewTabUrl, isPlaceholderOriginUrl, isSearchUrl, loadState, makeId, normalizeSettings, safeHttpUrl, safeSessionUrl, saveState, checkStorageQuota, normalizeState, compactStateIfNeeded, earnReward, canEarnReward } from '../shared/state.js';
+import { LIMITS, SCHEMA_VERSION, STORAGE_KEY, activeSession, clearStateCache, compactText, emptyState, getDepthState, isBrowserNewTabUrl, isExtensionNewTabUrl, isPlaceholderOriginUrl, isSearchUrl, loadState, makeId, normalizeSettings, safeHttpUrl, safeSessionUrl, saveState, checkStorageQuota, normalizeState, earnReward } from '../shared/state.js';
 import { logError, logWarning, ERROR_CATEGORIES, wrapMutationWithErrorBoundary, wrapWithErrorBoundary } from '../shared/error-tracing.js';
 import { SERVICE_WORKER, MEMORY_LIMITS, VALIDATION } from '../shared/constants.js';
 
@@ -376,15 +376,9 @@ async function endSession(reason = 'user_ended') {
     for (const interval of session.activeIntervals || []) if (!interval.endedAt) interval.endedAt = session.endedAt;
     activeTabs.clear();
     addEvent(session, reason === 'mission_changed' ? 'mission_changed' : 'mission_ended', { reason });
+    const reward = earnReward(state, 'blooms', `session_end_${reason}`);
     state.activeSessionId = null;
-    
-    // Earn bloom reward for completing mission (if rewards enabled)
-    if (canEarnReward(state)) {
-      const tier = reason === 'user_ended' ? 'blooms' : 'discoveries';
-      earnReward(state, tier, `session_end_${reason}`);
-    }
-    
-    return session;
+    return { session, reward };
   }).then((result) => { if (result !== NO_CHANGE) updateBadge(); return result; });
 }
 
@@ -529,12 +523,7 @@ async function compost(tabId, rawUrl, title) {
     if (node) { node.state = 'composted'; node.closedAt = Date.now(); node.tabIds = []; delete node.tabId; }
     addEvent(session, 'composted', { url });
     
-    // Earn leaf reward for intentional choice to compost (if rewards enabled)
-    if (canEarnReward(state)) {
-      earnReward(state, 'leaves', 'compost_choice');
-    }
-    
-    return true;
+    return { saved: true, reward: earnReward(state, 'leaves', 'compost_choice') };
   });
 }
 
@@ -981,18 +970,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               await chrome.tabs.update(originTabId, { url: returnUrl, active: true }); 
               returnedToOrigin = true; 
               
-              // Earn seed reward for returning to root (if rewards enabled)
-              mutate((state) => {
-                if (canEarnReward(state)) {
-                  earnReward(state, 'seeds', 'return_to_root');
-                }
-                return state;
-              });
+              const rewardResult = await mutate((state) => ({ reward: earnReward(state, 'seeds', 'return_to_root') }));
+              returnedToOrigin = { returned: true, reward: rewardResult?.reward || null };
             }
           } catch { returnedToOrigin = false; }
         }
-        if (!returnedToOrigin && hasRealOrigin) await chrome.tabs.create({ url: returnUrl, active: true });
-        return activeView(await loadState(), returnedToOrigin ? originTabId : null);
+        const didReturn = returnedToOrigin === true || returnedToOrigin?.returned === true;
+        const reward = returnedToOrigin?.reward || null;
+        if (!didReturn && hasRealOrigin) await chrome.tabs.create({ url: returnUrl, active: true });
+        return { ...activeView(await loadState(), didReturn ? originTabId : null), reward };
       }
       default: return null;
     }

@@ -99,6 +99,8 @@
 .choice-card[hidden]{display:none !important}
 .choice-card .close{position:absolute;top:12px;right:12px;border:0;background:rgba(74,104,71,.1);border-radius:999px;width:28px;height:28px;font-size:16px;line-height:1;color:#3d5239;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .choice-card .close:hover{background:rgba(74,104,71,.2)}
+.forest-find{position:fixed;right:24px;bottom:24px;max-width:min(340px,calc(100vw - 32px));padding:12px 16px;border:1px solid rgba(198,165,98,.42);border-radius:16px;background:rgba(255,251,235,.98);box-shadow:0 10px 28px rgba(82,70,39,.18);color:#5d563d;font:13px/1.4 ui-sans-serif,system-ui,sans-serif;pointer-events:auto;animation:ff-slide-up .28s ease both}
+.forest-find[hidden]{display:none}
 .choice-eyebrow{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#4a7c59;margin:0 0 6px}
 .choice-card h2{font:600 17px/1.3 ui-sans-serif,system-ui,sans-serif;color:#29432d;margin:0 0 8px}
 .choice-copy{font:14px/1.5 ui-sans-serif,system-ui,sans-serif;color:#3d5239;margin:0 0 16px}
@@ -163,7 +165,8 @@
   const choiceActionsEl = makeElement('div', 'choice-actions');
   choiceActionsEl.append(makeChoice('dismiss', 'choice', '→', 'Keep exploring', 'Leave the page open and continue by choice.'), makeChoice('home', 'choice primary', '↶', 'Return to my mission', 'Go back to where this session began.'), makeChoice('compost', 'choice', '⌁', 'Save this for later', 'Put this curiosity in your compost pile.'), makeChoice('mission', 'choice', '＋', 'Start a new mission', 'Let this become the thing you are here to do.'));
   choiceCardEl.append(choiceActionsEl);
-  rootEl.append(chipEl, choiceCardEl);
+  const forestFindEl = makeElement('aside', 'forest-find', { role: 'status', 'aria-live': 'polite', hidden: true });
+  rootEl.append(chipEl, choiceCardEl, forestFindEl);
   shadow.append(rootEl);
 
   const chip = shadow.querySelector('.chip');
@@ -182,6 +185,14 @@
   let ambientMotion = true;
   let originRitualPlayed = false;
   try { originRitualPlayed = sessionStorage.getItem('ff-origin-ritual-played') === 'true'; } catch { /* storage may be unavailable */ }
+  let forestFindTimer = 0;
+  function showForestFind(reward) {
+    if (!reward?.text) return;
+    forestFindEl.textContent = `${reward.icon || '✦'} Forest Find · ${reward.text}`;
+    forestFindEl.hidden = false;
+    window.clearTimeout(forestFindTimer);
+    forestFindTimer = window.setTimeout(() => { forestFindEl.hidden = true; }, 5200);
+  }
 
   // === SPA SUPPORT: Intercept history.pushState and history.replaceState ===
   // This ensures we detect navigation in Single Page Applications (Gmail, Twitter, YouTube, etc.)
@@ -371,9 +382,9 @@
   shadow.addEventListener('click', wrapWithErrorBoundary(async (event) => {
     if (!event.isTrusted) return;
     const action = event.target.closest('[data-action]')?.dataset.action;
-    if (action === 'home') { hideChoiceCard(); await send('GO_HOME'); }
-    else if (action === 'compost') { await send('COMPOST', { url: location.href, title: document.title }); hideChoiceCard(); }
-    else if (action === 'mission') { await send('END_MISSION', { reason: 'mission_changed' }); hideChoiceCard(); window.location.href = chrome.runtime.getURL('newtab/index.html'); }
+    if (action === 'home') { hideChoiceCard(); showForestFind((await send('GO_HOME'))?.reward); }
+    else if (action === 'compost') { showForestFind((await send('COMPOST', { url: location.href, title: document.title }))?.reward); hideChoiceCard(); }
+    else if (action === 'mission') { const result = await send('END_MISSION', { reason: 'mission_changed' }); showForestFind(result?.reward); hideChoiceCard(); window.location.href = chrome.runtime.getURL('newtab/index.html'); }
     else if (action === 'dismiss') { hideChoiceCard(); }
     else if (action === 'pause') { await send('PAUSE_INTERVENTION', { paused: !current?.interventionPaused }); await safeRefresh(false); }
     else if (action === 'pause-site') { await send('PAUSE_SITE'); chip.hidden = true; choiceCard.hidden = true; }

@@ -2,6 +2,20 @@
 
 All notable Focus Forest changes are documented here.
 
+## [0.3.4] — 2026-09-17
+
+### Fixed
+
+- Fixed opt-in Forest Finds so reward history survives normalization and reloads while storing only a reward ID and timestamp locally.
+- Fixed reward cooldown accounting and awaited reward persistence for composting, mission completion, and returning to the mission root.
+- Added non-blocking reward feedback to the companion and New Tab status area without changing the extension’s passive browsing model.
+- Fixed storage-pressure compaction so it no longer calls a service-worker-only mutation helper or overwrites a concurrent save.
+
+### Cleanup
+
+- Removed unused tree node and DOM pooling scaffolding that was not connected to the renderer.
+- Added regression coverage for bounded reward history, minimal local records, cooldowns, and deterministic catalog selection.
+
 ## [0.3.3] — 2026-09-16
 
 ### Added

@@ -279,6 +279,7 @@ export function normalizeState(value) {
     activeSessionId,
     sessions,
     compostItems: Array.isArray(value.compostItems) ? value.compostItems.slice(0, LIMITS.COMPOST).map((item) => { const url = safeHttpUrl(item?.url); if (!url) return null; return { id: compactText(item?.id, 120), url, title: compactText(item?.title || url, LIMITS.TITLE), mission: compactText(item?.mission, 140), depth: Math.max(0, Math.min(LIMITS.NODES_PER_SESSION, Number(item?.depth) || 0)), savedAt: Number.isFinite(item?.savedAt) ? item.savedAt : Date.now() }; }).filter((item) => item?.id && item.url) : [],
+    rewardHistory: Array.isArray(value.rewardHistory) ? value.rewardHistory.filter((reward) => typeof reward?.rewardId === 'string' && Number.isFinite(reward.timestamp)).slice(-24).map((reward) => ({ rewardId: compactText(reward.rewardId, 40), timestamp: reward.timestamp })) : [],
     settings: normalizeSettings(value.settings, fallback.settings),
     onboardingCompleted: Boolean(value.onboardingCompleted)
   };
@@ -367,29 +368,30 @@ export async function compactStateIfNeeded() {
   let compactionAttempts = 0;
   const MAX_COMPACTION_ATTEMPTS = 5;
   
-  await mutate((state) => {
-    let changed = false;
-    // Remove oldest completed sessions first (keep at least 3 recent ones)
-    while (state.sessions.length > 3 && compactionAttempts < MAX_COMPACTION_ATTEMPTS) {
-      const sessionIndex = state.sessions.findIndex(s => s.status === 'completed');
-      if (sessionIndex === -1) break; // No more completed sessions to remove
-      
-      // Don't remove the active session
-      if (state.sessions[sessionIndex].id === state.activeSessionId) break;
-      
-      state.sessions.splice(sessionIndex, 1);
-      changed = true;
-      compactionAttempts++;
+  const state = await loadState();
+  let changed = false;
+  // Remove oldest completed sessions first (keep at least 3 recent ones).
+  while (state.sessions.length > 3 && compactionAttempts < MAX_COMPACTION_ATTEMPTS) {
+    const sessionIndex = state.sessions.findIndex((session) => session.status === 'completed' && session.id !== state.activeSessionId);
+    if (sessionIndex === -1) break;
+    state.sessions.splice(sessionIndex, 1);
+    changed = true;
+    compactionAttempts++;
+  }
+  if (quota.critical && state.compostItems.length > 20) {
+    state.compostItems = state.compostItems.slice(-20);
+    changed = true;
+  }
+  if (changed) {
+    const compacted = normalizeState(state);
+    ownWritesInFlight += 1;
+    try {
+      await chrome.storage.local.set({ [STORAGE_KEY]: compacted });
+      stateCache = compacted;
+    } finally {
+      ownWritesInFlight = Math.max(0, ownWritesInFlight - 1);
     }
-    
-    // If still critical, also trim compost items (keep last 20)
-    if (quota.critical && state.compostItems.length > 20) {
-      state.compostItems = state.compostItems.slice(-20);
-      changed = true;
-    }
-    
-    return changed ? state : NO_CHANGE;
-  });
+  }
   
   return compactionAttempts > 0;
 }
@@ -418,9 +420,6 @@ export async function loadState() {
  */
 export async function saveState(state) {
   const normalized = normalizeState(state);
-  
-  // Check if compaction is needed before saving
-  await compactStateIfNeeded();
   
   ownWritesInFlight += 1;
   try {
@@ -459,6 +458,9 @@ if (typeof chrome !== 'undefined' && chrome.alarms && isExtensionServiceWorker) 
       checkStorageQuota().catch((error) => {
         logError(error, { category: ERROR_CATEGORIES.STORAGE, operation: 'periodicQuotaCheck' });
       });
+      compactStateIfNeeded().catch((error) => {
+        logError(error, { category: ERROR_CATEGORIES.STORAGE, operation: 'periodicCompaction' });
+      });
     }
   });
 }
@@ -476,7 +478,8 @@ export function canEarnReward(state) {
   if (!state.settings.enableRewards) return false;
   
   const now = Date.now();
-  const recentRewards = state.rewardHistory.filter(
+  const rewardHistory = Array.isArray(state.rewardHistory) ? state.rewardHistory : [];
+  const recentRewards = rewardHistory.filter(
     r => now - r.timestamp < REWARD_LIMITS.COOLDOWN_MS
   );
   
@@ -485,8 +488,9 @@ export function canEarnReward(state) {
   // Count rewards in current session
   const currentSessionId = state.activeSessionId;
   if (currentSessionId) {
-    const sessionRewards = state.rewardHistory.filter(
-      r => r.sessionId === currentSessionId
+    const sessionStartedAt = state.sessions.find((session) => session.id === currentSessionId)?.startedAt || now;
+    const sessionRewards = rewardHistory.filter(
+      r => r.timestamp >= sessionStartedAt
     );
     if (sessionRewards.length >= REWARD_LIMITS.MAX_PER_SESSION) return false;
   }
@@ -535,16 +539,7 @@ export function earnReward(state, tier, trigger) {
   const reward = selectRandomReward(tier);
   if (!reward) return null;
   
-  const rewardRecord = {
-    id: makeId('reward'),
-    rewardId: reward.id,
-    tier,
-    trigger,
-    timestamp: Date.now(),
-    sessionId: state.activeSessionId,
-    text: reward.text,
-    icon: reward.icon
-  };
+  const rewardRecord = { rewardId: reward.id, timestamp: Date.now() };
   
   state.rewardHistory.push(rewardRecord);
   
@@ -552,15 +547,5 @@ export function earnReward(state, tier, trigger) {
   const cutoff = Date.now() - (REWARD_LIMITS.REWARD_HISTORY_DAYS * 24 * 60 * 60 * 1000);
   state.rewardHistory = state.rewardHistory.filter(r => r.timestamp > cutoff);
   
-  return reward;
-}
-
-/**
- * Get the most recent unclaimed reward
- * @param {object} state - Current application state
- * @returns {object|null} Recent reward or null
- */
-export function getRecentReward(state) {
-  if (!state.rewardHistory || state.rewardHistory.length === 0) return null;
-  return state.rewardHistory[state.rewardHistory.length - 1];
+  return { ...reward, tier, trigger };
 }
