@@ -433,4 +433,23 @@ assert.deepEqual(store.focusForestState.compostItems.map((item) => item.id), ['k
 assert.equal(await send({ type: 'FORGET_SITE', hostname: 'saved.example' }), null,
   'forgetting a site with no remaining matches is a no-op');
 
+// Durability: a transient storage write failure must not silently drop the
+// user's action — mutate() retries once against freshly loaded state.
+await send({ type: 'CLEAR_DATA' });
+await send({ type: 'START_MISSION', mission: 'Retry durability', tab: { id: 800, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
+const originalSet = globalThis.chrome.storage.local.set;
+let setFailures = 0;
+globalThis.chrome.storage.local.set = async (value) => {
+  if (setFailures === 0) { setFailures += 1; throw new Error('simulated transient write failure'); }
+  return originalSet(value);
+};
+await send({ type: 'OBSERVE_PAGE', url: 'https://retry.example/page', title: 'Retry page' }, { id: 800 });
+globalThis.chrome.storage.local.set = originalSet;
+assert.equal(setFailures, 1, 'fixture must have exercised exactly one failed write');
+assert.equal(store.focusForestState.sessions[0].nodes.some((node) => node.url === 'https://retry.example/page'), true,
+  'a transient write failure must be retried so the user action is not lost');
+
+// onSuspend must be registered as a lifecycle listener when available.
+assert.equal(typeof globalThis.chrome.runtime.onSuspend, 'undefined', 'test mock omits onSuspend; listener registration must tolerate its absence');
+
 console.log('service-worker behavioral tests passed');

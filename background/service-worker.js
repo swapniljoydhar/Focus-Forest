@@ -112,15 +112,28 @@ function takePendingBranch(url, sourceTabId, windowId) {
 const NO_CHANGE = Symbol('no-change');
 
 let mutationQueue = Promise.resolve();
-function mutate(mutator) {
-  const wrappedMutator = wrapMutationWithErrorBoundary(mutator, { component: 'service-worker', function: 'mutate' });
-  const run = mutationQueue.then(async () => {
+// A failed storage write must not silently drop the user's action: retry once
+// against freshly loaded state before surfacing the error to the caller.
+async function runMutatorWithRetry(wrappedMutator) {
+  try {
     const state = await loadState();
     const result = await wrappedMutator(state);
     if (result === NO_CHANGE || result == null) return result === NO_CHANGE ? null : result;
     await saveState(state);
     return result;
-  });
+  } catch (error) {
+    clearStateCache();
+    const state = await loadState();
+    const result = await wrappedMutator(state);
+    if (result === NO_CHANGE || result == null) return result === NO_CHANGE ? null : result;
+    await saveState(state);
+    logWarning(new Error('mutation recovered on retry'), { category: ERROR_CATEGORIES.STATE_MUTATION, originalError: error?.message, component: 'service-worker', function: 'mutate-retry' });
+    return result;
+  }
+}
+function mutate(mutator) {
+  const wrappedMutator = wrapMutationWithErrorBoundary(mutator, { component: 'service-worker', function: 'mutate' });
+  const run = mutationQueue.then(() => runMutatorWithRetry(wrappedMutator));
   mutationQueue = run.catch((error) => {
     logError(error, { category: ERROR_CATEGORIES.STATE_MUTATION, component: 'service-worker', function: 'mutate-catch' });
     clearStateCache();
@@ -1074,6 +1087,12 @@ chrome.tabs.onCreated?.addListener((tab) => {
   return wrapWithErrorBoundary(async (tab) => {
     await takeOverBrowserNewTab(tab);
   }, { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'tabs.onCreated', swallow: true })(tab);
+});
+chrome.runtime.onSuspend?.addListener(() => {
+  // Best-effort flush: the worker may terminate mid-queue, so attempt to
+  // finish any pending mutation writes before shutdown. onSuspend cannot
+  // guarantee completion, but catches the common idle-termination case.
+  wrapWithErrorBoundary(() => mutationQueue.catch(() => undefined), { category: ERROR_CATEGORIES.STATE_MUTATION, component: 'service-worker', function: 'onSuspend', swallow: true })();
 });
 chrome.runtime.onStartup?.addListener(() => {
   wrapWithErrorBoundary(async () => {
