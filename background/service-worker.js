@@ -1,6 +1,6 @@
 import { LIMITS, SCHEMA_VERSION, STORAGE_KEY, activeSession, clearStateCache, compactText, emptyState, getDepthState, isBrowserNewTabUrl, isExtensionNewTabUrl, isPlaceholderOriginUrl, isSearchUrl, loadState, makeId, normalizeSettings, safeHttpUrl, safeSessionUrl, saveState, checkStorageQuota, normalizeState, earnReward } from '../shared/state.js';
 import { logError, logWarning, ERROR_CATEGORIES, wrapMutationWithErrorBoundary, wrapWithErrorBoundary } from '../shared/error-tracing.js';
-import { SERVICE_WORKER, MEMORY_LIMITS, VALIDATION } from '../shared/constants.js';
+import { DAY_MS, SERVICE_WORKER, MEMORY_LIMITS, VALIDATION } from '../shared/constants.js';
 
 const pendingBranches = new Map();
 const MAX_PENDING_BRANCHES = MEMORY_LIMITS.LRU_CACHE_SIZE;
@@ -551,7 +551,7 @@ function formatHistoryDomain(url) {
 async function getDashboardStats() {
   const state = await loadState();
   const now = Date.now();
-  const ONE_DAY_MS = SERVICE_WORKER.CLEANUP_INTERVAL_MS * 24; // 24 hours in ms
+  const ONE_DAY_MS = DAY_MS;
 
   // Calculate total sessions and focus time
   let totalSessions = 0;
@@ -725,7 +725,7 @@ async function importAllData(payload) {
       }
       // Validate timestamp ranges (not in future, not too old)
       const now = Date.now();
-      const ONE_DAY_MS = SERVICE_WORKER.CLEANUP_INTERVAL_MS * 24; // 24 hours in ms
+      const ONE_DAY_MS = DAY_MS;
       const MAX_TIMESTAMP_FUTURE_MS = SERVICE_WORKER.RATE_LIMIT_WINDOW_MS; // 1 minute tolerance
       const MAX_AGE_MS = VALIDATION.MAX_TIMESTAMP_AGE_YEARS * 365 * ONE_DAY_MS;
       
@@ -942,7 +942,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           session.nodes = session.nodes.filter((node) => { try { return new URL(node.url).hostname.toLowerCase().replace(/^www\./, '') !== hostname; } catch { return true; } });
           removed += before - session.nodes.length;
         }
+        const compostBefore = state.compostItems.length;
         state.compostItems = state.compostItems.filter((item) => { try { return new URL(item.url).hostname.toLowerCase().replace(/^www\./, '') !== hostname; } catch { return true; } });
+        removed += compostBefore - state.compostItems.length;
         return removed ? { hostname, removed } : NO_CHANGE;
       }) : null;
       case 'CLEAR_DATA':

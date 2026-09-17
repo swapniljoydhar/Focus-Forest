@@ -3,6 +3,9 @@
  * Extracts magic numbers and configuration values for maintainability
  */
 
+// Calendar duration, independent of maintenance and rate-limit intervals.
+export const DAY_MS = 86400000;
+
 // Service Worker & Background Limits
 export const SERVICE_WORKER = {
   NAVIGATION_HISTORY_SIZE: 64,

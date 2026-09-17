@@ -374,4 +374,63 @@ tabActions.length = 0;
 await listeners.updated[0](904, { status: 'complete', url: 'chrome://settings' }, { id: 904, url: 'chrome://settings' });
 assert.equal(tabActions.some((action) => action[0] === 'update' && action[1] === 904), false, 'settings pages must not be rewritten to the planting page');
 
+// Calendar regressions use a fixed UTC clock, independent of the host timezone.
+const realDateNow = Date.now;
+Date.now = () => Date.parse('2026-09-17T12:00:00Z');
+try {
+  await send({ type: 'CLEAR_DATA' });
+  const emptyStats = await send({ type: 'GET_DASHBOARD_STATS' });
+  assert.deepEqual(emptyStats.weeklyData.map((day) => day.date), [
+    '2026-09-11', '2026-09-12', '2026-09-13', '2026-09-14',
+    '2026-09-15', '2026-09-16', '2026-09-17'
+  ], 'weekly statistics must contain seven distinct consecutive UTC dates');
+  assert.equal(emptyStats.currentStreak, 0);
+
+  const overnight = {
+    id: 'calendar_overnight', mission: 'Read across midnight', status: 'completed',
+    startedAt: Date.parse('2026-09-16T23:30:00Z'),
+    endedAt: Date.parse('2026-09-17T00:30:00Z'),
+    origin: { url: 'https://example.com/' }, nodes: [], events: []
+  };
+  await send({ type: 'IMPORT_DATA', payload: { data: { sessions: [overnight] } } });
+  const stats = await send({ type: 'GET_DASHBOARD_STATS' });
+  assert.equal(stats.totalFocusTime, 3600, 'elapsed session time must not change');
+  assert.equal(stats.currentStreak, 2, 'streaks count calendar days, not smaller time buckets');
+  assert.deepEqual(stats.weeklyData.map((day) => day.minutes), [0, 0, 0, 0, 0, 30, 30],
+    'a session crossing UTC midnight must split between its two dates');
+
+  await send({ type: 'CLEAR_DATA' });
+  const historical = {
+    ...overnight, id: 'calendar_historical',
+    startedAt: Date.parse('2025-09-17T10:00:00Z'),
+    endedAt: Date.parse('2025-09-17T11:00:00Z'),
+    nodes: [{ id: 'historical_root', url: 'https://example.com/', depth: 0,
+      firstSeenAt: Date.parse('2025-09-17T10:00:00Z') }]
+  };
+  await send({ type: 'IMPORT_DATA', payload: { data: { sessions: [historical] } } });
+  const imported = (await send({ type: 'EXPORT_DATA' })).data.sessions[0];
+  assert.equal(imported.startedAt, historical.startedAt, 'a one-year-old session is within the five-year import limit');
+  assert.equal(imported.endedAt, historical.endedAt);
+  assert.equal(imported.nodes[0].firstSeenAt, historical.nodes[0].firstSeenAt,
+    'valid historical node timestamps must survive import');
+} finally {
+  Date.now = realDateNow;
+}
+
+// Forgetting a site must persist even when only saved items match.
+await send({ type: 'CLEAR_DATA' });
+await send({ type: 'IMPORT_DATA', payload: { data: {
+  sessions: [],
+  compostItems: [
+    { id: 'forget_saved', url: 'https://www.saved.example/article', title: 'Remove me', savedAt: Date.now() },
+    { id: 'keep_saved', url: 'https://other.example/article', title: 'Keep me', savedAt: Date.now() }
+  ]
+} } });
+assert.equal(store.focusForestState.compostItems.length, 2, 'fixture must be persisted');
+await send({ type: 'FORGET_SITE', hostname: 'saved.example' });
+assert.deepEqual(store.focusForestState.compostItems.map((item) => item.id), ['keep_saved'],
+  'compost-only forgetting must persist deletion and preserve unrelated saved items');
+assert.equal(await send({ type: 'FORGET_SITE', hostname: 'saved.example' }), null,
+  'forgetting a site with no remaining matches is a no-op');
+
 console.log('service-worker behavioral tests passed');
