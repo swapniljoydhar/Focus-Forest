@@ -54,6 +54,8 @@ const {
   loadState,
   saveState,
   clearStateCache,
+  compactStateIfNeeded,
+  STORAGE_QUOTA_CRITICAL_THRESHOLD,
   makeId
 } = await import('./shared/state.js');
 
@@ -258,6 +260,67 @@ describe('normalizeState migration and bounds', () => {
       assert.ok(sess.events.length <= LIMITS.EVENTS_PER_SESSION, `events ${sess.events.length}`);
     }
     assert.ok(result.compostItems.length <= LIMITS.COMPOST, `compost ${result.compostItems.length}`);
+  });
+});
+
+describe('critical-quota compost compaction', () => {
+  for (const behavior of ['retention', 'change result']) {
+    it(`handles compost-only ${behavior}`, async () => {
+      const originalGetBytesInUse = chrome.storage.local.getBytesInUse;
+      const originalStoredState = storage[STORAGE_KEY];
+      const items = Array.from({ length: 25 }, (_, index) => ({
+        id: `saved-${index}`, url: `https://example.com/saved-${index}`,
+        title: `Saved page ${index}`, mission: 'Research', depth: 1,
+        savedAt: 25000 - index * 1000
+      }));
+      try {
+        chrome.storage.local.getBytesInUse = async () => STORAGE_QUOTA_CRITICAL_THRESHOLD + 1;
+        storage[STORAGE_KEY] = { ...emptyState(), compostItems: items };
+        clearStateCache();
+        const changed = await compactStateIfNeeded();
+        if (behavior === 'retention') {
+          assert.deepStrictEqual(storage[STORAGE_KEY].compostItems.map((item) => item.id),
+            items.slice(0, 20).map((item) => item.id), 'persist the newest 20 saves, not the oldest');
+          clearStateCache();
+          assert.deepStrictEqual((await loadState()).compostItems.map((item) => item.id),
+            items.slice(0, 20).map((item) => item.id), 'retention must survive a fresh storage read');
+        } else {
+          assert.strictEqual(changed, true, 'compost-only persistence must report a change');
+          assert.strictEqual(await compactStateIfNeeded(), false, 'already compacted state must report no change');
+        }
+        assert.deepStrictEqual(storage[STORAGE_KEY].sessions, [], 'fixture must not remove any sessions');
+      } finally {
+        if (originalGetBytesInUse === undefined) delete chrome.storage.local.getBytesInUse;
+        else chrome.storage.local.getBytesInUse = originalGetBytesInUse;
+        if (originalStoredState === undefined) delete storage[STORAGE_KEY];
+        else storage[STORAGE_KEY] = originalStoredState;
+        clearStateCache();
+      }
+    });
+  }
+  it('does not expose unpersisted compaction after a failed write', async () => {
+    const originalGetBytesInUse = chrome.storage.local.getBytesInUse;
+    const originalStoredState = storage[STORAGE_KEY];
+    try {
+      chrome.storage.local.getBytesInUse = async () => STORAGE_QUOTA_CRITICAL_THRESHOLD + 1;
+      storage[STORAGE_KEY] = { ...emptyState(), compostItems: Array.from({ length: 25 }, (_, i) => ({
+        id: `failure-${i}`, url: `https://example.com/${i}`, savedAt: i
+      })) };
+      clearStateCache();
+      const before = structuredClone(await loadState());
+      failNextSet = true;
+      await assert.rejects(compactStateIfNeeded(), /simulated storage write failure/);
+      assert.deepStrictEqual(await loadState(), before, 'failed compaction must leave cached history intact');
+      clearStateCache();
+      assert.deepStrictEqual(await loadState(), before, 'cache and durable state must agree');
+    } finally {
+      failNextSet = false;
+      if (originalGetBytesInUse === undefined) delete chrome.storage.local.getBytesInUse;
+      else chrome.storage.local.getBytesInUse = originalGetBytesInUse;
+      if (originalStoredState === undefined) delete storage[STORAGE_KEY];
+      else storage[STORAGE_KEY] = originalStoredState;
+      clearStateCache();
+    }
   });
 });
 

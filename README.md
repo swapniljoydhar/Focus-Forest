@@ -139,4 +139,4 @@ The fast suite includes tree geometry, deep-branch bounds, and malformed-parent 
 
 ### Preview the tree artwork
 
-Run `npm run preview:trees` for an interactive gallery of the actual SVG renderer, including young and full-canopy trees. It uses explicitly labeled sample gardens, does not access Chrome APIs or real browsing history, and binds to `0.0.0.0` for remote development previews.
+Run `npm run preview:trees` for an interactive gallery of the actual SVG renderer, including young and full-canopy trees. It uses explicitly labeled sample gardens, does not access Chrome APIs or real browsing history, and binds to loopback (`127.0.0.1:4173`) by default. Set `PORT` to change the port. Remote previews require an explicit `HOST` override, for example `$env:HOST='0.0.0.0'; npm run preview:trees` in PowerShell. Only enable remote access on a trusted development network; unset `HOST` afterward with `Remove-Item Env:HOST`.

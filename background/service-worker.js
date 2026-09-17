@@ -1,4 +1,4 @@
-import { LIMITS, SCHEMA_VERSION, STORAGE_KEY, activeSession, clearStateCache, compactText, emptyState, getDepthState, isBrowserNewTabUrl, isExtensionNewTabUrl, isPlaceholderOriginUrl, isSearchUrl, loadState, makeId, normalizeSettings, safeHttpUrl, safeSessionUrl, saveState, checkStorageQuota, normalizeState, earnReward } from '../shared/state.js';
+import { LIMITS, SCHEMA_VERSION, STORAGE_KEY, activeSession, clearStateCache, compactText, emptyState, getDepthState, isBrowserNewTabUrl, isExtensionNewTabUrl, isPlaceholderOriginUrl, isSearchUrl, loadState, makeId, normalizeSettings, safeHttpUrl, safeSessionUrl, saveState, checkStorageQuota, compactStateIfNeeded, normalizeState, earnReward } from '../shared/state.js';
 import { logError, logWarning, ERROR_CATEGORIES, wrapMutationWithErrorBoundary, wrapWithErrorBoundary } from '../shared/error-tracing.js';
 import { DAY_MS, SERVICE_WORKER, MEMORY_LIMITS, VALIDATION } from '../shared/constants.js';
 
@@ -119,18 +119,22 @@ let mutationQueue = Promise.resolve();
 // A failed storage write must not silently drop the user's action: retry once
 // against freshly loaded state before surfacing the error to the caller.
 async function runMutatorWithRetry(wrappedMutator) {
-  try {
+  const attempt = async () => {
     const state = await loadState();
     const result = await wrappedMutator(state);
     if (result === NO_CHANGE || result == null) return result === NO_CHANGE ? null : result;
     await saveState(state);
+    // Centralized refresh: any persisted mutation may change mission depth or
+    // status, so the toolbar badge follows every path (links, observations,
+    // prunes, composts) without per-callsite updates.
+    updateBadge();
     return result;
+  };
+  try {
+    return await attempt();
   } catch (error) {
     clearStateCache();
-    const state = await loadState();
-    const result = await wrappedMutator(state);
-    if (result === NO_CHANGE || result == null) return result === NO_CHANGE ? null : result;
-    await saveState(state);
+    const result = await attempt();
     logWarning(new Error('mutation recovered on retry'), { category: ERROR_CATEGORIES.STATE_MUTATION, originalError: error?.message, component: 'service-worker', function: 'mutate-retry' });
     return result;
   }
@@ -156,6 +160,21 @@ function replaceState(nextState) {
     return undefined;
   });
   return run;
+}
+
+// Maintenance shares the same queue as imports, clears, and navigation writes.
+// Register synchronously at worker startup so alarms can wake a suspended worker.
+if (chrome.alarms) {
+  chrome.alarms.create('storageQuotaCheck', { periodInMinutes: 5 });
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name !== 'storageQuotaCheck') return;
+    const run = mutationQueue.then(() => compactStateIfNeeded());
+    mutationQueue = run.catch((error) => {
+      clearStateCache();
+      logError(error, { category: ERROR_CATEGORIES.STORAGE, operation: 'periodicCompaction' });
+    });
+    return mutationQueue;
+  });
 }
 
 function nodeHasTab(node, tabId) {
@@ -382,7 +401,7 @@ async function createSession(mission, tab, rawNote = '') {
     if (state.sessions.length > LIMITS.SESSIONS) state.sessions.splice(0, state.sessions.length - LIMITS.SESSIONS);
     state.activeSessionId = session.id;
     return session;
-  }).then(async (result) => { await recordActiveTab(Number.isInteger(tab?.id) ? tab.id : null, tab?.windowId); updateBadge(); return result; });
+  }).then(async (result) => { await recordActiveTab(Number.isInteger(tab?.id) ? tab.id : null, tab?.windowId); return result; });
 }
 
 async function endSession(reason = 'user_ended') {
@@ -396,30 +415,35 @@ async function endSession(reason = 'user_ended') {
     const reward = earnReward(state, 'blooms', `session_end_${reason}`);
     state.activeSessionId = null;
     return { session, reward };
-  }).then((result) => { if (result !== NO_CHANGE) updateBadge(); return result; });
+  });
 }
 
+let lastBadgeText = null;
+let lastBadgeColor = null;
+function applyBadge(text, color) {
+  if (text === lastBadgeText && color === lastBadgeColor) return; // skip redundant browser IPC
+  lastBadgeText = text;
+  lastBadgeColor = color;
+  chrome.action.setBadgeText({ text });
+  chrome.action.setBadgeBackgroundColor({ color });
+}
 function updateBadge() {
   if (!chrome.action?.setBadgeText || !chrome.action?.setBadgeBackgroundColor) return;
   loadState().then((state) => {
     const session = activeSession(state);
     if (!session) {
-      chrome.action.setBadgeText({ text: '' });
-      chrome.action.setBadgeBackgroundColor({ color: '#00000000' });
+      applyBadge('', '#00000000');
       return;
     }
     const paused = session.interventionPaused;
     const depth = Math.max(0, ...session.nodes.map((node) => node.depth || 0));
     const thresholds = effectiveThresholds(state.settings);
     if (paused) {
-      chrome.action.setBadgeText({ text: '⏸' });
-      chrome.action.setBadgeBackgroundColor({ color: '#c6a562' });
+      applyBadge('⏸', '#c6a562');
     } else if (depth >= thresholds.INTERRUPT) {
-      chrome.action.setBadgeText({ text: '🌱' });
-      chrome.action.setBadgeBackgroundColor({ color: '#bd8473' });
+      applyBadge('🌱', '#bd8473');
     } else {
-      chrome.action.setBadgeText({ text: '🌱' });
-      chrome.action.setBadgeBackgroundColor({ color: '#719b6c' });
+      applyBadge('🌱', '#719b6c');
     }
   }).catch(() => {});
 }
@@ -704,6 +728,82 @@ async function getDashboardStats() {
   };
 }
 
+// Forget stored visits to one host, not unrelated pages below those visits.
+async function forgetSite(rawHostname) {
+  const hostname = rawHostname.trim().toLowerCase().replace(/^www\./, '');
+  if (!hostname) return null;
+  const matches = (url) => {
+    try { return new URL(url).hostname.toLowerCase().replace(/^www\./, '') === hostname; }
+    catch { return false; }
+  };
+  return mutate((state) => {
+    let removed = 0;
+    const removedNodeIds = new Set();
+    const removedTabIds = new Set();
+    for (const session of state.sessions) {
+      const deleted = session.nodes.filter((node) => matches(node.url));
+      const deletedIds = new Set(deleted.map((node) => node.id));
+      const deletedTabs = new Set(deleted.flatMap((node) => node.tabIds || []));
+      deletedIds.forEach((id) => removedNodeIds.add(id));
+      removed += deleted.length;
+      session.nodes = session.nodes.filter((node) => !deletedIds.has(node.id));
+      if (matches(session.origin?.url)) {
+        if (Number.isInteger(session.origin.tabId)) deletedTabs.add(session.origin.tabId);
+        // A neutral extension URL is not an unplanted New Tab placeholder:
+        // the next observation must not overwrite an unrelated surviving node.
+        session.origin = { tabId: null, windowId: null, url: chrome.runtime.getURL('dashboard/index.html'), title: 'Forgotten origin' };
+        removed++;
+      }
+      const eventCount = session.events.length;
+      session.events = session.events.filter((event) => !matches(event.url) && !deletedIds.has(event.nodeId));
+      removed += eventCount - session.events.length;
+      session.pendingRedirects = session.pendingRedirects.filter((entry) => !deletedIds.has(entry.parentId) && !deletedTabs.has(entry.tabId));
+      session.activeIntervals = session.activeIntervals.filter((entry) => !deletedTabs.has(entry.tabId));
+      deletedTabs.forEach((id) => removedTabIds.add(id));
+      if (deletedIds.size) {
+        const nodes = new Map(session.nodes.map((node) => [node.id, node]));
+        for (const node of session.nodes) {
+          if (deletedIds.has(node.parentId)) {
+            node.parentId = null;
+            node.relationshipConfidence = 'external';
+            node.confidence = 'low';
+            node.navigationKind = 'external';
+          }
+        }
+        const thresholds = effectiveThresholds(state.settings);
+        for (const node of session.nodes) {
+          // Bound traversal even if imported history contains a cycle.
+          const seen = new Set([node.id]);
+          let parent = nodes.get(node.parentId);
+          let depth = 0;
+          while (parent && !seen.has(parent.id)) {
+            seen.add(parent.id);
+            depth++;
+            parent = nodes.get(parent.parentId);
+          }
+          node.depth = depth;
+          if (!TERMINAL_STATES.has(node.state)) node.state = getDepthState(depth, session.interventionPaused, thresholds);
+        }
+      }
+    }
+    const compostCount = state.compostItems.length;
+    state.compostItems = state.compostItems.filter((item) => !matches(item.url));
+    removed += compostCount - state.compostItems.length;
+    if (!removed) return NO_CHANGE;
+    for (const [key, entry] of pendingBranches) {
+      if (matches(entry.url) || removedNodeIds.has(entry.parentId) || removedTabIds.has(entry.sourceTabId)) pendingBranches.delete(key);
+    }
+    // SPA keys contain URLs; invalidating this small dedupe cache also removes
+    // forgotten URLs without changing the user's permanent tracking settings.
+    spaDedup.clear();
+    for (const [key, entry] of activeTabs) {
+      if (removedTabIds.has(entry.tabId)) activeTabs.delete(key);
+    }
+    removedTabIds.forEach((id) => navigationHints.delete(id));
+    return { hostname, removed };
+  });
+}
+
 // Remove saved item
 async function removeSavedItem(id) {
   return mutate((state) => {
@@ -773,26 +873,41 @@ async function importAllData(payload) {
     }
   }
   
-  const next = await normalizeState(incomingState);
-  const current = await loadState();
-  const mergedSessions = [...current.sessions, ...next.sessions].slice(-LIMITS.SESSIONS);
-  const activeSessionId = mergedSessions.some((s) => s.id === next.activeSessionId)
-    ? next.activeSessionId
-    : (mergedSessions.some((s) => s.id === current.activeSessionId) ? current.activeSessionId : null);
-  const compostMap = new Map();
-  for (const item of [...next.compostItems, ...current.compostItems]) {
-    if (item?.id && !compostMap.has(item.id)) compostMap.set(item.id, item);
-  }
-  const merged = {
-    schemaVersion: SCHEMA_VERSION,
-    sessions: mergedSessions,
-    compostItems: Array.from(compostMap.values()).slice(0, LIMITS.COMPOST),
-    settings: next.settings,
-    activeSessionId,
-    onboardingCompleted: Boolean(current.onboardingCompleted || next.onboardingCompleted)
-  };
-  await replaceState(merged);
-  return { imported: true };
+  const next = normalizeState(incomingState);
+  return mutate((current) => {
+    // Imported records win ID conflicts as whole snapshots, including their
+    // nodes/events. Move replacements to the end before applying the session cap.
+    const sessionMap = new Map();
+    for (const session of [...current.sessions, ...next.sessions]) {
+      sessionMap.delete(session.id);
+      sessionMap.set(session.id, session);
+    }
+    const mergedSessions = Array.from(sessionMap.values()).slice(-LIMITS.SESSIONS);
+    const activeSessionId = mergedSessions.some((s) => s.id === next.activeSessionId)
+      ? next.activeSessionId
+      : (mergedSessions.some((s) => s.id === current.activeSessionId) ? current.activeSessionId : null);
+    const compostMap = new Map();
+    for (const item of [...next.compostItems, ...current.compostItems]) {
+      if (item?.id && !compostMap.has(item.id)) compostMap.set(item.id, item);
+    }
+    // One catalog reward can be earned more than once; only identical
+    // (rewardId, timestamp) occurrences represent duplicate imported history.
+    const rewardMap = new Map();
+    for (const reward of [...current.rewardHistory, ...next.rewardHistory]) {
+      rewardMap.set(JSON.stringify([reward.rewardId, reward.timestamp]), reward);
+    }
+    Object.assign(current, {
+      schemaVersion: SCHEMA_VERSION,
+      sessions: mergedSessions,
+      compostItems: Array.from(compostMap.values()).slice(0, LIMITS.COMPOST),
+      rewardHistory: Array.from(rewardMap.values()).sort((a, b) => a.timestamp - b.timestamp),
+      settings: next.settings,
+      activeSessionId,
+      onboardingCompleted: Boolean(current.onboardingCompleted || next.onboardingCompleted)
+    });
+    // saveState applies the existing normalized reward-history cap.
+    return { imported: true };
+  });
 }
 
 chrome.runtime.onInstalled.addListener((details) => {
@@ -922,7 +1037,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           }
         });
         return session;
-      }).then((result) => { if (result !== NO_CHANGE) updateBadge(); return result; }) : null;
+      }) : null;
       case 'PAUSE_SITE': return Number.isInteger(tab?.id) ? mutate((state) => {
         let hostname = null;
         try { hostname = new URL(tab.url || '').hostname.toLowerCase().replace(/^www\./, ''); } catch { return NO_CHANGE; }
@@ -951,19 +1066,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'DELETE_COMPOST': return isExtensionPageSender(sender) && safeId(message.id) ? mutate((state) => { const before = state.compostItems.length; state.compostItems = state.compostItems.filter((item) => item.id !== message.id); return before === state.compostItems.length ? NO_CHANGE : state.compostItems; }) : null;
       case 'PRUNE_NODE': return isExtensionPageSender(sender) && safeId(message.sessionId) && safeId(message.nodeId) ? pruneNode(message.sessionId, message.nodeId, Boolean(message.toCompost)) : null;
       case 'DELETE_SESSION': return isExtensionPageSender(sender) && safeId(message.sessionId) ? mutate((state) => { const before = state.sessions.length; state.sessions = state.sessions.filter((session) => session.id !== message.sessionId); if (state.activeSessionId === message.sessionId) { state.activeSessionId = null; clearRuntimeTracking(); } return before === state.sessions.length ? NO_CHANGE : state.sessions; }) : null;
-      case 'FORGET_SITE': return isExtensionPageSender(sender) && typeof message.hostname === 'string' ? mutate((state) => {
-        const hostname = message.hostname.toLowerCase().replace(/^www\./, '');
-        let removed = 0;
-        for (const session of state.sessions) {
-          const before = session.nodes.length;
-          session.nodes = session.nodes.filter((node) => { try { return new URL(node.url).hostname.toLowerCase().replace(/^www\./, '') !== hostname; } catch { return true; } });
-          removed += before - session.nodes.length;
-        }
-        const compostBefore = state.compostItems.length;
-        state.compostItems = state.compostItems.filter((item) => { try { return new URL(item.url).hostname.toLowerCase().replace(/^www\./, '') !== hostname; } catch { return true; } });
-        removed += compostBefore - state.compostItems.length;
-        return removed ? { hostname, removed } : NO_CHANGE;
-      }) : null;
+      case 'FORGET_SITE': return isExtensionPageSender(sender) && typeof message.hostname === 'string' ? forgetSite(message.hostname) : null;
       case 'CLEAR_DATA':
       case 'CLEAR_ALL_DATA': return isExtensionPageSender(sender) ? (clearRuntimeTracking(), replaceState(emptyState())) : null;
       case 'GET_DASHBOARD_STATS': return isExtensionPageSender(sender) ? getDashboardStats() : null;

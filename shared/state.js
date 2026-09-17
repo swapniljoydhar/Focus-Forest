@@ -368,7 +368,9 @@ export async function compactStateIfNeeded() {
   let compactionAttempts = 0;
   const MAX_COMPACTION_ATTEMPTS = 5;
   
-  const state = await loadState();
+  // Work on a copy: loadState() returns the shared cache, and compaction must
+  // never mutate it before (or without) a successful durable write.
+  const state = structuredClone(await loadState());
   let changed = false;
   // Remove oldest completed sessions first (keep at least 3 recent ones).
   while (state.sessions.length > 3 && compactionAttempts < MAX_COMPACTION_ATTEMPTS) {
@@ -379,21 +381,25 @@ export async function compactStateIfNeeded() {
     compactionAttempts++;
   }
   if (quota.critical && state.compostItems.length > 20) {
-    state.compostItems = state.compostItems.slice(-20);
+    // Saves are inserted newest-first, matching normalizeState's retention order.
+    state.compostItems = state.compostItems.slice(0, 20);
     changed = true;
   }
   if (changed) {
     const compacted = normalizeState(state);
+    // Persist first: the shared cache must only adopt compacted data after the
+    // storage write succeeds, matching saveState's failure semantics. A failed
+    // write propagates so callers (and tests) can observe the loss of no data.
     ownWritesInFlight += 1;
     try {
       await chrome.storage.local.set({ [STORAGE_KEY]: compacted });
-      stateCache = compacted;
     } finally {
       ownWritesInFlight = Math.max(0, ownWritesInFlight - 1);
     }
+    stateCache = compacted;
   }
   
-  return compactionAttempts > 0;
+  return changed;
 }
 
 /**
@@ -449,21 +455,6 @@ if (typeof chrome !== 'undefined' && chrome.storage?.onChanged?.addListener) {
   });
 }
 
-// Periodic storage quota check every 5 minutes to catch gradual accumulation.
-const isExtensionServiceWorker = typeof ServiceWorkerGlobalScope !== 'undefined' && typeof self !== 'undefined' && self instanceof ServiceWorkerGlobalScope;
-if (typeof chrome !== 'undefined' && chrome.alarms && isExtensionServiceWorker) {
-  chrome.alarms.create('storageQuotaCheck', { periodInMinutes: 5 });
-  chrome.alarms.onAlarm.addListener((alarm) => {
-    if (alarm.name === 'storageQuotaCheck') {
-      checkStorageQuota().catch((error) => {
-        logError(error, { category: ERROR_CATEGORIES.STORAGE, operation: 'periodicQuotaCheck' });
-      });
-      compactStateIfNeeded().catch((error) => {
-        logError(error, { category: ERROR_CATEGORIES.STORAGE, operation: 'periodicCompaction' });
-      });
-    }
-  });
-}
 
 /**
  * Reward system functions - offline, deterministic, bounded

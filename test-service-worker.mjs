@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { test } from 'node:test';
 
 const store = {};
 const messages = [];
@@ -333,6 +334,65 @@ const afterPreferenceImport = await send({ type: 'GET_SNAPSHOT' });
 assert.equal(afterPreferenceImport.state.onboardingCompleted, true, 'import must not erase onboarding completion');
 assert.equal(afterPreferenceImport.settings.ambientMotion, true, 'import should apply the imported settings explicitly');
 
+// Import merges must be repeatable and persist independently of the worker cache.
+await test('import deduplicates sessions and applies incoming record conflicts', async () => {
+  await send({ type: 'IMPORT_DATA', payload: exported });
+  assert.equal(store.focusForestState.sessions.length, 1, 'repeat imports must not duplicate sessions');
+  const revised = structuredClone(exported);
+  revised.data.sessions[0].mission = 'Revised imported mission';
+  await send({ type: 'IMPORT_DATA', payload: revised });
+  assert.equal(store.focusForestState.sessions.length, 1);
+  assert.equal(store.focusForestState.sessions[0].mission, 'Revised imported mission');
+  assert.equal(store.focusForestState.activeSessionId, exported.data.activeSessionId);
+});
+
+await test('import preserves existing and incoming rewards without duplicating occurrences', async () => {
+  const { clearStateCache } = await import('./shared/state.js');
+  const now = Date.now();
+  const local = { rewardId: 'seed_1', timestamp: now - 2000 };
+  const incoming = { rewardId: 'seed_1', timestamp: now - 1000 };
+  store.focusForestState.rewardHistory = [local];
+  clearStateCache();
+  const payload = { data: { rewardHistory: [local, incoming] } };
+  await send({ type: 'IMPORT_DATA', payload });
+  assert.deepEqual(store.focusForestState.rewardHistory, [local, incoming]);
+  await send({ type: 'IMPORT_DATA', payload });
+  await send({ type: 'IMPORT_DATA', payload: { data: {} } });
+  clearStateCache();
+  assert.deepEqual((await send({ type: 'EXPORT_DATA' })).data.rewardHistory, [local, incoming],
+    'repeat and legacy imports must preserve reward history after a fresh storage read');
+});
+
+await test('import reads current state after a queued clear completes', async () => {
+  const originalSet = chrome.storage.local.set;
+  let releaseWrite;
+  let notifyWrite;
+  const started = new Promise((resolve) => { notifyWrite = resolve; });
+  const blocked = new Promise((resolve) => { releaseWrite = resolve; });
+  chrome.storage.local.set = async (value) => {
+    notifyWrite();
+    await blocked;
+    return originalSet(value);
+  };
+  let clearing;
+  let importing;
+  try {
+    clearing = send({ type: 'CLEAR_DATA' });
+    await started;
+    importing = send({ type: 'IMPORT_DATA', payload: { data: {} } });
+    // Let the import reach the queue while the clear's storage write is held.
+    await new Promise((resolve) => setImmediate(resolve));
+    releaseWrite();
+    await Promise.all([clearing, importing]);
+    assert.deepEqual(store.focusForestState.sessions, [], 'import must not resurrect pre-clear sessions');
+    assert.deepEqual(store.focusForestState.rewardHistory, []);
+  } finally {
+    releaseWrite();
+    await Promise.allSettled([clearing, importing]);
+    chrome.storage.local.set = originalSet;
+  }
+});
+
 // Test onboarding completion
 await send({ type: 'CLEAR_DATA' });
 const beforeOnboarding = await send({ type: 'GET_SNAPSHOT' });
@@ -433,6 +493,109 @@ assert.deepEqual(store.focusForestState.compostItems.map((item) => item.id), ['k
 assert.equal(await send({ type: 'FORGET_SITE', hostname: 'saved.example' }), null,
   'forgetting a site with no remaining matches is a no-op');
 
+await test('Forget Site removes origin-only and event-only metadata durably', async () => {
+  const { clearStateCache } = await import('./shared/state.js');
+  await send({ type: 'CLEAR_DATA' });
+  await send({ type: 'IMPORT_DATA', payload: { data: { sessions: [
+    { id: 'origin_only', origin: { url: 'https://www.forgotten.example/private', title: 'Private title', tabId: 77, windowId: 1 }, nodes: [], events: [] },
+    { id: 'event_only', origin: { url: 'https://keep.example/' }, nodes: [], events: [
+      { id: 'private_event', type: 'link_opened', url: 'https://forgotten.example/private' },
+      { id: 'keep_event', type: 'link_opened', url: 'https://keep.example/' }
+    ] }
+  ] } } });
+  const result = await send({ type: 'FORGET_SITE', hostname: 'WWW.FORGOTTEN.EXAMPLE' });
+  assert.ok(result?.removed > 0, 'metadata-only deletion must count as a persistent change');
+  clearStateCache();
+  const data = (await send({ type: 'EXPORT_DATA' })).data;
+  assert.equal(JSON.stringify(data).includes('forgotten.example'), false);
+  assert.equal(data.sessions[0].origin.title, 'Forgotten origin');
+  assert.equal(data.sessions[0].origin.tabId, null);
+  assert.equal(data.sessions[0].origin.windowId, null);
+  assert.deepEqual(data.sessions[1].events.map((event) => event.id), ['keep_event']);
+  assert.equal(await send({ type: 'FORGET_SITE', hostname: 'forgotten.example' }), null);
+});
+
+await test('Forget Site repairs surviving descendants and removes deleted-node references', async () => {
+  const { clearStateCache } = await import('./shared/state.js');
+  await send({ type: 'CLEAR_DATA' });
+  await send({ type: 'IMPORT_DATA', payload: { data: { activeSessionId: 'forget_tree', sessions: [{
+    id: 'forget_tree', origin: { url: 'https://forgotten.example/', tabId: 71, windowId: 1 },
+    nodes: [
+      { id: 'deleted_root', url: 'https://forgotten.example/', depth: 0, tabIds: [71] },
+      { id: 'survivor', url: 'https://keep.example/', parentId: 'deleted_root', depth: 1, tabIds: [72], relationshipConfidence: 'direct' },
+      { id: 'deleted_middle', url: 'https://www.forgotten.example/page', parentId: 'survivor', depth: 2 },
+      { id: 'child', url: 'https://other.example/', parentId: 'deleted_middle', depth: 3, relationshipConfidence: 'direct' },
+      { id: 'grandchild', url: 'https://other.example/next', parentId: 'child', depth: 4, state: 'gentle' }
+    ],
+    events: [{ id: 'deleted_ref', type: 'pruned', nodeId: 'deleted_root' }, { id: 'kept_ref', type: 'navigation', nodeId: 'survivor' }],
+    pendingRedirects: [{ tabId: 71, parentId: 'deleted_root' }, { tabId: 72, parentId: 'survivor' }],
+    activeIntervals: [{ tabId: 71, startedAt: Date.now() }, { tabId: 72, startedAt: Date.now() }]
+  }] } } });
+  await send({ type: 'FORGET_SITE', hostname: 'forgotten.example' });
+  clearStateCache();
+  const data = (await send({ type: 'EXPORT_DATA' })).data;
+  const tree = data.sessions[0];
+  assert.deepEqual(tree.nodes.map(({ id, parentId, depth }) => ({ id, parentId, depth })), [
+    { id: 'survivor', parentId: null, depth: 0 },
+    { id: 'child', parentId: null, depth: 0 },
+    { id: 'grandchild', parentId: 'child', depth: 1 }
+  ]);
+  assert.equal(tree.nodes[0].relationshipConfidence, 'external');
+  assert.equal(tree.nodes[0].confidence, 'low');
+  assert.equal(tree.nodes[2].state, 'normal');
+  assert.deepEqual(tree.events.map((event) => event.id), ['kept_ref']);
+  assert.deepEqual(tree.pendingRedirects.map((entry) => entry.parentId), ['survivor']);
+  assert.deepEqual(tree.activeIntervals.map((entry) => entry.tabId), [72]);
+  assert.equal(data.activeSessionId, 'forget_tree');
+  // A forgotten origin must not act as an unplanted New Tab placeholder and
+  // overwrite an unrelated surviving root on the next page observation.
+  await send({ type: 'OBSERVE_PAGE', url: 'https://keep.example/next', title: 'Next' }, { id: 72 });
+  assert.equal(store.focusForestState.sessions[0].nodes[0].url, 'https://keep.example/');
+});
+
+await test('quota maintenance waits behind a queued clear instead of restoring old history', async () => {
+  await send({ type: 'CLEAR_DATA' });
+  await send({ type: 'IMPORT_DATA', payload: { data: {
+    compostItems: Array.from({ length: 25 }, (_, i) => ({ id: `quota-${i}`, url: `https://quota.example/${i}`, savedAt: Date.now() }))
+  } } });
+  const originalSet = chrome.storage.local.set;
+  const originalQuota = chrome.storage.local.getBytesInUse;
+  let release;
+  let started;
+  const gate = new Promise((resolve) => { release = resolve; });
+  const writeStarted = new Promise((resolve) => { started = resolve; });
+  let quotaCalls = 0;
+  let writes = 0;
+  chrome.storage.local.getBytesInUse = async () => { quotaCalls++; return 10 * 1024 * 1024; };
+  chrome.storage.local.set = async (value) => {
+    if (++writes === 1) { started(); await gate; }
+    return originalSet(value);
+  };
+  let clear;
+  let maintenance;
+  let callsWhileBlocked;
+  try {
+    clear = send({ type: 'CLEAR_DATA' });
+    await writeStarted;
+    maintenance = listeners.alarm({ name: 'storageQuotaCheck' });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    callsWhileBlocked = quotaCalls;
+    release();
+    await clear;
+    await maintenance;
+    assert.equal(callsWhileBlocked, 0, 'quota maintenance must not read stale history while clear is pending');
+    assert.equal(quotaCalls, 1, 'one alarm should perform one quota check');
+    assert.deepEqual(store.focusForestState.compostItems, []);
+    assert.equal(writes, 1, 'empty cleared history requires no compaction write');
+  } finally {
+    release();
+    await Promise.allSettled([clear, maintenance]);
+    chrome.storage.local.set = originalSet;
+    if (originalQuota === undefined) delete chrome.storage.local.getBytesInUse;
+    else chrome.storage.local.getBytesInUse = originalQuota;
+  }
+});
+
 // Durability: a transient storage write failure must not silently drop the
 // user's action — mutate() retries once against freshly loaded state.
 await send({ type: 'CLEAR_DATA' });
@@ -464,5 +627,36 @@ assert.equal(await rawSend({ type: 'GET_ACTIVE_VIEW' }, rateSender), null, 'the 
 await listeners.removed[0](900);
 assert.notEqual(await rawSend({ type: 'GET_ACTIVE_VIEW' }, rateSender), null,
   'tab removal must clear the per-tab rate-limit entry so a replacement tab is not blocked');
+
+// Badge state must track mission depth live: green while shallow, warm when
+// the choice threshold is reached, cleared when the mission ends.
+const flush = () => new Promise((resolve) => setTimeout(resolve, 5));
+const badgeCalls = [];
+globalThis.chrome.action = {
+  setBadgeText: (info) => badgeCalls.push(['text', info.text]),
+  setBadgeBackgroundColor: (info) => badgeCalls.push(['color', info.color])
+};
+badgeCalls.length = 0;
+await send({ type: 'CLEAR_DATA' });
+await flush(); // CLEAR_DATA performs its own badge clear; drop it before asserting start behavior
+badgeCalls.length = 0;
+await send({ type: 'START_MISSION', mission: 'Badge depth', tab: { id: 950, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
+await flush();
+assert.equal(badgeCalls.length, 2, 'mission start must set both badge text and color exactly once');
+assert.equal(badgeCalls[0][1].length > 0, true, 'mission start must show a badge label');
+assert.equal(badgeCalls[1][1], '#719b6c', 'mission start must use the healthy color');
+badgeCalls.length = 0;
+for (let i = 1; i <= 5; i++) {
+  await send({ type: 'LINK_CLICK', url: `https://deep.example/level-${i}`, title: `Level ${i}`, targetBlank: false }, { id: 950 });
+  await send({ type: 'OBSERVE_PAGE', url: `https://deep.example/level-${i}`, title: `Level ${i}` }, { id: 950 });
+}
+await flush();
+assert.equal(session().nodes.at(-1).depth, 5, 'fixture must reach the choice threshold depth');
+const lastColor = [...badgeCalls].reverse().find((call) => call[0] === 'color')?.[1];
+assert.equal(lastColor, '#bd8473', 'reaching the choice threshold must recolor the badge without ending the mission');
+badgeCalls.length = 0;
+await send({ type: 'END_MISSION', reason: 'user_ended' });
+await flush();
+assert.deepEqual(badgeCalls, [['text', ''], ['color', '#00000000']], 'ending the mission must clear the badge');
 
 console.log('service-worker behavioral tests passed');
