@@ -181,6 +181,7 @@
   let lastTitle = document.title;
   let ritualToken = 0;
   let ritualTimer = 0;
+  let lastPageFocus = null;
   let growthAnimationTrigger = 'mission-origin';
   let ambientMotion = true;
   let originRitualPlayed = false;
@@ -193,6 +194,9 @@
     window.clearTimeout(forestFindTimer);
     forestFindTimer = window.setTimeout(() => { forestFindEl.hidden = true; }, 5200);
   }
+  document.addEventListener('focusin', (event) => {
+    if (event.target !== root && event.target?.isConnected) lastPageFocus = event.target;
+  }, true);
 
   // === SPA SUPPORT: Intercept history.pushState and history.replaceState ===
   // This ensures we detect navigation in Single Page Applications (Gmail, Twitter, YouTube, etc.)
@@ -357,6 +361,7 @@
   // DOM-safe choice sheet: all dynamic content set via textContent/elements, no innerHTML.
   function showChoiceSheet(depth, confidence = 'medium') {
     choiceCard.dataset.shownFor = location.href;
+    if (document.activeElement !== root && document.activeElement?.isConnected) lastPageFocus = document.activeElement;
     choiceCopy.replaceChildren();
     const missionEl = document.createElement('q');
     missionEl.textContent = current?.mission || '';
@@ -378,14 +383,18 @@
   }
 
   function hideChoiceCard() { choiceCard.hidden = true; }
+  function restorePageFocus() {
+    const target = lastPageFocus;
+    if (target?.isConnected && typeof target.focus === 'function') target.focus({ preventScroll: true });
+  }
 
   shadow.addEventListener('click', wrapWithErrorBoundary(async (event) => {
     if (!event.isTrusted) return;
     const action = event.target.closest('[data-action]')?.dataset.action;
     if (action === 'home') { hideChoiceCard(); showForestFind((await send('GO_HOME'))?.reward); }
-    else if (action === 'compost') { showForestFind((await send('COMPOST', { url: location.href, title: document.title }))?.reward); hideChoiceCard(); }
+    else if (action === 'compost') { showForestFind((await send('COMPOST', { url: location.href, title: document.title }))?.reward); hideChoiceCard(); restorePageFocus(); }
     else if (action === 'mission') { const result = await send('END_MISSION', { reason: 'mission_changed' }); showForestFind(result?.reward); hideChoiceCard(); window.location.href = chrome.runtime.getURL('newtab/index.html'); }
-    else if (action === 'dismiss') { hideChoiceCard(); }
+    else if (action === 'dismiss') { hideChoiceCard(); restorePageFocus(); }
     else if (action === 'pause') { await send('PAUSE_INTERVENTION', { paused: !current?.interventionPaused }); await safeRefresh(false); }
     else if (action === 'pause-site') { await send('PAUSE_SITE'); chip.hidden = true; choiceCard.hidden = true; }
     else if (action === 'minimize') { chip.classList.toggle('minimized'); minimizeBtn.textContent = chip.classList.contains('minimized') ? '+' : '\u2013'; }
