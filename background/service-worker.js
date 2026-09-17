@@ -45,6 +45,10 @@ function checkRateLimit(senderId) {
   
   entry.count++;
   messageCounts.set(senderId, entry);
+  // FIFO eviction keeps the map bounded if many distinct senders appear.
+  while (messageCounts.size > SERVICE_WORKER.MAX_ACTIVE_TABS) {
+    messageCounts.delete(messageCounts.keys().next().value);
+  }
   
   return true;
 }
@@ -1113,10 +1117,15 @@ chrome.tabs.onActivated?.addListener((activeInfo) => {
 chrome.webNavigation?.onCommitted?.addListener((details) => {
   if (details.frameId !== 0 || !Number.isInteger(details.tabId)) return;
   navigationHints.set(details.tabId, navigationKindForTransition(details.transitionType, details.transitionQualifiers || []));
+  // FIFO eviction keeps the hint map bounded; hints are single-use and safe to drop.
+  while (navigationHints.size > SERVICE_WORKER.MAX_ACTIVE_TABS) {
+    navigationHints.delete(navigationHints.keys().next().value);
+  }
 });
 chrome.tabs.onRemoved.addListener((tabId) => {
   return wrapWithErrorBoundary(async (tabId) => {
     activeTabs.forEach((active, key) => { if (active.tabId === tabId) activeTabs.delete(key); });
+    messageCounts.delete(`tab:${tabId}`);
     await mutate((state) => {
       const session = activeSession(state);
       if (!session) return NO_CHANGE;

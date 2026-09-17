@@ -452,4 +452,17 @@ assert.equal(store.focusForestState.sessions[0].nodes.some((node) => node.url ==
 // onSuspend must be registered as a lifecycle listener when available.
 assert.equal(typeof globalThis.chrome.runtime.onSuspend, 'undefined', 'test mock omits onSuspend; listener registration must tolerate its absence');
 
+// Rate-limit state is per-tab and must be cleaned up when the tab is removed,
+// otherwise long sessions accumulate one entry per tab forever.
+await send({ type: 'CLEAR_DATA' });
+await send({ type: 'START_MISSION', mission: 'Rate map cleanup', tab: { id: 900, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
+const rateSender = { id: 'test', tab: { id: 900, url: 'https://rate.example/' } };
+let lastView = null;
+for (let i = 0; i < 100; i++) lastView = await rawSend({ type: 'GET_ACTIVE_VIEW' }, rateSender);
+assert.notEqual(lastView, null, 'messages within the limit must be answered');
+assert.equal(await rawSend({ type: 'GET_ACTIVE_VIEW' }, rateSender), null, 'the 101st message in one window must be rate limited');
+await listeners.removed[0](900);
+assert.notEqual(await rawSend({ type: 'GET_ACTIVE_VIEW' }, rateSender), null,
+  'tab removal must clear the per-tab rate-limit entry so a replacement tab is not blocked');
+
 console.log('service-worker behavioral tests passed');
