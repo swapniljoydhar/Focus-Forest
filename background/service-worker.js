@@ -827,22 +827,24 @@ async function importAllData(payload) {
   const incoming = payload.data;
   const incomingState = isRecord(incoming.state) ? incoming.state : incoming;
   
-  // Validate session IDs, URLs, and timestamps before normalization
-  if (Array.isArray(incomingState.sessions)) {
-    for (const session of incomingState.sessions) {
+  // Validate session IDs, URLs, and timestamps before normalization. Keep the
+  // preprocessing window bounded; normalizeState applies the final storage cap.
+  const incomingSessions = Array.isArray(incomingState.sessions) ? incomingState.sessions.slice(-LIMITS.SESSIONS * 2) : [];
+  if (incomingSessions.length) {
+    const now = Date.now();
+    for (const session of incomingSessions) {
       if (!session || typeof session !== 'object') continue;
       // Validate session ID format
       if (typeof session.id !== 'string' || !/^[A-Za-z0-9_-]{1,160}$/.test(session.id)) {
-        logWarning(new Error('Invalid session ID in import'), { category: ERROR_CATEGORIES.STORAGE, component: 'import', sessionId: session.id });
+        logWarning(new Error('Invalid session ID in import'), { category: ERROR_CATEGORIES.STORAGE, component: 'import' });
         continue;
       }
       // Validate origin URL
       if (session.origin?.url && !safeSessionUrl(session.origin.url)) {
-        logWarning(new Error('Invalid origin URL in import'), { category: ERROR_CATEGORIES.STORAGE, component: 'import', url: session.origin.url });
+        logWarning(new Error('Invalid origin URL in import'), { category: ERROR_CATEGORIES.STORAGE, component: 'import' });
         session.origin.url = 'chrome://newtab';
       }
       // Validate timestamp ranges (not in future, not too old)
-      const now = Date.now();
       const ONE_DAY_MS = DAY_MS;
       const MAX_TIMESTAMP_FUTURE_MS = SERVICE_WORKER.RATE_LIMIT_WINDOW_MS; // 1 minute tolerance
       const MAX_AGE_MS = VALIDATION.MAX_TIMESTAMP_AGE_YEARS * 365 * ONE_DAY_MS;
@@ -857,10 +859,10 @@ async function importAllData(payload) {
       }
       // Validate nodes
       if (Array.isArray(session.nodes)) {
-        for (const node of session.nodes) {
+        for (const node of session.nodes.slice(-LIMITS.NODES_PER_SESSION * 2)) {
           if (!node || typeof node !== 'object') continue;
           if (node.url && !safeSessionUrl(node.url)) {
-            logWarning(new Error('Invalid node URL in import'), { category: ERROR_CATEGORIES.STORAGE, component: 'import', url: node.url });
+            logWarning(new Error('Invalid node URL in import'), { category: ERROR_CATEGORIES.STORAGE, component: 'import' });
             node.url = 'chrome://newtab';
           }
           if (node.firstSeenAt && (node.firstSeenAt > now + MAX_TIMESTAMP_FUTURE_MS || node.firstSeenAt < now - MAX_AGE_MS)) {
@@ -874,7 +876,7 @@ async function importAllData(payload) {
     }
   }
   
-  const next = normalizeState(incomingState);
+  const next = normalizeState({ ...incomingState, sessions: incomingSessions });
   return mutate((current) => {
     // Imported records win ID conflicts as whole snapshots, including their
     // nodes/events. Move replacements to the end before applying the session cap.
