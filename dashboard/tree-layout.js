@@ -44,11 +44,20 @@ export function treeStage(mode = 'sapling') {
       forkY: config.crownY + config.ry * 0.66, boleWidth: config.boleWidth }
   };
 }
-function edgePath(parent, child) {
+function variation(value) {
+  let hash = 2166136261;
+  for (const char of String(value || '')) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+  return (hash >>> 0) / 4294967296;
+}
+function edgePath(parent, child, seed = '') {
   const dx = child.x - parent.x;
   const dy = child.y - parent.y;
-  const bow = Math.max(12, Math.min(38, Math.abs(dx) * 0.2));
-  return `M${parent.x.toFixed(2)} ${parent.y.toFixed(2)} C${(parent.x + dx * .25).toFixed(2)} ${(parent.y + dy * .35 - bow).toFixed(2)}, ${(child.x - dx * .3).toFixed(2)} ${(child.y - dy * .2 + bow).toFixed(2)}, ${child.x.toFixed(2)} ${child.y.toFixed(2)}`;
+  const length = Math.hypot(dx, dy) || 1;
+  const normal = { x: -dy / length, y: dx / length };
+  const bend = (variation(seed) - .5) * Math.min(42, Math.max(12, length * .22));
+  const first = { x: parent.x + dx * .28 + normal.x * bend, y: parent.y + dy * .32 + normal.y * bend };
+  const second = { x: child.x - dx * .28 - normal.x * bend * .55, y: child.y - dy * .22 - normal.y * bend * .55 };
+  return `M${parent.x.toFixed(2)} ${parent.y.toFixed(2)} C${first.x.toFixed(2)} ${first.y.toFixed(2)}, ${second.x.toFixed(2)} ${second.y.toFixed(2)}, ${child.x.toFixed(2)} ${child.y.toFixed(2)}`;
 }
 
 export function layoutTree(inputNodes = []) {
@@ -98,11 +107,13 @@ export function layoutTree(inputNodes = []) {
   // Sunflower packing fills a rounded crown even for a single long browsing
   // chain. Depth is data, not a reason to turn the artwork into a vertical pole.
   ordered.forEach((node, index) => {
-    const radius = TREE_LAYOUT.NODE_RADIUS_MIN / 50 + (TREE_LAYOUT.NODE_RADIUS_BASE / 50) * Math.sqrt((index + .5) / Math.max(3, ordered.length));
-    const angle = -2.32 + index * GOLDEN_ANGLE;
+    const spread = Math.max(3, ordered.length);
+    const radius = TREE_LAYOUT.NODE_RADIUS_MIN / 50 + (TREE_LAYOUT.NODE_RADIUS_BASE / 50) * Math.sqrt((index + .5) / spread);
+    const angle = -2.32 + index * GOLDEN_ANGLE + (variation(node.id) - .5) * .24;
+    const radial = radius * (.92 + variation(`${node.id}:radius`) * .12);
     positions.set(node.id, {
-      x: crown.x + Math.cos(angle) * crown.rx * .82 * radius,
-      y: crown.y + Math.sin(angle) * crown.ry * .78 * radius,
+      x: crown.x + Math.cos(angle) * crown.rx * .82 * radial,
+      y: crown.y + Math.sin(angle) * crown.ry * .78 * radial,
       angle: Math.cos(angle) * 32
     });
   });
@@ -113,7 +124,7 @@ export function layoutTree(inputNodes = []) {
     parentAnchors.set(node.id, parent);
     const depth = levels.get(node.id);
     return { nodeId: node.id, parentId, depth, kind: depth === 1 ? 'primary' : 'secondary',
-      width: branchWidth(depth), path: edgePath(parent, positions.get(node.id)) };
+      width: branchWidth(depth), path: edgePath(parent, positions.get(node.id), node.id) };
   });
   return { ...stage, nodes, root, positions, parentById, parentAnchors, children, edges,
     labels: [labelPlacement(positions.get(root.id), root.id, true)], maxDepth };

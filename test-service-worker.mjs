@@ -98,6 +98,8 @@ assert.equal(session().nodes.at(-1).navigationKind, 'spa', 'history-state route 
 const spaCount = session().nodes.length;
 await send({ type: 'SPA_NAVIGATION', url: 'https://example.com/route', title: 'Route' }, { id: 7 });
 assert.equal(session().nodes.length, spaCount, 'duplicate SPA route observations should not grow the garden twice');
+await send({ type: 'SPA_NAVIGATION', url: 'https://example.com/route', title: 'Updated route title' }, { id: 7 });
+assert.equal(session().nodes.at(-1).title, 'Updated route title', 'same-URL SPA title changes should update the existing node');
 
 await send({ type: 'CLEAR_DATA' });
 	tabInfo.clear();
@@ -118,15 +120,15 @@ assert.equal(session().nodes.length, 1, 'unrelated tabs must not become branches
 
 for (const [i, path] of ['/battery', '/mines', '/bolivia', '/inca', '/weapons'].entries()) {
   const url = `https://example.com${path}`;
-  await send({ type: 'LINK_CLICK', url, title: path, targetBlank: false }, { id: 7 });
-  await send({ type: 'OBSERVE_PAGE', url, title: path }, { id: 7 });
+  await send({ type: 'LINK_CLICK', url, title: path, targetBlank: false }, { id: 11 });
+  await send({ type: 'OBSERVE_PAGE', url, title: path }, { id: 11 });
   assert.equal(session().nodes.at(-1).depth, i + 1, `link ${path} should create depth ${i + 1}`);
 }
 assert.equal(Math.max(...session().nodes.map((n) => n.depth)), 5, 'five links should reach interruption depth');
 assert.equal(session().nodes.at(-1).state, 'interrupted', 'depth 5 should be interrupted');
 assert.equal(session().nodes.slice(0, -1).some((node) => node.tabIds?.includes(7)), false, 'a navigating tab should not remain attached to historical nodes');
 
-await send({ type: 'COMPOST', url: 'https://example.com/weapons', title: 'Weapons' }, { id: 7 });
+await send({ type: 'COMPOST', url: 'https://example.com/weapons', title: 'Weapons' }, { id: 11 });
 assert.equal(store.focusForestState.schemaVersion, 4, 'state should use the current compact schema');
 assert.equal('transitions' in session(), false, 'nodes should be the only branch relationship source');
 assert.equal(store.focusForestState.compostItems.length, 1, 'compost should save one item');
@@ -658,5 +660,8 @@ badgeCalls.length = 0;
 await send({ type: 'END_MISSION', reason: 'user_ended' });
 await flush();
 assert.deepEqual(badgeCalls, [['text', ''], ['color', '#00000000']], 'ending the mission must clear the badge');
-
+await send({ type: 'CLEAR_DATA' });
+await send({ type: 'START_MISSION', mission: 'Do not guess a parent', tab: { id: 70, url: 'https://root.example/', title: 'Root' } });
+await send({ type: 'LINK_CLICK', url: 'https://orphan.example/', title: 'Orphan' }, { id: 71 });
+assert.equal(session().nodes.length, 1, 'an unmapped tab must not attach a link to the most recent unrelated node');
 console.log('service-worker behavioral tests passed');

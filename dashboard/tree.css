@@ -119,3 +119,5 @@ body[data-garden-state="resting"] .forest-scene { --crown-base: #94a66f; --crown
 @media (prefers-reduced-motion: reduce) {
   .forest-scene * { transition: none !important; animation: none !important; }
 }
+body[data-motion="off"] .forest-scene * { animation: none !important; transition: none !important; }
+body[data-page-visibility="hidden"] .forest-scene * { animation-play-state: paused !important; }

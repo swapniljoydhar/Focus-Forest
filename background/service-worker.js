@@ -52,26 +52,26 @@ function checkRateLimit(senderId) {
   
   return true;
 }
-// SPA dedup: returns true if the same tab+url was seen within the 1s dedup window.
+// SPA dedup: returns true if the same tab+url+title was seen within the 1s dedup window.
 // Map entries expire after SESSION_TIMEOUT_MS (15s) to bound memory.
-function recentlyObservedSpa(tabId, url) {
+function recentlyObservedSpa(tabId, url, title = '') {
   const now = Date.now();
   const DEDUP_WINDOW_MS = SERVICE_WORKER.SESSION_TIMEOUT_MS; // 15s: maximum lifetime of an entry in the map before expiry
   const DEDUP_MAX_AGE_MS = MEMORY_LIMITS.THROTTLE_DELAY_MS; // 1s: if same tab+url seen within this window, treat as duplicate
   
   for (const [entryKey, seenAt] of spaDedup) {
-    if (now - seenAt >= DEDUP_WINDOW_MS) spaDedup.delete(entryKey);
+    if (now - seenAt.seenAt >= DEDUP_WINDOW_MS) spaDedup.delete(entryKey);
   }
   
   const key = `${tabId}::${url}`;
   const previous = spaDedup.get(key);
-  if (previous != null && now - previous < DEDUP_MAX_AGE_MS) return true;
+  if (previous != null && now - previous.seenAt < DEDUP_MAX_AGE_MS && previous.title === title) return true;
   
   if (!spaDedup.has(key) && spaDedup.size >= MAX_SPA_DEDUP) {
     spaDedup.delete(spaDedup.keys().next().value);
   }
   
-  spaDedup.set(key, now);
+  spaDedup.set(key, { seenAt: now, title });
   return false;
 }
 
@@ -453,10 +453,14 @@ async function trackLink({ tabId, url, title, targetBlank = false, windowId, nav
   const destination = safeHttpUrl(url);
   return mutate((state) => {
     const session = activeSession(state); if (!session || !destination) return NO_CHANGE;
-    const parent = nodeForTab(session, tabId) || session.nodes.at(-1);
+    const parent = nodeForTab(session, tabId);
     if (!parent) return NO_CHANGE;
     const existing = session.nodes.find((node) => nodeHasTab(node, tabId) && node.url === destination && !node.closedAt);
-    if (existing) return NO_CHANGE;
+    if (existing) {
+      const nextTitle = compactText(title || destination);
+      if (nextTitle && nextTitle !== existing.title) existing.title = nextTitle;
+      return existing;
+    }
     if (targetBlank || isRedirectLike(destination)) {
       prunePendingBranches();
       if (targetBlank) setPendingBranch(destination, tabId, windowId, parent.id);
@@ -1025,8 +1029,9 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'SPA_NAVIGATION': {
         if (!Number.isInteger(tab?.id)) return null;
         const routeUrl = safeHttpUrl(message.url);
-        if (!routeUrl || recentlyObservedSpa(tab.id, routeUrl)) return null;
-        return trackLink({ tabId: tab.id, url: routeUrl, title: typeof message.title === 'string' ? message.title : '', targetBlank: false, windowId: Number.isInteger(tab?.windowId) ? tab.windowId : null, navigationKind: 'spa' });
+        const routeTitle = typeof message.title === 'string' ? compactText(message.title) : '';
+        if (!routeUrl || recentlyObservedSpa(tab.id, routeUrl, routeTitle)) return null;
+        return trackLink({ tabId: tab.id, url: routeUrl, title: routeTitle, targetBlank: false, windowId: Number.isInteger(tab?.windowId) ? tab.windowId : null, navigationKind: 'spa' });
       }
       case 'COMPOST': return Number.isInteger(tab?.id) ? compost(tab.id, message.url, message.title) : null;
       case 'PAUSE_INTERVENTION': return typeof message.paused === 'boolean' ? mutate((state) => {
@@ -1170,10 +1175,11 @@ function validateMessage(message) {
 chrome.webNavigation?.onHistoryStateUpdated?.addListener((details) => {
   return wrapWithErrorBoundary(async (details) => {
     if (details.frameId !== 0 || details.tabId == null || !details.url) return;
-    if (recentlyObservedSpa(details.tabId, details.url)) return;
     const tab = await chrome.tabs.get(details.tabId);
     if (!tab) return;
-    await trackLink({ tabId: tab.id, url: details.url, title: tab.title, targetBlank: false, windowId: Number.isInteger(tab.windowId) ? tab.windowId : null, navigationKind: 'spa' });
+    const title = compactText(tab.title || '');
+    if (recentlyObservedSpa(details.tabId, details.url, title)) return;
+    await trackLink({ tabId: tab.id, url: details.url, title, targetBlank: false, windowId: Number.isInteger(tab.windowId) ? tab.windowId : null, navigationKind: 'spa' });
   }, { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'webNavigation.onHistoryStateUpdated', swallow: true })(details);
 });
 
