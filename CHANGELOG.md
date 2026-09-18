@@ -2,6 +2,17 @@
 
 All notable Focus Forest changes are documented here.
 
+## [0.3.5] — 2026-09-18
+
+### Added
+
+- Added a short, rotating reflection prompt to the existing choice card so users can examine a detour without being graded, blocked, or rushed.
+
+### Improved
+
+- Tuned the New Tab atmosphere with slower, more organic mist and sun motion, paint containment for blurred layers, and the existing reduced-motion and hidden-tab pauses intact.
+- Kept the intervention bounded to one prompt per observed URL and three offline strings, with no new timers, network calls, or stored data.
+
 ## [0.3.4] — 2026-09-17
 
 ### Fixed
