@@ -12,9 +12,9 @@ A garden view preserves completed missions locally. It shows what grew from the 
 
 Version 0.3.4 repairs the opt-in **Forest Finds** path without changing Focus Forest’s gentle, non-blocking purpose. Rewards remain offline and bounded: the extension stores only a reward ID and timestamp, applies a cooldown, and shows a small discovery only after an intentional choice or mission action. Storage-pressure compaction is now self-contained and safe, and unused tree-pooling scaffolding has been removed.
 
-The previous v0.3.3 release added the calm animated atmosphere and SPA performance regression checks described below.
+Earlier releases added the calm animated atmosphere and SPA performance regression checks described below.
 
-Version 0.3.3 adds a calm animated atmosphere to the New Tab planting page without changing the extension’s core browsing model. Two lightweight CSS light fields drift behind the existing forest scene, using only compositor-friendly `transform` and `opacity` animation. The effect automatically respects browser reduced-motion preferences and the extension’s local **Ambient motion** setting.
+The calm animated atmosphere on the New Tab planting page uses two lightweight CSS light fields that drift behind the existing forest scene, without changing the extension’s core browsing model. The effect uses only compositor-friendly `transform` and `opacity` animation, automatically respects browser reduced-motion preferences, and follows the extension’s local **Ambient motion** setting.
 
 This release also adds automated protection against SPA performance regressions. CI now stress-tests 50 rapid `history.pushState` transitions, checks that every route remains distinct, measures post-GC heap growth, and enforces conservative thresholds for DOM size, long tasks, layout work, style recalculation, and JavaScript heap usage. See the complete [`CHANGELOG.md`](CHANGELOG.md) for the release history.
 
