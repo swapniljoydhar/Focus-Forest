@@ -54,6 +54,74 @@ export const REWARD_LIMITS = {
 };
 
 /**
+ * Explains why a reward appeared. Rewards stay informational rather than
+ * controlling: each note names the choice the user made, never a score,
+ * a duration or a deadline.
+ */
+export const REWARD_TRIGGER_NOTES = {
+  return_to_root: 'You came back to the intention you set.',
+  compost_choice: 'You chose to keep this for later instead of following it now.',
+  session_end: 'You set the garden down deliberately.',
+  mission_changed: 'You noticed a new direction and let this garden rest.'
+};
+
+/**
+ * Resolves the explanation for a reward trigger.
+ * @param {string} trigger - Trigger recorded when the reward was earned.
+ * @returns {string} Explanation, or an empty string when unknown.
+ */
+export function rewardNote(trigger) {
+  if (typeof trigger !== 'string' || !trigger) return '';
+  if (REWARD_TRIGGER_NOTES[trigger]) return REWARD_TRIGGER_NOTES[trigger];
+  // Session endings are recorded as session_end_<reason>.
+  if (trigger.startsWith('session_end')) return REWARD_TRIGGER_NOTES.session_end;
+  return '';
+}
+
+/**
+ * Chooses the tier for a reward earned by returning to the mission root.
+ * A return from at or beyond the choice threshold earns a rare discovery;
+ * any other return earns a seed. This is contextual and deterministic on
+ * purpose: rewards stay explainable, and randomness is never amplified to
+ * drive engagement.
+ * @param {object} state - Current application state.
+ * @returns {string} Tier name present in REWARD_CATALOG.
+ */
+export function returnRewardTier(state) {
+  const session = activeSession(state);
+  if (!session) return 'seeds';
+  // Depth is structural distance from the root, not a judgement about a page.
+  const deepest = Math.max(0, ...(session.nodes || []).map((node) => Number(node?.depth) || 0));
+  const { choiceDepth } = normalizeSettings(state.settings);
+  return deepest >= choiceDepth ? 'discoveries' : 'seeds';
+}
+
+/**
+ * Resolves stored reward records into displayable finds. History keeps only
+ * ids and timestamps, so catalog text is looked up rather than persisted.
+ * @param {Array<{rewardId: string, timestamp: number}>} history - Stored records.
+ * @param {number} [limit=12] - Maximum finds to return, newest first.
+ * @returns {Array<{id: string, text: string, icon: string, tier: string, at: number}>} Finds.
+ */
+export function rewardHistoryView(history, limit = 12) {
+  if (!Array.isArray(history)) return [];
+  const catalogById = new Map();
+  for (const tier of Object.keys(REWARD_CATALOG)) {
+    for (const item of REWARD_CATALOG[tier]) catalogById.set(item.id, { ...item, tier });
+  }
+  return history
+    .filter((record) => record && typeof record.rewardId === 'string' && Number.isFinite(record.timestamp))
+    .slice(-limit)
+    .reverse()
+    .map((record) => {
+      const found = catalogById.get(record.rewardId);
+      // Unknown ids (for example from an older catalog) are skipped, not shown blank.
+      return found ? { id: found.id, text: found.text, icon: found.icon, tier: found.tier, at: record.timestamp } : null;
+    })
+    .filter(Boolean);
+}
+
+/**
  * Returns a fresh empty state object with default settings.
  * @returns {object} Empty state matching the current schema version.
  */
@@ -538,5 +606,5 @@ export function earnReward(state, tier, trigger) {
   const cutoff = Date.now() - (REWARD_LIMITS.REWARD_HISTORY_DAYS * 24 * 60 * 60 * 1000);
   state.rewardHistory = state.rewardHistory.filter(r => r.timestamp > cutoff);
   
-  return { ...reward, tier, trigger };
+  return { ...reward, tier, trigger, note: rewardNote(trigger) };
 }

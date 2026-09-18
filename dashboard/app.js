@@ -1,6 +1,6 @@
 import { renderGardenTree } from './tree-renderer.js';
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
-import { getNodeDuration, STORAGE_KEY } from '../shared/state.js';
+import { getNodeDuration, rewardHistoryView, STORAGE_KEY } from '../shared/state.js';
 
 async function message(type, payload = {}) { return chrome.runtime.sendMessage({ type, ...payload }); }
 const svg = document.querySelector('#tree');
@@ -13,7 +13,11 @@ const careCancel = document.querySelector('#care-cancel');
 const careConfirm = document.querySelector('#care-confirm');
 let selectedSessionId = null; let selectedNodeId = null; let careAction = null; let careReturnFocus = null;
 
-function branchClass(node) { return node.state === 'pruned' ? 'pruned' : node.state === 'composted' ? 'saved' : node.depth >= 5 ? 'deep' : node.depth >= 4 ? 'long' : node.depth === 0 ? 'root' : 'healthy'; }
+// Marker classes follow the rhythm the user chose, so the garden never calls a
+// branch "deep" before their own choice threshold (or "long" before their gentle
+// one). Defaults mirror DEFAULT_SETTINGS, so an unconfigured garden is unchanged.
+let thresholds = { DESATURATE: 4, INTERRUPT: 5 };
+function branchClass(node) { return node.state === 'pruned' ? 'pruned' : node.state === 'composted' ? 'saved' : node.depth >= thresholds.INTERRUPT ? 'deep' : node.depth >= thresholds.DESATURATE ? 'long' : node.depth === 0 ? 'root' : 'healthy'; }
 function nodeClasses(node) { return `${branchClass(node)}${node.closedAt ? ' closed' : ''}`; }
 function confidenceLabel(node) { return node.relationshipConfidence === 'direct' ? 'direct link' : node.relationshipConfidence === 'tab-inferred' ? 'new tab from a tracked page' : 'unlinked path'; }
 function pathReason(node) {
@@ -131,7 +135,14 @@ function readableEvent(e) {
   if (e.type === 'mission_changed') return 'Let this garden rest and chose a new direction.';
   if (e.type === 'mission_ended' && e.reason === 'browse_without_mission') return 'Set this mission down and continued without one.';
   if (e.type === 'mission_ended') return 'Closed this garden for the day.';
-  return e.type.replaceAll('_', ' ');
+  if (e.type === 'link_opened') return 'Opened a new path from this page.';
+  if (e.type === 'garden_at_capacity') return 'This garden reached its page limit, so a new path was not added.';
+  if (e.type === 'back_forward') return 'Stepped back to a page already in this trail.';
+  if (e.type === 'reload') return 'Reloaded the page you were already on.';
+  if (e.type === 'search_refinement') return 'Refined a search instead of following a new branch.';
+  // Unknown types are still humanised rather than leaking a raw identifier.
+  const fallback = String(e.type || '').replaceAll('_', ' ').trim();
+  return fallback ? `${fallback[0].toUpperCase()}${fallback.slice(1)}.` : 'A small step along this path.';
 }
 function renderEvents(session) {
   const box = document.querySelector('#events');
@@ -175,6 +186,24 @@ function renderCompost(items) {
     box.append(row);
   });
 }
+function renderFinds(history) {
+  const panel = document.querySelector('#finds-panel');
+  const box = document.querySelector('#finds');
+  const finds = rewardHistoryView(history);
+  // Rewards are opt-in, so the panel stays out of the way until there is something to show.
+  panel.hidden = finds.length === 0;
+  box.replaceChildren();
+  if (!finds.length) return;
+  finds.forEach((find) => {
+    const row = document.createElement('div');
+    row.className = 'find-item';
+    const copy = document.createElement('div');
+    copy.append(makeTextElement('strong', find.text));
+    copy.append(makeTextElement('small', `${new Date(find.at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} · ${find.tier}`));
+    row.append(makeTextElement('span', find.icon || '✦', 'find-icon'), copy);
+    box.append(row);
+  });
+}
 function renderSessions(sessions, activeId, currentId) {
   sessionSelect.replaceChildren();
   if (!sessions.length) {
@@ -192,6 +221,7 @@ const safeRender = wrapWithErrorBoundary(render, { category: ERROR_CATEGORIES.UI
 async function render() {
   const snap = await message('GET_SNAPSHOT', { sessionId: selectedSessionId, includeHistory: true });
   document.body.dataset.motion = snap.settings?.ambientMotion === false ? 'off' : 'on';
+  thresholds = snap.thresholds || { DESATURATE: Number(snap.settings?.gentleDepth) || 4, INTERRUPT: Number(snap.settings?.choiceDepth) || 5 };
   selectedSessionId = snap.session?.id || null;
   renderSessions(snap.state.sessions || [], snap.activeSessionId, selectedSessionId);
   const session = snap.session;
@@ -211,15 +241,16 @@ async function render() {
         ? `You grew ${nodes.length} pages and pruned ${pruned} path${pruned === 1 ? '' : 's'} without losing the trail.`
         : composted
           ? `You grew ${nodes.length} pages and returned ${composted} curiosit${composted === 1 ? 'y' : 'ies'} to the compost pile.`
-          : deepest >= 4
+          : deepest >= thresholds.DESATURATE
             ? `You grew ${nodes.length} pages and found a long branch worth noticing.`
             : `You grew ${nodes.length} pages from a single clear intention.`;
   document.querySelector('#storyline').textContent = storyline;
-  document.querySelector('#weather-cue').textContent = session?.status === 'completed' ? 'Resting garden' : deepest >= 4 ? 'A little dusk' : nodes.length > 4 ? 'Fern light' : 'Soft light';
+  document.querySelector('#weather-cue').textContent = session?.status === 'completed' ? 'Resting garden' : deepest >= thresholds.DESATURATE ? 'A little dusk' : nodes.length > 4 ? 'Fern light' : 'Soft light';
   document.body.dataset.gardenState = session?.status === 'completed' ? 'resting' : 'growing';
   renderTree(session);
   renderEvents(session);
   renderCompost(snap.state.compostItems);
+  renderFinds(snap.state.rewardHistory);
 }
 async function renderSafely() { 
   try { 

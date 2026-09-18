@@ -48,10 +48,13 @@ body {
 button, input { font: inherit; color: inherit; }
 
 .ambient { position: fixed; z-index: -1; inset: 0; overflow: hidden; pointer-events: none; }
-.ambient::before, .ambient::after { content: ''; position: absolute; width: min(54vw, 720px); aspect-ratio: 1; border-radius: 50%; pointer-events: none; opacity: .32; filter: blur(20px); will-change: transform, opacity; }
-.ambient::before { top: 8%; left: -18%; background: radial-gradient(circle, rgba(138, 177, 132, .22) 0%, rgba(138, 177, 132, 0) 68%); animation: mistDrift 18s ease-in-out infinite alternate; }
-.ambient::after { right: -20%; bottom: 9%; background: radial-gradient(circle, rgba(231, 207, 145, .22) 0%, rgba(231, 207, 145, 0) 68%); animation: mistDrift 23s ease-in-out -7s infinite alternate-reverse; }
-@keyframes mistDrift { 0% { transform: translate3d(0, 12px, 0) scale(.92); opacity: .2; } 100% { transform: translate3d(10vw, -18px, 0) scale(1.08); opacity: .42; } }
+/* Ambient mist: slow, low-contrast drift. A 28s/36s cycle with a small travel
+   range keeps the layer perceptible without pulling attention. These are design
+   choices, not clinically validated calming values; verify them by eye. */
+.ambient::before, .ambient::after { content: ''; position: absolute; width: min(54vw, 720px); aspect-ratio: 1; border-radius: 50%; pointer-events: none; opacity: .38; filter: blur(26px); will-change: transform, opacity; }
+.ambient::before { top: 8%; left: -18%; background: radial-gradient(circle, rgba(138, 177, 132, .3) 0%, rgba(138, 177, 132, 0) 68%); animation: mistDrift 28s ease-in-out infinite alternate; }
+.ambient::after { right: -20%; bottom: 9%; background: radial-gradient(circle, rgba(231, 207, 145, .3) 0%, rgba(231, 207, 145, 0) 68%); animation: mistDrift 36s ease-in-out -11s infinite alternate-reverse; }
+@keyframes mistDrift { 0% { transform: translate3d(0, 12px, 0) scale(.94); opacity: .26; } 100% { transform: translate3d(6vw, -14px, 0) scale(1.06); opacity: .5; } }
 .sky-gradient { position: absolute; top: -30%; left: 50%; transform: translateX(-50%); width: 80%; height: 60%; background: radial-gradient(ellipse at center, rgba(232, 217, 168, 0.3) 0%, transparent 70%); filter: blur(40px); }
 .sun-glow { position: absolute; top: -20%; left: 50%; transform: translateX(-50%); width: 60vw; height: 50vw; background: radial-gradient(circle, rgba(255, 248, 220, 0.4) 0%, transparent 65%); filter: blur(60px); animation: sunPulse 8s ease-in-out infinite; }
 @keyframes sunPulse { 0%, 100% { opacity: 0.6; transform: translateX(-50%) scale(1); } 50% { opacity: 0.8; transform: translateX(-50%) scale(1.05); } }
@@ -131,6 +134,10 @@ button, input { font: inherit; color: inherit; }
   from { transform: translateX(-50%) rotate(0deg); } 
   to { transform: translateX(-50%) rotate(360deg); } 
 }
+/* Ambient motion off. treeWind lives in dashboard/tree.css, which New Tab links
+   directly, while its motion-off rule lives in dashboard/style.css, which New
+   Tab does not load. Without the canopy selectors here the sapling keeps swaying
+   after the user turns Ambient motion off. */
 body[data-motion="off"] .sun-glow,
 body[data-motion="off"] .floating-particles,
 body[data-motion="off"] .ambient::before,
@@ -142,7 +149,10 @@ body[data-motion="off"] .light-rays,
 body[data-motion="off"] .leaf-cluster,
 body[data-motion="off"] .sapling-growth,
 body[data-motion="off"] .sapling-trunk,
-body[data-motion="off"] .sapling-branch { animation: none !important; }
+body[data-motion="off"] .sapling-branch,
+body[data-motion="off"] .forest-scene .tree-structure,
+body[data-motion="off"] .forest-scene .canopy-back,
+body[data-motion="off"] .forest-scene .canopy-front { animation: none !important; }
 
 .planting-container { position: relative; z-index: 1; max-width: var(--max-width); margin: 0 auto; padding: var(--space-md) var(--space-lg); display: flex; flex-direction: column; min-height: 100svh; justify-content: space-between; }
 .page-header { display: flex; align-items: center; gap: var(--space-md); padding-bottom: var(--space-sm); }

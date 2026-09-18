@@ -39,6 +39,7 @@ function updateCount() { if (charCurrent) { charCurrent.textContent = input.valu
 // Initialize page
 const safeInit = wrapWithErrorBoundary(init, { category: ERROR_CATEGORIES.UI_RENDER, function: 'init' });
 async function init() {
+  let onboardingVisible = false;
   try {
     const snap = await message('GET_SNAPSHOT');
     document.body.dataset.motion = snap?.settings?.ambientMotion === false ? 'off' : 'on';
@@ -55,11 +56,15 @@ async function init() {
       const overlay = document.getElementById('onboarding-overlay');
       if (overlay) {
         overlay.hidden = false;
+        onboardingVisible = true;
         document.getElementById('onboarding-start')?.focus();
       }
     }
   } catch (err) { logError(err, { category: ERROR_CATEGORIES.MESSAGING, function: 'init' }); }
-  setTimeout(() => input.focus(), 350);
+  // Never steal focus from the welcome overlay: it is the only visible control
+  // until the user dismisses it, so focusing the field behind it would strand
+  // keyboard users on an element they cannot see.
+  if (!onboardingVisible) setTimeout(() => input.focus(), 350);
 }
 
 function initSafely() { return safeInit().catch((error) => { logError(error, { category: ERROR_CATEGORIES.UI_RENDER, function: 'initSafely' }); }); }

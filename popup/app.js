@@ -49,6 +49,9 @@ const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
 
 let latest = null;
 let ritualReturnFocus = null;
+// Follows the user's own rhythm while the popup is open, so the closing title
+// never calls a garden "long" against thresholds they did not choose.
+let thresholds = { DESATURATE: 4, INTERRUPT: 5 };
 
 function reflectionFor(session) {
   const nodes = session.nodes || [];
@@ -97,7 +100,7 @@ async function render() {
   const reflection = reflectionFor(session);
   const current = session.nodes.filter((node) => !node.closedAt).at(-1);
   const depth = current?.depth || 0;
-  const thresholds = snap.thresholds || { DESATURATE: 4, INTERRUPT: 5 };
+  thresholds = snap.thresholds || { DESATURATE: 4, INTERRUPT: 5 };
   const state = session.interventionPaused
     ? 'Forest resting for this mission.'
     : depth >= thresholds.INTERRUPT
@@ -177,7 +180,7 @@ endBtn.addEventListener('click', wrapWithErrorBoundary(() => {
   ritualReturnFocus = endBtn;
   const reflection = reflectionFor(latest);
   completionCopyEl.textContent = reflection.copy;
-  completionTitleEl.textContent = reflection.deepest >= 4 ? 'This garden has a long path to remember.' : 'This garden can rest now.';
+  completionTitleEl.textContent = reflection.deepest >= thresholds.DESATURATE ? 'This garden has a long path to remember.' : 'This garden can rest now.';
   active.hidden = true;
   setRitual(true);
 }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'end.click', swallow: true }));

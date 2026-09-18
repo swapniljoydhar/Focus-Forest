@@ -51,6 +51,10 @@ const {
   earnReward,
   canEarnReward,
   selectRandomReward,
+  returnRewardTier,
+  rewardHistoryView,
+  rewardNote,
+  REWARD_CATALOG,
   loadState,
   saveState,
   clearStateCache,
@@ -129,6 +133,83 @@ describe('shared/state.js core functions', () => {
     assert.equal(normalized.rewardHistory[0].rewardId, reward.id);
     assert.equal(canEarnReward(normalized), false, 'cooldown should prevent an immediate second reward');
     assert.equal(selectRandomReward('leaves', 0).id, 'leaf_1');
+  });
+
+  it('every reward tier is reachable and requested tiers are honoured', () => {
+    for (const tier of Object.keys(REWARD_CATALOG)) {
+      assert.ok(REWARD_CATALOG[tier].length > 0, `${tier} must not be empty`);
+      assert.equal(selectRandomReward(tier, 0).id, REWARD_CATALOG[tier][0].id);
+      // Fresh state per tier so the cooldown does not mask a reachable tier.
+      const state = emptyState();
+      state.settings.enableRewards = true;
+      const reward = earnReward(state, tier, 'tier-reachability');
+      assert.equal(reward?.tier, tier, `${tier} must be earnable`);
+      assert.ok(REWARD_CATALOG[tier].some((item) => item.id === reward.id));
+    }
+    assert.equal(returnRewardTier(emptyState()), 'seeds');
+    assert.equal(selectRandomReward('missing-tier', 0), null);
+  });
+
+  it('returning from a deep branch earns a discovery instead of a seed', () => {
+    const shallow = emptyState();
+    shallow.sessions.push({ id: 's', startedAt: Date.now(), status: 'active', nodes: [{ id: 'n', depth: 1 }], events: [] });
+    shallow.activeSessionId = 's';
+    assert.equal(returnRewardTier(shallow), 'seeds', 'a shallow return is a seed');
+    // choiceDepth defaults to 5, so a return from the choice threshold is deeper.
+    shallow.sessions[0].nodes.push({ id: 'n2', depth: 5 });
+    assert.equal(returnRewardTier(shallow), 'discoveries');
+    // The threshold follows the user's own setting rather than a fixed depth.
+    shallow.settings.choiceDepth = 8;
+    assert.equal(returnRewardTier(shallow), 'seeds');
+    shallow.settings.choiceDepth = 3;
+    assert.equal(returnRewardTier(shallow), 'discoveries');
+  });
+
+  it('rewards stay off until the user enables them', () => {
+    const state = emptyState();
+    assert.equal(state.settings.enableRewards, false, 'rewards are opt-in');
+    assert.equal(earnReward(state, 'leaves', 'test-choice'), null);
+    assert.deepEqual(state.rewardHistory, []);
+  });
+
+  it('reward copy avoids scores, durations and urgency', () => {
+    const banned = /\b(score|points?|streak|combo|productive|productivity|minutes?|hours?|faster|hurry|deadline|expires?|limited time|don'?t lose|level up|rank)\b/i;
+    const strings = [];
+    for (const tier of Object.keys(REWARD_CATALOG)) for (const item of REWARD_CATALOG[tier]) strings.push(item.text);
+    strings.push(rewardNote('return_to_root'), rewardNote('compost_choice'), rewardNote('session_end_user_ended'), rewardNote('mission_changed'));
+    for (const text of strings) {
+      assert.ok(text && text.length > 0, 'copy must not be empty');
+      assert.doesNotMatch(text, banned, `reward copy must stay non-scoring: ${text}`);
+    }
+  });
+
+  it('resolves stored reward history into newest-first finds', () => {
+    const now = Date.now();
+    const history = [
+      { rewardId: 'seed_1', timestamp: now - 3000 },
+      { rewardId: 'not_in_catalog', timestamp: now - 2000 },
+      { rewardId: 'disc_2', timestamp: now - 1000 }
+    ];
+    const finds = rewardHistoryView(history);
+    assert.deepEqual(finds.map((find) => find.id), ['disc_2', 'seed_1'], 'newest first, unknown ids skipped');
+    assert.equal(finds[0].text, 'Morning dew catches the light.');
+    assert.equal(finds[0].tier, 'discoveries');
+    assert.equal(finds[1].tier, 'seeds');
+    assert.equal(rewardHistoryView(history, 1).length, 1);
+    assert.deepEqual(rewardHistoryView(null), []);
+    assert.deepEqual(rewardHistoryView([{ rewardId: 'seed_1', timestamp: 'nope' }]), []);
+  });
+
+  it('explains why a reward appeared without inventing a reason', () => {
+    assert.match(rewardNote('return_to_root'), /came back/);
+    assert.match(rewardNote('session_end_browse_without_mission'), /set the garden down/);
+    assert.match(rewardNote('mission_changed'), /new direction/);
+    assert.equal(rewardNote('unknown_trigger'), '');
+    assert.equal(rewardNote(''), '');
+    assert.equal(rewardNote(undefined), '');
+    const state = emptyState();
+    state.settings.enableRewards = true;
+    assert.match(earnReward(state, 'seeds', 'return_to_root').note, /came back/);
   });
 
   it('getDepthState maps explicit and default thresholds to states', () => {

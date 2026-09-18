@@ -30,6 +30,10 @@ test('preview defaults to loopback and serves sample artwork', async () => {
       const renderer = await fetch(`${base}/dashboard/tree-renderer.js`);
       assert.equal(renderer.status, 200);
       assert.match(await renderer.text(), /renderGardenTree/);
+      const transitive = await fetch(`${base}/shared/constants.js`);
+      assert.equal(transitive.status, 200);
+      assert.match(await transitive.text(), /GOLDEN_ANGLE/);
+      assert.equal((await fetch(`${base}/shared/missing.js`)).status, 404);
       assert.equal((await fetch(`${base}/missing.txt`)).status, 404);
     });
   } finally {

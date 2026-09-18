@@ -64,10 +64,18 @@ async function openDashboard(t, state = stateFor(), viewport = { width: 1440, he
           if (message.type === 'GET_SNAPSHOT') {
             const selected = state.sessions.find(session => session.id === message.sessionId);
             const active = state.sessions.find(session => session.id === state.activeSessionId);
+            // Mirrors the worker's getSnapshot(): thresholds are derived from the
+            // user's rhythm so the fixture cannot pass while production disagrees.
+            const settings = state.settings;
             return structuredClone({
               state, activeSessionId: state.activeSessionId,
-              session: selected || active || state.sessions.at(-1) || null
+              session: selected || active || state.sessions.at(-1) || null,
+              settings, thresholds: { DESATURATE: settings.gentleDepth, INTERRUPT: settings.choiceDepth }
             });
+          }
+          if (message.type === 'COMPLETE_ONBOARDING') {
+            state = { ...state, onboardingCompleted: true };
+            return null;
           }
           if (message.type === 'GET_ACTIVE_VIEW') return { session: null, settings: { growthAnimationTrigger: 'none' } };
           if (message.type === 'OBSERVE_PAGE') return null;
@@ -329,7 +337,84 @@ for (const restoring of [false, true]) {
   });
 }
 
-test('empty garden is visible immediately, including when the active Map button is clicked', async t => {
+test('forest finds list earned reflections and stay hidden when there are none', async t => {
+  const now = Date.UTC(2026, 8, 7, 9);
+  const withFinds = stateFor();
+  withFinds.rewardHistory = [
+    { rewardId: 'seed_1', timestamp: now - 60000 },
+    { rewardId: 'not_in_catalog', timestamp: now - 30000 },
+    { rewardId: 'disc_2', timestamp: now }
+  ];
+  const page = await openDashboard(t, withFinds);
+  assert.equal(await page.locator('#finds-panel').isVisible(), true);
+  assert.deepEqual(
+    await page.locator('.find-item strong').allTextContents(),
+    ['Morning dew catches the light.', 'The root is still here.'],
+    'finds are newest first and unknown catalog ids are skipped'
+  );
+  assert.equal(await page.locator('.find-item').count(), 2);
+  assert.match(await page.locator('#finds-panel .panel-intro').textContent(), /never a score/);
+
+  const emptyPage = await openDashboard(t, stateFor());
+  assert.equal(await emptyPage.locator('#finds-panel').isVisible(), false, 'no history means no panel');
+});
+
+test('the garden follows the rhythm the user chose instead of fixed depths', async t => {
+  const custom = stateFor(garden(4));
+  custom.settings = { ...custom.settings, gentleDepth: 2, choiceDepth: 3 };
+  const page = await openDashboard(t, custom);
+  const classOf = id => page.locator(`#tree .node[data-node-id="${id}"]`).getAttribute('class');
+  assert.match(await classOf('garden-one-node-0'), /\broot\b/);
+  assert.match(await classOf('garden-one-node-1'), /\bhealthy\b/);
+  assert.match(await classOf('garden-one-node-2'), /\blong\b/, 'depth 2 is the gentle threshold this user chose');
+  assert.match(await classOf('garden-one-node-3'), /\bdeep\b/, 'depth 3 is the choice threshold this user chose');
+  assert.equal(await page.locator('#storyline').textContent(), 'You grew 4 pages and found a long branch worth noticing.');
+
+  // An unconfigured garden must keep the default rhythm's appearance.
+  const defaultPage = await openDashboard(t, stateFor(garden(4)));
+  assert.match(await defaultPage.locator('#tree .node[data-node-id="garden-one-node-3"]').getAttribute('class'), /\bhealthy\b/);
+  assert.equal(await defaultPage.locator('#storyline').textContent(), 'You grew 4 pages from a single clear intention.');
+});
+
+test('every trail note reads as a sentence instead of an internal identifier', async t => {
+  const state = stateFor(garden(1));
+  state.sessions[0].events = [
+    { id: 'e1', type: 'mission_started', at: 1, mission: 'Test the trail' },
+    { id: 'e2', type: 'origin_planted', at: 2 },
+    { id: 'e3', type: 'navigation', at: 3, url: 'https://example.test/a' },
+    { id: 'e4', type: 'external_path', at: 4, url: 'https://example.test/b' },
+    { id: 'e5', type: 'tab_joined_path', at: 5 },
+    { id: 'e6', type: 'return_to_path', at: 6 },
+    { id: 'e7', type: 'composted', at: 7 },
+    { id: 'e8', type: 'pruned', at: 8 },
+    { id: 'e9', type: 'mission_changed', at: 9 },
+    { id: 'e10', type: 'mission_ended', at: 10, reason: 'browse_without_mission' },
+    { id: 'e11', type: 'link_opened', at: 11 },
+    { id: 'e12', type: 'garden_at_capacity', at: 12 },
+    { id: 'e13', type: 'back_forward', at: 13 },
+    { id: 'e14', type: 'reload', at: 14 },
+    { id: 'e15', type: 'search_refinement', at: 15 },
+    { id: 'e16', type: 'future_event_type', at: 16 }
+  ];
+  const page = await openDashboard(t, state);
+  const notes = await page.locator('#events .event strong').allTextContents();
+  assert.equal(notes.length, 16);
+  for (const note of notes) {
+    assert.match(note, /[.!]$/, `trail note must read as a sentence: ${note}`);
+    assert.doesNotMatch(note, /_/, `trail note must not leak an identifier: ${note}`);
+    assert.doesNotMatch(note, /^[a-z]/, `trail note must start with a capital: ${note}`);
+  }
+  // Newest first, and every worker event type has purposeful copy.
+  assert.deepEqual(notes.slice(0, 5), [
+    'Future event type.',
+    'Refined a search instead of following a new branch.',
+    'Reloaded the page you were already on.',
+    'Stepped back to a page already in this trail.',
+    'This garden reached its page limit, so a new path was not added.'
+  ]);
+});
+
+ test('empty garden is visible immediately, including when the active Map button is clicked', async t => {
   const page = await openDashboard(t);
   assert.equal(await page.locator('#tree').isVisible(), true);
   assert.equal(await page.locator('#tree').getAttribute('data-tree-mode'), 'empty');
@@ -429,6 +514,27 @@ test('the page picker exposes small or crowded leaves and preserves the real anc
 });
 
 
+test('the closing reflection follows the rhythm the user chose', async t => {
+  const custom = stateFor(garden(4));
+  custom.settings = { ...custom.settings, gentleDepth: 2, choiceDepth: 3 };
+  const page = await openDashboard(t, custom);
+  await page.goto('https://focus-forest.test/popup/index.html');
+  await page.waitForFunction(() => document.querySelector('#active')?.hidden === false);
+  await page.locator('#end').click();
+  await page.waitForFunction(() => document.querySelector('#completion')?.hidden === false);
+  // Deepest branch is 3, which is this user's own gentle threshold.
+  assert.equal(await page.locator('#completion-title').textContent(), 'This garden has a long path to remember.');
+  assert.match(await page.locator('#completion-copy').textContent(), /deepest branch of 3/);
+
+  // The default rhythm still treats depth 3 as an ordinary garden.
+  const defaultPage = await openDashboard(t, stateFor(garden(4)));
+  await defaultPage.goto('https://focus-forest.test/popup/index.html');
+  await defaultPage.waitForFunction(() => document.querySelector('#active')?.hidden === false);
+  await defaultPage.locator('#end').click();
+  await defaultPage.waitForFunction(() => document.querySelector('#completion')?.hidden === false);
+  assert.equal(await defaultPage.locator('#completion-title').textContent(), 'This garden can rest now.');
+});
+
 test('the new-tab illustration shares the cartoon artwork without fake selectable pages', async t => {
   const page = await openDashboard(t);
   await page.goto('https://focus-forest.test/newtab/index.html');
@@ -440,6 +546,26 @@ test('the new-tab illustration shares the cartoon artwork without fake selectabl
   assert.notEqual(await page.locator('#welcome-tree .canopy-silhouette').evaluate(el => getComputedStyle(el).fill), 'rgb(0, 0, 0)');
   assert.equal(await page.locator('.ambient').evaluate(el => getComputedStyle(el, '::before').animationName), 'none', 'reduced-motion mode must disable atmospheric animation');
   assert.equal(await page.locator('.ambient').evaluate(el => getComputedStyle(el, '::after').animationName), 'none', 'reduced-motion mode must disable the second atmospheric animation');
+});
+
+test('the welcome overlay keeps focus instead of the field behind it', async t => {
+  const page = await openDashboard(t);
+  await page.goto('https://focus-forest.test/newtab/index.html');
+  await page.waitForFunction(() => document.querySelector('#onboarding-overlay')?.hidden === false);
+  // The startup focus timer fires after 350ms; it must not move focus away from
+  // the only control the user can actually see (the overlay is aria-modal).
+  await page.evaluate(() => new Promise(resolve => setTimeout(resolve, 700)));
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'onboarding-start');
+  assert.equal(await page.locator('#mission-input').evaluate(el => document.activeElement === el), false);
+});
+
+test('dismissing the welcome overlay completes onboarding', async t => {
+  const page = await openDashboard(t);
+  await page.goto('https://focus-forest.test/newtab/index.html');
+  await page.waitForFunction(() => document.querySelector('#onboarding-overlay')?.hidden === false);
+  await page.locator('#onboarding-start').click();
+  await page.waitForFunction(() => document.querySelector('#onboarding-overlay').hidden === true);
+  assert.equal(await page.locator('#mission-input').isVisible(), true);
 });
 
 test('the companion cartoon icon builds under a strict Trusted Types CSP', async t => {

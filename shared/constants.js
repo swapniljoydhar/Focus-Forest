@@ -57,17 +57,6 @@ export const VALIDATION = {
   MAX_CHILDREN_PER_NODE: 500,
 };
 
-// Storage Keys
-export const STORAGE_KEYS = {
-  SESSIONS: 'focusforest_sessions',
-  SETTINGS: 'focusforest_settings',
-  META: 'focusforest_meta',
-};
-
-// Error Codes
-export const ERROR_CODES = {
-  STORAGE_QUOTA_EXCEEDED: 'STORAGE_QUOTA_EXCEEDED',
-  INVALID_DATA_FORMAT: 'INVALID_DATA_FORMAT',
-  RENDER_TIMEOUT: 'RENDER_TIMEOUT',
-  CYCLIC_GRAPH_DETECTED: 'CYCLIC_GRAPH_DETECTED',
-};
+// Storage Keys and error codes live in shared/state.js (STORAGE_KEY) and
+// shared/error-tracing.js (ERROR_CATEGORIES); keeping duplicates here invited
+// drift, so the unused mirrors were removed.
