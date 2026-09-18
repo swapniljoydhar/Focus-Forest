@@ -12,7 +12,7 @@ const navigationHints = new Map();
 const messageCounts = new Map();
 const MAX_MESSAGES_PER_MINUTE = SERVICE_WORKER.RATE_LIMIT_MAX_REQUESTS;
 const RATE_LIMIT_WINDOW_MS = SERVICE_WORKER.RATE_LIMIT_WINDOW_MS;
-const RATE_LIMIT_TIMESTAMP = Date.now();
+const RATE_LIMIT_INITIAL_WINDOW = 0; // First message creates a fresh window at arrival time
 
 function clearRuntimeTracking() {
   pendingBranches.clear();
@@ -31,7 +31,7 @@ function checkRateLimit(senderId) {
   if (!senderId) return true; // Allow messages without sender ID
   
   const now = Date.now();
-  const entry = messageCounts.get(senderId) || { count: 0, windowStart: RATE_LIMIT_TIMESTAMP };
+  const entry = messageCounts.get(senderId) || { count: 0, windowStart: RATE_LIMIT_INITIAL_WINDOW };
   
   // Reset counter if window has expired
   if (now - entry.windowStart >= RATE_LIMIT_WINDOW_MS) {
@@ -52,11 +52,12 @@ function checkRateLimit(senderId) {
   
   return true;
 }
-// 1s dedup window for repeated SPA navigations on the same tab+url.
+// SPA dedup: returns true if the same tab+url was seen within the 1s dedup window.
+// Map entries expire after SESSION_TIMEOUT_MS (15s) to bound memory.
 function recentlyObservedSpa(tabId, url) {
   const now = Date.now();
-  const DEDUP_WINDOW_MS = SERVICE_WORKER.SESSION_TIMEOUT_MS; // 15 seconds
-  const DEDUP_MAX_AGE_MS = MEMORY_LIMITS.THROTTLE_DELAY_MS; // 1000ms
+  const DEDUP_WINDOW_MS = SERVICE_WORKER.SESSION_TIMEOUT_MS; // 15s: maximum lifetime of an entry in the map before expiry
+  const DEDUP_MAX_AGE_MS = MEMORY_LIMITS.THROTTLE_DELAY_MS; // 1s: if same tab+url seen within this window, treat as duplicate
   
   for (const [entryKey, seenAt] of spaDedup) {
     if (now - seenAt >= DEDUP_WINDOW_MS) spaDedup.delete(entryKey);
