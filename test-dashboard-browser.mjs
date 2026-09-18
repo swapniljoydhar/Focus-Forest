@@ -609,6 +609,13 @@ test('pushState snapshots and Back navigation preserve SPA route history', async
   await page.waitForFunction(() => globalThis.contentMessages?.filter(message => message.type === 'SPA_NAVIGATION').some(message => new URL(message.url).pathname === '/chapter-one'));
   assert.equal(new URL(page.url()).pathname, '/chapter-one');
 });
+test('hash-router navigation notifies the background as SPA navigation', async t => {
+  const page = await openDashboard(t);
+  await page.evaluate(() => import('/content/content.js'));
+  await page.waitForFunction(() => globalThis.contentMessages?.some(message => message.type === 'GET_ACTIVE_VIEW'));
+  await page.evaluate(() => { location.hash = '#chapter-one'; });
+  await page.waitForFunction(() => globalThis.contentMessages?.some(message => message.type === 'SPA_NAVIGATION' && new URL(message.url).hash === '#chapter-one'));
+});
 
 test('50 rapid SPA transitions remain distinct without runaway heap growth', async t => {
   const page = await openDashboard(t);

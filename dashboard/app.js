@@ -618,11 +618,15 @@ function scheduleGardenRefresh() {
     if (activeTab === 'stats') loadStatsTab();
   }, 80);
 }
+function updatePageVisibility() {
+  document.body.dataset.pageVisibility = document.hidden ? 'hidden' : 'visible';
+}
 chrome.storage?.onChanged?.addListener((changes, area) => {
   if (area === 'local' && changes[STORAGE_KEY]) scheduleGardenRefresh();
 });
 window.addEventListener('focus', scheduleGardenRefresh);
-document.addEventListener('visibilitychange', scheduleGardenRefresh);
+document.addEventListener('visibilitychange', () => { updatePageVisibility(); scheduleGardenRefresh(); });
 
+updatePageVisibility();
 switchTab('map');
 renderSafely();

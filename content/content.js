@@ -172,7 +172,7 @@
   const choiceCardEl = makeElement('section', 'choice-card', { role: 'dialog', 'aria-modal': 'false', 'aria-labelledby': 'ff-title', hidden: true });
   choiceCardEl.append(makeElement('button', 'close', { 'data-action': 'dismiss', 'aria-label': 'Keep exploring' }, '×'), makeElement('p', 'choice-eyebrow', {}, 'A moment to choose'), makeElement('h2', '', { id: 'ff-title' }, 'This path is deep, not wrong.'), makeElement('p', 'choice-copy'));
   const choiceActionsEl = makeElement('div', 'choice-actions');
-  choiceActionsEl.append(makeChoice('dismiss', 'choice', '→', 'Keep exploring', 'Leave the page open and continue by choice.'), makeChoice('home', 'choice primary', '↶', 'Return to my mission', 'Go back to where this session began.'), makeChoice('compost', 'choice', '⌁', 'Save this for later', 'Put this curiosity in your compost pile.'), makeChoice('mission', 'choice', '＋', 'Start a new mission', 'Let this become the thing you are here to do.'));
+  choiceActionsEl.append(makeChoice('dismiss', 'choice', '→', 'Keep exploring', 'Leave the page open and continue by choice.'), makeChoice('home', 'choice', '↶', 'Return to my mission', 'Go back to where this session began.'), makeChoice('compost', 'choice', '⌁', 'Save this for later', 'Put this curiosity in your compost pile.'), makeChoice('mission', 'choice', '＋', 'Start a new mission', 'Let this become the thing you are here to do.'));
   choiceCardEl.append(choiceActionsEl);
   const forestFindEl = makeElement('aside', 'forest-find', { role: 'status', 'aria-live': 'polite', hidden: true });
   rootEl.append(chipEl, choiceCardEl, forestFindEl);
@@ -198,7 +198,7 @@
   let forestFindTimer = 0;
   function showForestFind(reward) {
     if (!reward?.text) return;
-    const labels = { seeds: 'Seed noticed', leaves: 'Leaf noticed', blooms: 'Bloom noticed', discoveries: 'Forest detail' };
+    const labels = { seeds: 'Seed noticed', leaves: 'Leaf noticed', blooms: 'Bloom noticed', discoveries: 'Hidden detail found' };
     forestFindEl.dataset.tier = reward.tier || 'discoveries';
     const iconEl = document.createElement('span');
     iconEl.className = 'forest-find-icon';
@@ -266,6 +266,15 @@
   if (titleElement) {
     titleObserver.observe(titleElement, { childList: true, characterData: true });
   }
+  const headObserver = new MutationObserver(wrapWithErrorBoundary(() => {
+    const dynamicTitle = document.querySelector('title');
+    if (dynamicTitle && dynamicTitle !== dynamicTitleElement) {
+      dynamicTitleElement = dynamicTitle;
+      titleObserver.observe(dynamicTitleElement, { childList: true, characterData: true });
+    }
+  }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'headObserver', swallow: true }));
+  let dynamicTitleElement = titleElement;
+  if (document.head) headObserver.observe(document.head, { childList: true, subtree: true });
 
   // The chip stays visible at all times (per README: "stays quietly available").
   // It does not auto-hide on scroll. Users can manually minimize via the minimize button.
@@ -411,7 +420,7 @@
       promptEl
     );
     choiceCard.hidden = false;
-    shadow.querySelector('[data-action="home"]').focus();
+    shadow.querySelector('[data-action="dismiss"]').focus();
   }
 
   function hideChoiceCard() { choiceCard.hidden = true; }
@@ -483,6 +492,7 @@
   };
   const safeOnNavigation = wrapWithErrorBoundary(onNavigation, { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'onNavigation', swallow: true });
   window.addEventListener('popstate', safeOnNavigation, { passive: true });
+  window.addEventListener('hashchange', safeOnNavigation, { passive: true });
   
   // SPA navigation detection already implemented above with history interception and MutationObserver
   
