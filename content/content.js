@@ -104,6 +104,7 @@
 .choice-eyebrow{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#4a7c59;margin:0 0 6px}
 .choice-card h2{font:600 17px/1.3 ui-sans-serif,system-ui,sans-serif;color:#29432d;margin:0 0 8px}
 .choice-copy{font:14px/1.5 ui-sans-serif,system-ui,sans-serif;color:#3d5239;margin:0 0 16px}
+.choice-copy em{display:block;margin-top:10px;color:#6c8c68;font-size:13px}
 .choice-actions{display:flex;flex-direction:column;gap:8px}
 .choice{appearance:none;border:1px solid rgba(74,104,71,.2);border-radius:14px;background:rgba(255,255,255,.85);color:#29432d;font:inherit;text-align:left;padding:12px 14px;cursor:pointer;display:flex;align-items:center;gap:12px;transition:background .15s,border-color .15s,transform .1s}
 .choice:hover{background:#ffffff;border-color:rgba(74,104,71,.4);transform:translateX(2px)}
@@ -363,12 +364,19 @@
     choiceCard.dataset.shownFor = location.href;
     if (document.activeElement !== root && document.activeElement?.isConnected) lastPageFocus = document.activeElement;
     choiceCopy.replaceChildren();
+    const reflectionPrompts = [
+      'What would make this detour worth keeping?',
+      'Is this still serving the intention, or is it a new question?',
+      'If you continue, what are you looking for next?'
+    ];
     const missionEl = document.createElement('q');
     missionEl.textContent = current?.mission || '';
     const depthEl = document.createElement('strong');
     depthEl.textContent = String(depth);
     const pageEl = document.createElement('q');
     pageEl.textContent = document.title || location.hostname;
+    const promptEl = document.createElement('em');
+    promptEl.textContent = reflectionPrompts[depth % reflectionPrompts.length];
     choiceCopy.append(
       document.createTextNode('You started with '),
       missionEl,
@@ -376,7 +384,8 @@
       depthEl,
       document.createTextNode(' branches away, looking at '),
       pageEl,
-      document.createTextNode(`. This is a ${confidence}-confidence branch. Nothing is wrong — choose whether to keep exploring, return to your intention, or pause the forest.`)
+      document.createTextNode(`. This is a ${confidence}-confidence branch. Nothing is wrong — choose whether to keep exploring, return to your intention, or pause the forest. `),
+      promptEl
     );
     choiceCard.hidden = false;
     shadow.querySelector('[data-action="home"]').focus();
