@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Focus Forest",
-  "version": "0.3.5",
+  "version": "0.3.6",
   "minimum_chrome_version": "110",
   "description": "A gentle mission-aware browsing companion that helps you notice rabbit holes without blocking the web.",
   "icons": {

@@ -2,6 +2,14 @@
 
 All notable Focus Forest changes are documented here.
 
+## [0.3.6] — 2026-09-18
+
+### Improved
+
+- Made Forest Finds appear as a compact tier-aware discovery reveal with a small one-shot entrance motion, instead of a plain text toast.
+- Added distinct but restrained visual treatment for seeds, blooms, and seasonal discoveries while keeping the page usable and unobscured.
+- Preserved reduced-motion behavior and the existing offline, cooldown, and per-session reward limits.
+
 ## [0.3.5] — 2026-09-18
 
 ### Added

@@ -99,8 +99,14 @@
 .choice-card[hidden]{display:none !important}
 .choice-card .close{position:absolute;top:12px;right:12px;border:0;background:rgba(74,104,71,.1);border-radius:999px;width:28px;height:28px;font-size:16px;line-height:1;color:#3d5239;cursor:pointer;display:flex;align-items:center;justify-content:center}
 .choice-card .close:hover{background:rgba(74,104,71,.2)}
-.forest-find{position:fixed;right:24px;bottom:24px;max-width:min(340px,calc(100vw - 32px));padding:12px 16px;border:1px solid rgba(198,165,98,.42);border-radius:16px;background:rgba(255,251,235,.98);box-shadow:0 10px 28px rgba(82,70,39,.18);color:#5d563d;font:13px/1.4 ui-sans-serif,system-ui,sans-serif;pointer-events:auto;animation:ff-slide-up .28s ease both}
+.forest-find{position:fixed;right:24px;bottom:24px;display:grid;grid-template-columns:auto 1fr;column-gap:10px;row-gap:1px;align-items:center;max-width:min(340px,calc(100vw - 32px));padding:11px 15px 12px;border:1px solid rgba(198,165,98,.42);border-radius:16px;background:rgba(255,251,235,.98);box-shadow:0 10px 28px rgba(82,70,39,.18);color:#5d563d;font:13px/1.4 ui-sans-serif,system-ui,sans-serif;pointer-events:auto}
 .forest-find[hidden]{display:none}
+.forest-find.is-new{animation:ff-find-reveal .45s cubic-bezier(.2,.8,.3,1) both}
+.forest-find[data-tier="blooms"]{border-color:rgba(187,119,123,.5);box-shadow:0 10px 30px rgba(120,75,78,.2)}
+.forest-find[data-tier="discoveries"]{border-color:rgba(116,151,173,.46)}
+.forest-find-icon{grid-row:span 2;font-size:20px;line-height:1}
+.forest-find-label{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#7b704f}
+.forest-find-text{font-size:13px}
 .choice-eyebrow{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#4a7c59;margin:0 0 6px}
 .choice-card h2{font:600 17px/1.3 ui-sans-serif,system-ui,sans-serif;color:#29432d;margin:0 0 8px}
 .choice-copy{font:14px/1.5 ui-sans-serif,system-ui,sans-serif;color:#3d5239;margin:0 0 16px}
@@ -117,6 +123,8 @@
 .choice strong{font-weight:600;font-size:13px}
 .choice small{font-size:11px;color:#6c8c68;margin-top:2px}
 @keyframes ff-slide-up{from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)}}
+@keyframes ff-find-reveal{0%{opacity:0;transform:translateY(10px) scale(.96)}60%{opacity:1;transform:translateY(-2px) scale(1.01)}100%{opacity:1;transform:translateY(0) scale(1)}}
+@media (prefers-reduced-motion:reduce){.choice-card,.forest-find{animation:none!important}.choice{transition:none!important}}
 `;
   shadow.append(style);
 
@@ -190,7 +198,22 @@
   let forestFindTimer = 0;
   function showForestFind(reward) {
     if (!reward?.text) return;
-    forestFindEl.textContent = `${reward.icon || '✦'} Forest Find · ${reward.text}`;
+    const labels = { seeds: 'Seed noticed', leaves: 'Leaf noticed', blooms: 'Bloom noticed', discoveries: 'Forest detail' };
+    forestFindEl.dataset.tier = reward.tier || 'discoveries';
+    const iconEl = document.createElement('span');
+    iconEl.className = 'forest-find-icon';
+    iconEl.setAttribute('aria-hidden', 'true');
+    iconEl.textContent = reward.icon || '✦';
+    const labelEl = document.createElement('span');
+    labelEl.className = 'forest-find-label';
+    labelEl.textContent = labels[reward.tier] || 'Quiet discovery';
+    const textEl = document.createElement('span');
+    textEl.className = 'forest-find-text';
+    textEl.textContent = reward.text;
+    forestFindEl.replaceChildren(iconEl, labelEl, textEl);
+    forestFindEl.classList.remove('is-new');
+    void forestFindEl.offsetWidth;
+    forestFindEl.classList.add('is-new');
     forestFindEl.hidden = false;
     window.clearTimeout(forestFindTimer);
     forestFindTimer = window.setTimeout(() => { forestFindEl.hidden = true; }, 5200);
