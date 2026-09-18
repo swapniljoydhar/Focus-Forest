@@ -8,9 +8,9 @@ Open a new tab and plant a mission such as "Compare laptops for university." Pre
 
 A garden view preserves completed missions locally. It shows what grew from the intention, where the path changed, why each path was recognized (link, new tab, search, in-page route, or unlinked exploration), and which curiosities were composted for later. The garden is a reflection, not a productivity score. When a branch reaches the choice threshold, Focus Forest describes it as deep rather than wrong: the user decides whether the detour is useful.
 
-## v0.3.5 release notes
+## v0.3.6 release notes
 
-Version 0.3.5 adds a short, rotating reflection prompt to the existing choice card without changing Focus Forest’s gentle, non-blocking purpose. It also tunes the New Tab atmosphere with slower, more organic motion while preserving reduced-motion support and hidden-tab animation pauses. The opt-in **Forest Finds** path remains offline and bounded: the extension stores only a reward ID and timestamp, applies a cooldown, and shows a small discovery only after an intentional choice or mission action.
+Version 0.3.6 gives **Forest Finds** a compact, tier-aware discovery reveal: a small one-shot entrance motion and restrained seed, bloom, or seasonal-detail treatment. It does not cover the page or interrupt navigation, and it respects reduced-motion preferences. The reward path remains offline and bounded: the extension stores only a reward ID and timestamp, applies a cooldown, and shows a small discovery only after an intentional choice or mission action.
 
 Earlier releases added the calm animated atmosphere and SPA performance regression checks described below.
 
