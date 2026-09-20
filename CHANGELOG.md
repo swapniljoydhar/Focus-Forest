@@ -2,6 +2,28 @@
 
 All notable Focus Forest changes are documented here.
 
+## [Unreleased]
+
+### Fixed
+
+- Fixed Forget Site freezing the active session tree when the forgotten host was the mission origin: the origin now resets to the New Tab placeholder and the next ordinary page plants a fresh root instead of overwriting surviving nodes. Sessions already frozen by the old behavior are healed automatically on load.
+- Fixed the first-step search fallback for the "Browser default" engine silently routing missions to Google when the Search API is unavailable; the last-resort fallback is now DuckDuckGo, as README privacy notes require.
+- Fixed the dashboard never counting or showing choice-sheet dismissals: dismissing via "Keep exploring" or Escape now records an event, surfaced as the "Prompts Declined" stat.
+- Fixed tab-close cleanup leaving per-tab navigation hints, SPA dedupe entries, and pending branches in memory until TTL eviction.
+- Fixed the origin growth ritual being able to replay when a second depth-0 load arrived mid-animation.
+- Fixed the companion chip restoring a saved position that can fall outside the current viewport.
+- Fixed the popup depth meter never rendering 0%, and unified "branches" wording between the chip and popup.
+- Fixed the dashboard session ordering comparator mixing different rows' timestamps.
+- Removed the never-read `interventionsPaused` setting and the fabricated `depth` field on compost entries.
+
+### Security
+
+- Tightened the extension-page Content Security Policy: removed `style-src 'unsafe-inline'` (all dynamic styling is CSSOM-only).
+
+### Improved
+
+- The dashboard's dark/light theme choice is now respected by the popup, settings, and New Tab pages.
+
 ## [0.3.6] — 2026-09-18
 
 ### Improved

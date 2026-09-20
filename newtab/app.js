@@ -1,5 +1,8 @@
 import { renderTreeIllustration } from '../dashboard/tree-renderer.js';
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
+import { applyStoredTheme } from '../shared/theme.js';
+
+applyStoredTheme();
 
 renderTreeIllustration(document.querySelector('#welcome-tree'), 'sapling');
 renderTreeIllustration(document.querySelector('#onboarding-tree'), 'seed');

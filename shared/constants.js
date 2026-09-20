@@ -53,6 +53,9 @@ export const VALIDATION = {
   URL_MAX_LENGTH: 2048,
   TITLE_MAX_LENGTH: 500,
   MAX_TIMESTAMP_AGE_YEARS: 5,
+  // Imported timestamps may sit slightly in the future (clock skew on the
+  // exporting machine). Tolerated skew for import validation, in milliseconds.
+  MAX_TIMESTAMP_FUTURE_MS: 60000,
   MAX_NODE_DEPTH: 100,
   MAX_CHILDREN_PER_NODE: 500,
 };

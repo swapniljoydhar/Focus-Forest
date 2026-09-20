@@ -46,7 +46,7 @@ h1{margin:0;font:500 26px/1.15 Georgia,serif;letter-spacing:-.02em;overflow-wrap
 .state-line{min-height:20px;margin:8px 0 18px;color:#728270;font-size:12px}
 .branch-meter{margin-bottom:20px}
 .meter-track{height:8px;border-radius:8px;background:#e0eadc;overflow:hidden;box-shadow:inset 0 1px 2px rgba(62,101,61,.08);position:relative}
-.meter-track span{display:block;height:100%;min-width:4%;border-radius:8px;background:linear-gradient(90deg,#79a873,#c5a15e);transition:width .4s cubic-bezier(.4,0,.2,1);position:relative}
+.meter-track span{display:block;height:100%;border-radius:8px;background:linear-gradient(90deg,#79a873,#c5a15e);transition:width .4s cubic-bezier(.4,0,.2,1);position:relative}
 .meter-track span:after{content:"";position:absolute;inset:0;background:linear-gradient(90deg,transparent,rgba(255,255,255,.3),transparent);animation:meterShimmer 2s ease-in-out infinite}
 @keyframes meterShimmer{0%{transform:translateX(-100%)}100%{transform:translateX(100%)}}
 .meter-labels{display:flex;justify-content:space-between;margin-top:7px;color:#9aa697;font-size:10px}
@@ -85,3 +85,25 @@ footer{display:flex;justify-content:center;align-items:center;gap:5px;margin-top
 footer button{border:0;background:none;color:#91a08d;font:11px ui-sans-serif;cursor:pointer;transition:color .2s ease}
 footer button:hover{color:#527154;text-decoration:underline}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+/* Dark theme (shared/theme.js; the toggle lives in the dashboard) */
+[data-theme="dark"] body{background:linear-gradient(180deg,#161b16,#131713);color:#e8f0e5}
+[data-theme="dark"] .popup-ambient span:first-child{opacity:.18}
+[data-theme="dark"] .popup-ambient span:last-child{background:#253125;opacity:.5}
+[data-theme="dark"] .popup-brand{color:#a3b3a3}
+[data-theme="dark"] .local-dot{color:#7a8a7a}
+[data-theme="dark"] .eyebrow{color:#8aa38a}
+[data-theme="dark"] h1,[data-theme="dark"] .empty h1,[data-theme="dark"] .completion h2{color:#e8f0e5}
+[data-theme="dark"] .state-line{color:#a3b3a3}
+[data-theme="dark"] .empty-copy,[data-theme="dark"] .completion p:not(.eyebrow){color:#a3b3a3}
+[data-theme="dark"] .plant-form input,[data-theme="dark"] .plant-form textarea{background:rgba(30,38,30,.9);border-color:#354235;color:#e8f0e5}
+[data-theme="dark"] .plant-status{color:#8a9a8a}
+[data-theme="dark"] .meter-track{background:#252b25}
+[data-theme="dark"] .meter-labels{color:#7a8a7a}
+[data-theme="dark"] .quiet-stats div{background:rgba(30,38,30,.75);border-color:#354235}
+[data-theme="dark"] .quiet-stats strong{color:#c8d4c8}
+[data-theme="dark"] .quiet-stats span{color:#8a9a8a}
+[data-theme="dark"] .actions .secondary,[data-theme="dark"] .completion-actions .secondary{background:rgba(30,38,30,.84);border-color:#354235;color:#b6c5b6}
+[data-theme="dark"] .actions .secondary:hover,[data-theme="dark"] .completion-actions .secondary:hover{background:#252b25;border-color:#4a5a4a}
+[data-theme="dark"] .actions .text-action,[data-theme="dark"] .completion-actions .text-action,[data-theme="dark"] .empty .text-action{color:#8aa38a}
+[data-theme="dark"] footer button{color:#7a8a7a}
+[data-theme="dark"] footer button:hover{color:#a3b3a3}

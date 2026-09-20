@@ -1,4 +1,7 @@
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
+import { applyStoredTheme } from '../shared/theme.js';
+
+applyStoredTheme();
 
 /**
  * Send a message to the service worker with error handling
@@ -108,13 +111,14 @@ async function render() {
       : depth >= thresholds.DESATURATE
         ? 'This branch is getting long.'
         : depth > 0
-          ? `A healthy branch, ${depth} ${depth === 1 ? 'step' : 'steps'} from the root.`
+          ? `Growing well — ${depth} ${depth === 1 ? 'branch' : 'branches'} from the root.`
           : 'Growing from the root of your mission.';
 
   missionEl.textContent = session.mission;
   stateEl.textContent = state;
   depthLabelEl.textContent = `Deepest branch ${reflection.deepest}`;
-  meterFillEl.style.width = `${clamp((reflection.deepest / thresholds.INTERRUPT) * 100, 4, 100)}%`;
+  // Show a truthful zero: the 4% floor only exists so a non-zero depth stays visible.
+  meterFillEl.style.width = `${clamp((reflection.deepest / thresholds.INTERRUPT) * 100, reflection.deepest > 0 ? 4 : 0, 100)}%`;
   nodesEl.textContent = session.nodes.length;
   compostEl.textContent = snap.state.compostItems.length;
 

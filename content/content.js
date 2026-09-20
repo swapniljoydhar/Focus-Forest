@@ -59,8 +59,11 @@
   document.documentElement.appendChild(root);
   const shadow = root.attachShadow({ mode: 'closed' });
 
-  const style = document.createElement('style');
-  style.textContent = `
+  // Constructable Stylesheets apply scoped CSS without an inline <style>
+  // element, so the companion renders even under a strict page CSP
+  // (style-src without 'unsafe-inline'). The <style> fallback covers
+  // engines without Constructable Stylesheet support.
+  const componentCssText = `
 :host{all:initial}
 #ff-root{position:fixed;z-index:2147483646;inset:0;pointer-events:none}
 #ff-root.motion-off *,#ff-root.motion-off *::before,#ff-root.motion-off *::after{animation:none!important;transition:none!important}
@@ -126,7 +129,22 @@
 @keyframes ff-find-reveal{0%{opacity:0;transform:translateY(10px) scale(.96)}60%{opacity:1;transform:translateY(-2px) scale(1.01)}100%{opacity:1;transform:translateY(0) scale(1)}}
 @media (prefers-reduced-motion:reduce){.choice-card,.forest-find{animation:none!important}.choice{transition:none!important}}
 `;
-  shadow.append(style);
+
+  let style = null;
+  try {
+    if (typeof CSSStyleSheet === 'function' && 'replaceSync' in CSSStyleSheet.prototype && 'adoptedStyleSheets' in Document.prototype) {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(componentCssText);
+      shadow.adoptedStyleSheets = [...shadow.adoptedStyleSheets, sheet];
+    } else {
+      style = document.createElement('style');
+      style.textContent = componentCssText;
+    }
+  } catch {
+    style = document.createElement('style');
+    style.textContent = componentCssText;
+  }
+  if (style) shadow.append(style);
 
   const makeElement = (tag, className = '', attributes = {}, text = null) => {
     const element = document.createElement(tag);
@@ -282,7 +300,14 @@
   // --- Drag-to-move the chip (Pointer Events + setPointerCapture) ---
   let chipPos = null;
   try { const saved = sessionStorage.getItem('ff-chip-pos'); if (saved) chipPos = JSON.parse(saved); } catch { /* ignore */ }
-  if (chipPos && Number.isFinite(chipPos.x) && Number.isFinite(chipPos.y)) applyChipPos(chipPos.x, chipPos.y);
+  if (chipPos && Number.isFinite(chipPos.x) && Number.isFinite(chipPos.y)) {
+    // sessionStorage is shared by every page loaded in this tab, so a saved
+    // position may have been recorded at a very different viewport size.
+    // Clamp it back inside the current window before applying.
+    const clampedX = Math.max(8, Math.min(Math.max(8, window.innerWidth - 48), chipPos.x));
+    const clampedY = Math.max(8, Math.min(Math.max(8, window.innerHeight - 48), chipPos.y));
+    applyChipPos(clampedX, clampedY);
+  }
   function applyChipPos(x, y) { chip.style.left = `${x}px`; chip.style.top = `${y}px`; chip.style.right = 'auto'; }
   const dragHandle = shadow.querySelector('[data-drag-handle]');
   dragHandle.addEventListener('pointerdown', wrapWithErrorBoundary((e) => {
@@ -343,6 +368,12 @@
     if (growthAnimationTrigger === 'none') return false;
     if (growthAnimationTrigger === 'mission-origin' && !isOrigin) return false;
     if (growthAnimationTrigger === 'mission-origin' && originRitualPlayed) return false;
+    // Mark the origin ritual as played *before* the awaits below: a second origin
+    // load arriving mid-animation must not start the ritual over again.
+    if (isOrigin) {
+      originRitualPlayed = true;
+      try { sessionStorage.setItem('ff-origin-ritual-played', 'true'); } catch { /* storage may be unavailable */ }
+    }
     const token = ++ritualToken;
     window.clearTimeout(ritualTimer);
     chip.classList.remove('chip-growth-flash');
@@ -355,10 +386,6 @@
     chip.classList.add('chip-growth-flash');
     if (!await waitForGrowth(540, token)) return false;
     chip.classList.remove('chip-growth-flash');
-    if (isOrigin) {
-      originRitualPlayed = true;
-      try { sessionStorage.setItem('ff-origin-ritual-played', 'true'); } catch { /* storage may be unavailable */ }
-    }
     return true;
   }
 
@@ -377,7 +404,7 @@
     const paused = current.interventionPaused;
     const thresholds = view?.thresholds || { DESATURATE: 4, INTERRUPT: 5 };
     const stateKind = paused ? 'resting' : depth >= thresholds.INTERRUPT ? 'interrupt' : depth >= thresholds.DESATURATE ? 'drift' : depth > 0 ? 'branch' : 'root';
-    const state = paused ? 'Forest resting' : depth >= thresholds.INTERRUPT ? 'You may be wandering' : depth >= thresholds.DESATURATE ? 'This branch is getting long' : depth > 0 ? `Branch \u00b7 ${depth} ${depth === 1 ? 'step' : 'steps'} deep` : 'Growing from this mission';
+    const state = paused ? 'Forest resting' : depth >= thresholds.INTERRUPT ? 'You may be wandering' : depth >= thresholds.DESATURATE ? 'This branch is getting long' : depth > 0 ? `${depth} ${depth === 1 ? 'branch' : 'branches'} deep` : 'Growing from this mission';
     const enteredNewBranch = !paused && previous?.node?.id && previous.node.id !== current.node.id && depth > (previous.node.depth || 0);
     const isOriginLoad = !paused && !previous?.node?.id && depth === 0;
     missionEl.textContent = current.mission;
@@ -435,14 +462,18 @@
     if (action === 'home') { hideChoiceCard(); showForestFind((await send('GO_HOME'))?.reward); }
     else if (action === 'compost') { showForestFind((await send('COMPOST', { url: location.href, title: document.title }))?.reward); hideChoiceCard(); restorePageFocus(); }
     else if (action === 'mission') { const result = await send('END_MISSION', { reason: 'mission_changed' }); showForestFind(result?.reward); hideChoiceCard(); window.location.href = chrome.runtime.getURL('newtab/index.html'); }
-    else if (action === 'dismiss') { hideChoiceCard(); restorePageFocus(); }
+    else if (action === 'dismiss') { hideChoiceCard(); restorePageFocus(); send('DISMISS_INTERVENTION', { url: location.href }).catch((error) => logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'dismissIntervention' })); }
     else if (action === 'pause') { await send('PAUSE_INTERVENTION', { paused: !current?.interventionPaused }); await safeRefresh(false); }
     else if (action === 'pause-site') { await send('PAUSE_SITE'); chip.hidden = true; choiceCard.hidden = true; }
     else if (action === 'minimize') { chip.classList.toggle('minimized'); minimizeBtn.textContent = chip.classList.contains('minimized') ? '+' : '\u2013'; }
   }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'shadow.click', swallow: true }));
 
   shadow.addEventListener('keydown', wrapWithErrorBoundary((event) => {
-    if (event.key === 'Escape' && !choiceCard.hidden) { hideChoiceCard(); return; }
+    if (event.key === 'Escape' && !choiceCard.hidden) {
+      hideChoiceCard();
+      send('DISMISS_INTERVENTION', { url: location.href }).catch((error) => logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'dismissIntervention' }));
+      return;
+    }
   }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'shadow.keydown', swallow: true }));
 
   document.addEventListener('click', wrapWithErrorBoundary(async (event) => {
@@ -464,19 +495,19 @@
     } catch { update(null); }
   }
 
-  // Adaptive SPA-URL watch: polls only while the tab is visible, backs off
-  // when idle, and stops entirely on hidden tabs. The service worker also
-  // receives webNavigation.onHistoryStateUpdated, so this is a render fallback.
-  // Enhanced for SPAs: Reduced interval for smoother tracking during rapid navigation
+  // SPA-URL watch: polls at a fixed interval while the tab is visible and stops
+  // entirely on hidden tabs. The service worker also receives
+  // webNavigation.onHistoryStateUpdated, so this is only a render fallback for
+  // SPA navigations those events miss.
   let watchTimer = 0;
-  const WATCH_INTERVAL = document.hidden ? 8000 : 2500; // Faster polling when visible for better SPA responsiveness
+  const WATCH_INTERVAL_MS = 2500;
   function scheduleWatch() {
     window.clearTimeout(watchTimer);
     if (document.hidden) return;
     watchTimer = window.setTimeout(() => {
       if (location.href !== lastUrl) { lastUrl = location.href; choiceCard.removeAttribute('data-shown-for'); refresh(true); }
       scheduleWatch();
-    }, WATCH_INTERVAL);
+    }, WATCH_INTERVAL_MS);
   }
 
   // Debounced navigation handler to prevent rapid-fire state updates during SPA transitions

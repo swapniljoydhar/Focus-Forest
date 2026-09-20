@@ -1,6 +1,7 @@
 import { renderGardenTree } from './tree-renderer.js';
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
 import { getNodeDuration, rewardHistoryView, STORAGE_KEY } from '../shared/state.js';
+import { applyStoredTheme, toggleTheme } from '../shared/theme.js';
 
 async function message(type, payload = {}) { return chrome.runtime.sendMessage({ type, ...payload }); }
 const svg = document.querySelector('#tree');
@@ -209,7 +210,7 @@ function renderSessions(sessions, activeId, currentId) {
   if (!sessions.length) {
     sessionSelect.append(makeTextElement('option', 'No gardens yet'));
   } else {
-    sessions.slice().sort((a, b) => (b.endedAt || a.startedAt) - (a.endedAt || a.startedAt)).forEach((session) => {
+    sessions.slice().sort((a, b) => (b.endedAt ?? b.startedAt) - (a.endedAt ?? a.startedAt)).forEach((session) => {
       const option = makeTextElement('option', `${session.mission}${session.id === activeId ? ' · active' : ''}`);
       option.value = session.id;
       sessionSelect.append(option);
@@ -298,7 +299,7 @@ document.querySelector('#forget-site').addEventListener('click', wrapWithErrorBo
   await renderSafely();
 }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'forget-site.click', swallow: true }));
 document.querySelector('#clear').addEventListener('click', wrapWithErrorBoundary(event => openCareDialog('clear', event.currentTarget), { category: ERROR_CATEGORIES.UI_RENDER, function: 'clear.click', swallow: true }));
-document.querySelector('#theme-toggle').addEventListener('click', wrapWithErrorBoundary(() => { const html = document.documentElement; const current = html.getAttribute('data-theme') || 'light'; const next = current === 'light' ? 'dark' : 'light'; html.setAttribute('data-theme', next); try { localStorage.setItem('focus-forest-theme', next); } catch (e) { /* storage may be unavailable */ } }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'theme-toggle.click', swallow: true }));
+document.querySelector('#theme-toggle').addEventListener('click', wrapWithErrorBoundary(() => { toggleTheme(); }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'theme-toggle.click', swallow: true }));
 document.querySelector('#settings').addEventListener('click', wrapWithErrorBoundary(() => chrome.runtime.openOptionsPage(), { category: ERROR_CATEGORIES.UI_RENDER, function: 'settings.click', swallow: true }));
 
 // Tab switching
@@ -524,7 +525,7 @@ async function loadStatsTab() {
       console.warn('Could not load dashboard stats:', response?.error);
       return;
     }
-    const { totalSessions, totalFocusTime, totalActiveTabTime, intentionalBranches, unlinkedPaths, averageBranchDepth, currentStreak, weeklyData, domainData, history, savedItems } = response;
+    const { totalSessions, totalFocusTime, totalActiveTabTime, intentionalBranches, unlinkedPaths, interruptionsDismissed, averageBranchDepth, currentStreak, weeklyData, domainData, history, savedItems } = response;
     const totalSessionsEl = document.getElementById('totalSessions');
     const totalFocusTimeEl = document.getElementById('totalFocusTime');
     const currentStreakEl = document.getElementById('currentStreak');
@@ -532,6 +533,7 @@ async function loadStatsTab() {
     const activeTabTimeEl = document.getElementById('totalActiveTabTime');
     const intentionalBranchesEl = document.getElementById('intentionalBranches');
     const unlinkedPathsEl = document.getElementById('unlinkedPaths');
+    const promptsDeclinedEl = document.getElementById('promptsDeclined');
     const averageBranchDepthEl = document.getElementById('averageBranchDepth');
     if (totalSessionsEl) totalSessionsEl.textContent = totalSessions;
     if (totalFocusTimeEl) totalFocusTimeEl.textContent = formatDuration(totalFocusTime);
@@ -540,6 +542,7 @@ async function loadStatsTab() {
     if (activeTabTimeEl) activeTabTimeEl.textContent = formatDuration(totalActiveTabTime);
     if (intentionalBranchesEl) intentionalBranchesEl.textContent = intentionalBranches;
     if (unlinkedPathsEl) unlinkedPathsEl.textContent = unlinkedPaths;
+    if (promptsDeclinedEl) promptsDeclinedEl.textContent = Number(interruptionsDismissed || 0);
     if (averageBranchDepthEl) averageBranchDepthEl.textContent = Number(averageBranchDepth || 0).toFixed(1);
     renderWeeklyChart(weeklyData);
     renderDomainChart(domainData);
@@ -588,14 +591,7 @@ async function importData() {
 }
 
 // Load saved theme preference on startup
-(function loadThemePreference() {
-  try {
-    const saved = localStorage.getItem('focus-forest-theme');
-    if (saved === 'dark' || saved === 'light') {
-      document.documentElement.setAttribute('data-theme', saved);
-    }
-  } catch (e) { /* storage may be unavailable */ }
-})();
+applyStoredTheme();
 
 const exportBtn = document.getElementById('exportData');
 if (exportBtn) exportBtn.addEventListener('click', wrapWithErrorBoundary(exportData, { category: ERROR_CATEGORIES.MESSAGING, function: 'exportData.click', swallow: true }));

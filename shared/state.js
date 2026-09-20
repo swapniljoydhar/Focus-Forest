@@ -131,7 +131,7 @@ export function emptyState() {
     activeSessionId: null, 
     sessions: [], 
     compostItems: [], 
-    settings: { interventionsPaused: false, ...DEFAULT_SETTINGS }, 
+    settings: { ...DEFAULT_SETTINGS },
     onboardingCompleted: false,
     rewardHistory: [] // Track earned rewards with timestamps
   };
@@ -294,6 +294,19 @@ export function isPlaceholderOriginUrl(value, extensionId = extensionRuntimeId()
 }
 
 /**
+ * True for this extension's own page URLs *other than* its New Tab page.
+ * Only used to repair legacy state (see normalizeState): an older Forget Site
+ * implementation stored the dashboard URL as a session origin, and a non-newtab
+ * extension URL is never a genuine browsing origin — it freezes the tree
+ * because nothing can ever replant it.
+ */
+function isOwnExtensionNonNewTabUrl(value, extensionId = extensionRuntimeId()) {
+  if (typeof value !== 'string' || !extensionId) return false;
+  const match = /^chrome-extension:\/\/([a-z0-9-]+)\/.*$/i.exec(value);
+  return Boolean(match && match[1].toLowerCase() === String(extensionId).toLowerCase()) && !isExtensionNewTabUrl(value, extensionId);
+}
+
+/**
  * Validates a URL for safe session storage.
  * Accepts HTTP(S), Chromium new-tab placeholders, and the current extension origin.
  * @param {string} value - Raw URL string.
@@ -341,12 +354,21 @@ export function normalizeState(value) {
   const fallback = emptyState();
   if (!value || typeof value !== 'object') return fallback;
   const sessions = Array.isArray(value.sessions) ? value.sessions.map(compactSession).filter(Boolean).slice(-LIMITS.SESSIONS) : [];
+  // Heal sessions frozen by the legacy Forget Site origin replacement: their
+  // stored origin is our own dashboard URL, which is not a placeholder, so no
+  // new page could ever replant the tree. Normalize it back to the standard
+  // New Tab placeholder; the next ordinary observation plants a fresh root.
+  for (const session of sessions) {
+    if (isOwnExtensionNonNewTabUrl(session?.origin?.url)) {
+      session.origin = { ...session.origin, url: DEFAULT_NEW_TAB_URL };
+    }
+  }
   const activeSessionId = sessions.some((session) => session.id === value.activeSessionId) ? value.activeSessionId : null;
   return {
     schemaVersion: SCHEMA_VERSION,
     activeSessionId,
     sessions,
-    compostItems: Array.isArray(value.compostItems) ? value.compostItems.slice(0, LIMITS.COMPOST).map((item) => { const url = safeHttpUrl(item?.url); if (!url) return null; return { id: compactText(item?.id, 120), url, title: compactText(item?.title || url, LIMITS.TITLE), mission: compactText(item?.mission, 140), depth: Math.max(0, Math.min(LIMITS.NODES_PER_SESSION, Number(item?.depth) || 0)), savedAt: Number.isFinite(item?.savedAt) ? item.savedAt : Date.now() }; }).filter((item) => item?.id && item.url) : [],
+    compostItems: Array.isArray(value.compostItems) ? value.compostItems.slice(0, LIMITS.COMPOST).map((item) => { const url = safeHttpUrl(item?.url); if (!url) return null; return { id: compactText(item?.id, 120), url, title: compactText(item?.title || url, LIMITS.TITLE), mission: compactText(item?.mission, 140), savedAt: Number.isFinite(item?.savedAt) ? item.savedAt : Date.now() }; }).filter((item) => item?.id && item.url) : [],
     rewardHistory: Array.isArray(value.rewardHistory) ? value.rewardHistory.filter((reward) => typeof reward?.rewardId === 'string' && Number.isFinite(reward.timestamp)).slice(-24).map((reward) => ({ rewardId: compactText(reward.rewardId, 40), timestamp: reward.timestamp })) : [],
     settings: normalizeSettings(value.settings, fallback.settings),
     onboardingCompleted: Boolean(value.onboardingCompleted)
@@ -379,7 +401,7 @@ export function normalizeSettings(value, fallback = emptyState().settings) {
   const excludedSites = Array.isArray(source.excludedSites) ? source.excludedSites.map((site) => compactText(site, 120).toLowerCase().replace(/^www\./, '')).filter((site, index, list) => site && list.indexOf(site) === index).slice(0, 40) : (Array.isArray(fallback.excludedSites) ? fallback.excludedSites : []);
   const searchEngine = ['default', 'google', 'bing', 'duckduckgo', 'brave', 'startpage'].includes(source.searchEngine) ? source.searchEngine : fallback.searchEngine;
   const enableRewards = source.enableRewards === true;
-  return { interventionsPaused: Boolean(source.interventionsPaused), gentleDepth, choiceDepth, ambientMotion: source.ambientMotion !== false, growthAnimationTrigger, excludedSites, searchEngine, enableRewards };
+  return { gentleDepth, choiceDepth, ambientMotion: source.ambientMotion !== false, growthAnimationTrigger, excludedSites, searchEngine, enableRewards };
 }
 
 let stateCache = null;
