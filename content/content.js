@@ -59,8 +59,11 @@
   document.documentElement.appendChild(root);
   const shadow = root.attachShadow({ mode: 'closed' });
 
-  const style = document.createElement('style');
-  style.textContent = `
+  // Constructable Stylesheets apply scoped CSS without an inline <style>
+  // element, so the companion renders even under a strict page CSP
+  // (style-src without 'unsafe-inline'). The <style> fallback covers
+  // engines without Constructable Stylesheet support.
+  const componentCssText = `
 :host{all:initial}
 #ff-root{position:fixed;z-index:2147483646;inset:0;pointer-events:none}
 #ff-root.motion-off *,#ff-root.motion-off *::before,#ff-root.motion-off *::after{animation:none!important;transition:none!important}
@@ -126,7 +129,22 @@
 @keyframes ff-find-reveal{0%{opacity:0;transform:translateY(10px) scale(.96)}60%{opacity:1;transform:translateY(-2px) scale(1.01)}100%{opacity:1;transform:translateY(0) scale(1)}}
 @media (prefers-reduced-motion:reduce){.choice-card,.forest-find{animation:none!important}.choice{transition:none!important}}
 `;
-  shadow.append(style);
+
+  let style = null;
+  try {
+    if (typeof CSSStyleSheet === 'function' && 'replaceSync' in CSSStyleSheet.prototype && 'adoptedStyleSheets' in Document.prototype) {
+      const sheet = new CSSStyleSheet();
+      sheet.replaceSync(componentCssText);
+      shadow.adoptedStyleSheets = [...shadow.adoptedStyleSheets, sheet];
+    } else {
+      style = document.createElement('style');
+      style.textContent = componentCssText;
+    }
+  } catch {
+    style = document.createElement('style');
+    style.textContent = componentCssText;
+  }
+  if (style) shadow.append(style);
 
   const makeElement = (tag, className = '', attributes = {}, text = null) => {
     const element = document.createElement(tag);
