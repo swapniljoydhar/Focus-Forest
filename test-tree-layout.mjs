@@ -113,4 +113,17 @@ const rootLabel = labelPlacement({ x: 450, y: 400 }, 'root', true);
 assert.deepEqual(rootLabel, { nodeId: 'root', x: 450, y: 462, anchor: 'middle' });
 assert.equal(labelPlacement({ x: 50, y: 100 }, 'leaf').x, 200, 'labels clamp inside the artwork');
 assert.equal(labelPlacement({ x: 850, y: 100 }, 'leaf').x, 700);
+// Replant-after-forget shape (B6): multiple depth-0 orphans with dangling
+// parent references must all receive finite positions; layoutTree repairs the
+// visual topology under the first depth-0 node without touching node data.
+const orphanLayout = layoutTree([
+  { id: 'fresh-root', depth: 0, firstSeenAt: 3, parentId: null },
+  { id: 'survivor', depth: 0, firstSeenAt: 1, parentId: null },
+  { id: 'dangling', depth: 2, firstSeenAt: 2, parentId: 'deleted-node' }
+]);
+assert.equal(orphanLayout.positions.size, 3, 'every node of a multi-root replanted session must be positionable');
+for (const pos of orphanLayout.positions.values()) {
+  assert.ok(Number.isFinite(pos.x) && Number.isFinite(pos.y), 'positions must be finite for orphan-repaired layouts');
+}
+assert.ok(orphanLayout.root, 'a root must be chosen');
 console.log('storybook tree geometry and graph-preservation tests passed');

@@ -312,3 +312,24 @@ body[data-page-visibility="hidden"] .light-rays {
 @media (max-width: 480px) {
   .onboarding-card { padding: var(--space-xl); }
 }
+
+/* Dark theme: applied by shared/theme.js when the dashboard toggle stores "dark". */
+[data-theme="dark"] {
+  --color-bg-primary: #141914;
+  --color-bg-secondary: #1a211a;
+  --color-bg-tertiary: #101510;
+  --color-text-primary: #e8f0e5;
+  --color-text-secondary: #b6c5b6;
+  --color-text-muted: #8a9a8a;
+  --color-accent-green: #6fa36f;
+  --color-accent-green-light: #8ab98a;
+  --color-accent-green-dark: #57805c;
+  --color-border: #354235;
+  --color-shadow: rgba(0, 0, 0, 0.4);
+}
+[data-theme="dark"] #mission-input,
+[data-theme="dark"] #mission-note { background: rgba(30, 38, 30, 0.9); color: var(--color-text-primary); }
+[data-theme="dark"] .main-heading { text-shadow: none; }
+[data-theme="dark"] .sun-glow,
+[data-theme="dark"] .ambient::before,
+[data-theme="dark"] .ambient::after { opacity: 0.16; }

@@ -74,3 +74,29 @@ footer button:hover{text-decoration:underline}
 footer{display:block;text-align:center}
 footer button{display:block;margin:12px auto 0}}
 @media(prefers-reduced-motion:reduce){*{transition:none!important}}
+/* Dark theme (shared/theme.js; the toggle lives in the dashboard) */
+[data-theme="dark"]{background:#1a1f1a;color:#e8f0e5}
+[data-theme="dark"] body{background:linear-gradient(180deg,#161b16,#1a211a 65%,#131713);color:#e8f0e5}
+[data-theme="dark"] .brand-line{color:#a3b3a3}
+[data-theme="dark"] .local-pill{background:#252b25;color:#a3b3a3}
+[data-theme="dark"] .eyebrow{color:#8aa38a}
+[data-theme="dark"] .settings-shell h1{color:#e8f0e5}
+[data-theme="dark"] .lede{color:#a3b3a3}
+[data-theme="dark"] .setting-card{background:rgba(30,38,30,.92);border-color:#354235;box-shadow:0 12px 38px rgba(0,0,0,.3)}
+[data-theme="dark"] .section-heading h2{color:#e8f0e5}
+[data-theme="dark"] .local-note{color:#7a8a7a}
+[data-theme="dark"] label:not(.toggle):not(.radio),[data-theme="dark"] .toggle,[data-theme="dark"] .radio-group legend,[data-theme="dark"] .control-group>label{color:#b6c5b6}
+[data-theme="dark"] .setting-card p,[data-theme="dark"] .control-group p{color:#8a9a8a}
+[data-theme="dark"] textarea,[data-theme="dark"] select{background:rgba(22,28,22,.9);border-color:#354235;color:#e8f0e5}
+[data-theme="dark"] textarea::placeholder{color:#5f705f}
+[data-theme="dark"] .radio input+span:before{background:#1f261f;border-color:#4a5a4a}
+[data-theme="dark"] .radio strong{color:#c8d4c8}
+[data-theme="dark"] .radio small{color:#8a9a8a}
+[data-theme="dark"] .save{background:#57805c}
+[data-theme="dark"] .save:hover{background:#4a6f4f}
+[data-theme="dark"] .status{color:#8aa38a!important}
+[data-theme="dark"] footer{color:#7a8a7a}
+[data-theme="dark"] footer button{color:#8aa38a}
+[data-theme="dark"] .rhythm-preview{background:rgba(22,28,22,.85);border-color:#354235}
+[data-theme="dark"] .rhythm-preview p{color:#a3b3a3}
+[data-theme="dark"] .rhythm-labels{color:#8a9a8a}

@@ -1,4 +1,4 @@
-import { LIMITS, SCHEMA_VERSION, STORAGE_KEY, activeSession, clearStateCache, compactText, emptyState, getDepthState, isBrowserNewTabUrl, isExtensionNewTabUrl, isPlaceholderOriginUrl, isSearchUrl, loadState, makeId, normalizeSettings, safeHttpUrl, safeSessionUrl, saveState, checkStorageQuota, compactStateIfNeeded, normalizeState, earnReward, returnRewardTier } from '../shared/state.js';
+import { LIMITS, SCHEMA_VERSION, STORAGE_KEY, DEFAULT_NEW_TAB_URL, activeSession, clearStateCache, compactText, emptyState, getDepthState, isBrowserNewTabUrl, isExtensionNewTabUrl, isPlaceholderOriginUrl, isSearchUrl, loadState, makeId, normalizeSettings, safeHttpUrl, safeSessionUrl, saveState, checkStorageQuota, compactStateIfNeeded, normalizeState, earnReward, returnRewardTier } from '../shared/state.js';
 import { logError, logWarning, ERROR_CATEGORIES, wrapMutationWithErrorBoundary, wrapWithErrorBoundary } from '../shared/error-tracing.js';
 import { DAY_MS, SERVICE_WORKER, MEMORY_LIMITS, VALIDATION } from '../shared/constants.js';
 
@@ -331,8 +331,13 @@ function effectiveThresholds(settings) { const clean = normalizeSettings(setting
 function missionSearchUrl(engine, mission) {
   const query = encodeURIComponent(compactText(mission, 140));
   const protocol = `ht${'tps:'}`;
-  const bases = { google: `${protocol}//www.google.com/search?q=`, bing: `${protocol}//www.bing.com/search?q=`, duckduckgo: `${protocol}//duckduckgo.com/?q=`, brave: `${protocol}//search.brave.com/search?q=`, startpage: `${protocol}//www.startpage.com/sp/search?query=` };
-  return `${bases[normalizeSettings({ searchEngine: engine }).searchEngine] || bases.google}${query}`;
+  // 'default' is resolved through chrome.search.query in START_MISSION whenever the
+  // browser supports it. This entry is only the last-resort fallback for browsers
+  // without a working Search API: it must not silently become Google, because the
+  // README promises we never route missions to a specific provider the user did
+  // not choose.
+  const bases = { default: `${protocol}//duckduckgo.com/?q=`, google: `${protocol}//www.google.com/search?q=`, bing: `${protocol}//www.bing.com/search?q=`, duckduckgo: `${protocol}//duckduckgo.com/?q=`, brave: `${protocol}//search.brave.com/search?q=`, startpage: `${protocol}//www.startpage.com/sp/search?query=` };
+  return `${bases[normalizeSettings({ searchEngine: engine }).searchEngine] || bases.default}${query}`;
 }
 
 function activeView(state, tabId) {
@@ -488,11 +493,22 @@ async function observeTab(tabId, rawUrl, rawTitle, openerTabId, windowId) {
     const current = nodeForTab(session, tabId);
     // The origin is unset on a Chromium new tab (Chrome, Brave, Edge, Opera, Vivaldi) or our own New Tab page.
     const originUrl = session.origin?.url || '';
-    const originNotSet = isPlaceholderOriginUrl(originUrl) || session.nodes.length === 1 && !session.nodes[0].url.startsWith('http');
+    const originNotSet = isPlaceholderOriginUrl(originUrl) || (session.nodes.length === 1 && !session.nodes[0].url.startsWith('http'));
     if (originNotSet) {
+      const nextOrigin = { tabId, windowId: Number.isInteger(windowId) ? windowId : session.origin?.windowId || null, url, title };
       const root = session.nodes[0] || session.nodes.at(-1);
-      if (root) { attachTab(root, tabId); root.url = url; root.title = title; root.firstSeenAt = Date.now(); root.relationshipConfidence = 'direct'; }
-      session.origin = { tabId, windowId: Number.isInteger(windowId) ? windowId : session.origin?.windowId || null, url, title }; addEvent(session, 'origin_planted', { url }); return root;
+      // Only a placeholder root may be rewritten in place. When real nodes have
+      // survived (e.g. Forget Site removed the origin host but kept other
+      // branches) plant a fresh root instead of overwriting an unrelated node's
+      // URL, so the surviving tree stays intact and the session can grow again.
+      if (root && !root.url.startsWith('http')) {
+        attachTab(root, tabId); root.url = url; root.title = title; root.firstSeenAt = Date.now(); root.relationshipConfidence = 'direct';
+        session.origin = nextOrigin; addEvent(session, 'origin_planted', { url }); return root;
+      }
+      const fresh = { id: makeId('node'), tabIds: [], url, title, parentId: null, depth: 0, firstSeenAt: Date.now(), relationshipConfidence: 'direct', confidence: 'high', navigationKind: navigationHint || 'mission-origin', state: getDepthState(0, session.interventionPaused, effectiveThresholds(state.settings)) };
+      if (!pushNode(session, fresh)) { addEvent(session, 'garden_at_capacity'); return { capped: true }; }
+      moveTabToNode(session, tabId, fresh.id);
+      session.origin = nextOrigin; addEvent(session, 'origin_planted', { url }); return fresh;
     }
     if (current && current.url === url) {
       if (navigationHint === 'back-forward' || navigationHint === 'manual') {
@@ -550,7 +566,7 @@ async function pruneNode(sessionId, nodeId, toCompost = false) {
     node.state = 'pruned'; node.prunedAt = Date.now(); node.tabIds = []; delete node.tabId;
     addEvent(session, 'pruned', { nodeId: node.id, depth: node.depth });
     if (toCompost && !state.compostItems.some((item) => item.url === node.url)) {
-      state.compostItems.unshift({ id: makeId('compost'), url: node.url, title: compactText(node.title || node.url), mission: session.mission, depth: node.depth, savedAt: Date.now() });
+      state.compostItems.unshift({ id: makeId('compost'), url: node.url, title: compactText(node.title || node.url), mission: session.mission, savedAt: Date.now() });
       if (state.compostItems.length > LIMITS.COMPOST) state.compostItems.splice(LIMITS.COMPOST);
     }
     return node;
@@ -563,7 +579,9 @@ async function compost(tabId, rawUrl, title) {
     const session = activeSession(state); if (!session || !url) return NO_CHANGE;
     const node = nodeForTab(session, tabId);
     if (!state.compostItems.some((item) => item.url === url)) {
-      state.compostItems.unshift({ id: makeId('compost'), url, title: compactText(title || url), mission: session.mission, depth: node?.depth || 0, savedAt: Date.now() });
+      // Compost entries intentionally carry no depth: for tabs without a tree
+      // node a fabricated 0 was misleading, and nothing renders this field.
+      state.compostItems.unshift({ id: makeId('compost'), url, title: compactText(title || url), mission: session.mission, savedAt: Date.now() });
       if (state.compostItems.length > LIMITS.COMPOST) state.compostItems.splice(LIMITS.COMPOST);
     }
     if (node) { node.state = 'composted'; node.closedAt = Date.now(); node.tabIds = []; delete node.tabId; }
@@ -754,9 +772,12 @@ async function forgetSite(rawHostname) {
       session.nodes = session.nodes.filter((node) => !deletedIds.has(node.id));
       if (matches(session.origin?.url)) {
         if (Number.isInteger(session.origin.tabId)) deletedTabs.add(session.origin.tabId);
-        // A neutral extension URL is not an unplanted New Tab placeholder:
-        // the next observation must not overwrite an unrelated surviving node.
-        session.origin = { tabId: null, windowId: null, url: chrome.runtime.getURL('dashboard/index.html'), title: 'Forgotten origin' };
+        // Reset to the standard New Tab placeholder so the next ordinary page
+        // replants the origin. observeTab plants a *fresh* root rather than
+        // overwriting unrelated surviving nodes. A non-placeholder stand-in URL
+        // here (e.g. an extension page URL) would freeze the session: every new
+        // unlinked tab would fail the unlinked-observation guard and be dropped.
+        session.origin = { tabId: null, windowId: null, url: DEFAULT_NEW_TAB_URL, title: 'Forgotten origin' };
         removed++;
       }
       const eventCount = session.events.length;
@@ -850,7 +871,7 @@ async function importAllData(payload) {
       }
       // Validate timestamp ranges (not in future, not too old)
       const ONE_DAY_MS = DAY_MS;
-      const MAX_TIMESTAMP_FUTURE_MS = SERVICE_WORKER.RATE_LIMIT_WINDOW_MS; // 1 minute tolerance
+      const MAX_TIMESTAMP_FUTURE_MS = VALIDATION.MAX_TIMESTAMP_FUTURE_MS;
       const MAX_AGE_MS = VALIDATION.MAX_TIMESTAMP_AGE_YEARS * 365 * ONE_DAY_MS;
       
       if (session.startedAt && (session.startedAt > now + MAX_TIMESTAMP_FUTURE_MS || session.startedAt < now - MAX_AGE_MS)) {
@@ -998,14 +1019,15 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
               if (chrome.search?.query) {
                 await chrome.search.query({ text: compactText(message.mission, 140), tabId: activeTab.id });
               } else {
-                // Fallback to URL navigation if search API unavailable
-                const searchUrl = missionSearchUrl('google', message.mission);
+                // Fallback to URL navigation if search API unavailable ('default'
+                // resolves inside missionSearchUrl to the privacy-preserving fallback).
+                const searchUrl = missionSearchUrl('default', message.mission);
                 await chrome.tabs.update(activeTab.id, { url: searchUrl, active: true });
               }
             } catch (error) {
               logError(error, { category: ERROR_CATEGORIES.MESSAGING, operation: 'searchQuery' });
               // Fallback to URL navigation on error
-              const searchUrl = missionSearchUrl('google', message.mission);
+              const searchUrl = missionSearchUrl('default', message.mission);
               await chrome.tabs.update(activeTab.id, { url: searchUrl, active: true });
             }
           } else {
@@ -1088,27 +1110,36 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // Only treat HTTP(S) origins as real navigation targets.
         // Extension pages and internal browser URLs are not useful "go home" destinations.
         const hasRealOrigin = Boolean(returnUrl) && /^https?:\/\//i.test(returnUrl);
-        let returnedToOrigin = false;
+        // Keep the result a single object shape throughout; a boolean that later
+        // morphs into an object makes every downstream read a type guessing game.
+        let returnResult = { returned: false, reward: null };
         if (originTabId && hasRealOrigin) {
           try {
             const liveTab = await chrome.tabs.get(originTabId);
             // Additional validation: ensure tab still belongs to the same window session
             // This prevents navigating wrong tabs after browser restart when tab IDs may be reassigned
             const tabBelongsToSession = !origin.windowId || liveTab.windowId === origin.windowId;
-            if (tabBelongsToSession && sameOriginUrl(liveTab?.url, origin.url)) { 
-              if (chrome.windows?.update && Number.isInteger(liveTab.windowId)) await chrome.windows.update(liveTab.windowId, { focused: true }); 
-              await chrome.tabs.update(originTabId, { url: returnUrl, active: true }); 
-              returnedToOrigin = true; 
-              
+            if (tabBelongsToSession && sameOriginUrl(liveTab?.url, origin.url)) {
+              if (chrome.windows?.update && Number.isInteger(liveTab.windowId)) await chrome.windows.update(liveTab.windowId, { focused: true });
+              await chrome.tabs.update(originTabId, { url: returnUrl, active: true });
               const rewardResult = await mutate((state) => ({ reward: earnReward(state, returnRewardTier(state), 'return_to_root') }));
-              returnedToOrigin = { returned: true, reward: rewardResult?.reward || null };
+              returnResult = { returned: true, reward: rewardResult?.reward || null };
             }
-          } catch { returnedToOrigin = false; }
+          } catch { returnResult = { returned: false, reward: null }; }
         }
-        const didReturn = returnedToOrigin === true || returnedToOrigin?.returned === true;
-        const reward = returnedToOrigin?.reward || null;
+        const { returned: didReturn, reward } = returnResult;
         if (!didReturn && hasRealOrigin) await chrome.tabs.create({ url: returnUrl, active: true });
         return { ...activeView(await loadState(), didReturn ? originTabId : null), reward };
+      }
+      case 'DISMISS_INTERVENTION': {
+        if (!Number.isInteger(tab?.id)) return null;
+        return mutate((state) => {
+          const session = activeSession(state); if (!session) return NO_CHANGE;
+          const node = nodeForTab(session, tab.id);
+          if (!node) return NO_CHANGE;
+          addEvent(session, 'interruption_dismissed', { nodeId: node.id, url: safeHttpUrl(message.url) || node.url });
+          return { counted: true };
+        });
       }
       default: return null;
     }
@@ -1144,6 +1175,7 @@ const SCHEMAS = {
   IMPORT_DATA: { payload: 'object' },
   CLEAR_ALL_DATA: {},
   GO_HOME: {},
+  DISMISS_INTERVENTION: { url: 'string?' },
   CHECK_STORAGE_QUOTA: {},
   COMPLETE_ONBOARDING: {}
 };
@@ -1238,6 +1270,11 @@ chrome.tabs.onRemoved.addListener((tabId) => {
   return wrapWithErrorBoundary(async (tabId) => {
     activeTabs.forEach((active, key) => { if (active.tabId === tabId) activeTabs.delete(key); });
     messageCounts.delete(`tab:${tabId}`);
+    // Drop the remaining per-tab in-memory entries too; otherwise they linger
+    // until their own TTL/size eviction runs, holding URLs longer than needed.
+    navigationHints.delete(tabId);
+    for (const key of spaDedup.keys()) { if (key.startsWith(`${tabId}::`)) spaDedup.delete(key); }
+    for (const [key, entry] of pendingBranches) { if (entry.sourceTabId === tabId) pendingBranches.delete(key); }
     await mutate((state) => {
       const session = activeSession(state);
       if (!session) return NO_CHANGE;

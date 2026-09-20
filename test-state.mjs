@@ -112,11 +112,14 @@ describe('shared/state.js core functions', () => {
 
   it('normalizeSettings clamps and defaults', () => {
     const base = { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false };
-    assert.deepStrictEqual(normalizeSettings(base), { interventionsPaused: false, ...base });
-    assert.deepStrictEqual(normalizeSettings({}), { interventionsPaused: false, gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false });
-    assert.deepStrictEqual(normalizeSettings({ gentleDepth: 1, choiceDepth: 1 }), { interventionsPaused: false, gentleDepth: 2, choiceDepth: 3, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false });
-    assert.deepStrictEqual(normalizeSettings({ growthAnimationTrigger: 'invalid' }), { interventionsPaused: false, gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false });
+    assert.deepStrictEqual(normalizeSettings(base), { ...base });
+    assert.deepStrictEqual(normalizeSettings({}), { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false });
+    assert.deepStrictEqual(normalizeSettings({ gentleDepth: 1, choiceDepth: 1 }), { gentleDepth: 2, choiceDepth: 3, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false });
+    assert.deepStrictEqual(normalizeSettings({ growthAnimationTrigger: 'invalid' }), { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false });
     assert.equal(normalizeSettings({ searchEngine: 'brave' }).searchEngine, 'brave');
+    // interventionsPaused was removed: it was written but never read anywhere.
+    assert.equal(Object.hasOwn(normalizeSettings({ interventionsPaused: true }), 'interventionsPaused'), false);
+    assert.equal(Object.hasOwn(emptyState().settings, 'interventionsPaused'), false);
     assert.deepStrictEqual(normalizeSettings({ excludedSites: ['WWW.Example.com', 'example.com', ''] }).excludedSites, ['example.com']);
   });
 

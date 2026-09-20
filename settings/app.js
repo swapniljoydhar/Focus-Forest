@@ -1,5 +1,8 @@
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
 import { normalizeSettings } from '../shared/state.js';
+import { applyStoredTheme } from '../shared/theme.js';
+
+applyStoredTheme();
 
 /**
  * Send a message to the service worker with error handling
