@@ -28,6 +28,8 @@ jobs:
         run: npm test
       - name: Run browser-oriented dashboard test
         run: npm run test:dashboard
+      - name: Real-extension load tests (manifest, bridge, choice card, sync, rate budget)
+        run: npm run test:extension
       - name: Stress-test 50 rapid SPA history transitions
         run: npm run test:spa-stress
       - name: Profile New Tab performance and memory

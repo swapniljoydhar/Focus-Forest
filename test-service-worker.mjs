@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { SERVICE_WORKER } from './shared/constants.js';
 import { test } from 'node:test';
 
 const store = {};
@@ -425,10 +426,20 @@ assert.equal(session().nodes.at(-1).navigationKind, 'spa', 'webNavigation histor
 assert.equal(session().nodes.at(-1).url, 'https://example.com/reader/chapter-3');
 
 tabActions.length = 0;
+// Loading-phase placeholders must NOT trigger a takeover: while the tab is
+// still loading, tab.url transiently reports the browser NTP even when our
+// own override is resolving it — acting there races (and aborts) the
+// override's own load. This fixture pins the race-free, commit-only contract.
 await listeners.updated[0](901, { status: 'loading', url: 'brave://newtab/' }, { id: 901, url: 'brave://newtab/', pendingUrl: 'brave://newtab/' });
-assert.equal(tabActions.some((action) => action[0] === 'update' && action[1] === 901 && action[2].url === 'chrome-extension://test/newtab/index.html'), true, 'Brave dashboard new tabs must be replaced by Focus Forest');
+assert.equal(tabActions.some((action) => action[0] === 'update' && action[1] === 901), false, 'loading-phase NTP placeholders must not trigger a takeover');
+await listeners.updated[0](901, { status: 'complete', url: 'brave://newtab/' }, { id: 901, url: 'brave://newtab/' });
+assert.equal(tabActions.some((action) => action[0] === 'update' && action[1] === 901 && action[2].url === 'chrome-extension://test/newtab/index.html'), true, 'Brave dashboard new tabs must be replaced by Focus Forest once committed');
 tabActions.length = 0;
-await listeners.created[0]({ id: 902, pendingUrl: 'chrome://newtab', url: 'chrome://newtab' });
+// There is deliberately no tabs.onCreated takeover listener (it can only see
+// uncommitted/placeholder URLs); committed Chrome NTPs are taken over via
+// onUpdated 'complete'.
+assert.equal(listeners.created.length, 0, 'no onCreated takeover listener may be registered');
+await listeners.updated[0](902, { status: 'complete', url: 'chrome://newtab' }, { id: 902, url: 'chrome://newtab' });
 assert.equal(tabActions.some((action) => action[0] === 'update' && action[1] === 902 && action[2].url === 'chrome-extension://test/newtab/index.html'), true, 'Chrome new tabs must be replaced by Focus Forest when the override is skipped');
 tabActions.length = 0;
 await listeners.updated[0](903, { status: 'complete', url: 'https://example.com/' }, { id: 903, url: 'https://example.com/' });
@@ -624,9 +635,10 @@ await send({ type: 'CLEAR_DATA' });
 await send({ type: 'START_MISSION', mission: 'Rate map cleanup', tab: { id: 900, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
 const rateSender = { id: 'test', tab: { id: 900, url: 'https://rate.example/' } };
 let lastView = null;
-for (let i = 0; i < 100; i++) lastView = await rawSend({ type: 'GET_ACTIVE_VIEW' }, rateSender);
+for (let i = 0; i < SERVICE_WORKER.RATE_LIMIT_MAX_REQUESTS; i++) lastView = await rawSend({ type: 'GET_ACTIVE_VIEW' }, rateSender);
 assert.notEqual(lastView, null, 'messages within the limit must be answered');
-assert.equal(await rawSend({ type: 'GET_ACTIVE_VIEW' }, rateSender), null, 'the 101st message in one window must be rate limited');
+assert.deepEqual(await rawSend({ type: 'GET_ACTIVE_VIEW' }, rateSender), { rateLimited: true },
+  'the message past the budget must return the distinguishable throttle signal — a bare null was indistinguishable from "no mission" and hid the companion chip mid-session');
 await listeners.removed[0](900);
 assert.notEqual(await rawSend({ type: 'GET_ACTIVE_VIEW' }, rateSender), null,
   'tab removal must clear the per-tab rate-limit entry so a replacement tab is not blocked');

@@ -110,29 +110,37 @@ await test('A1: a transient storage read failure aborts mutations instead of wip
   assert.equal(store.focusForestState.sessions[0].mission, 'Precious garden');
 });
 
-await test('A2: an ordinary link navigation no longer records a spurious reload event', async () => {
+await test('A2: dual-observed commits never double-record; tracked links never record reloads', async () => {
   clearStateCache();
   await send({ type: 'CLEAR_DATA' });
   await send({ type: 'START_MISSION', mission: 'Research laptops', tab: { id: 7, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
   await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/start', title: 'Start' }, { id: 7 });
+
+  // Ordinary link click: trackLink records 'navigation'; production then
+  // observes the SAME commit twice (content OBSERVE_PAGE + tabs.onUpdated).
+  // The tracked-nav mark plus the same-URL window must keep reloads at zero.
   await send({ type: 'LINK_CLICK', url: 'https://example.com/page-a', title: 'Page A', targetBlank: false }, { id: 7 });
   listeners.committed[0]?.({ frameId: 0, tabId: 7, transitionType: 'link', transitionQualifiers: [], url: 'https://example.com/page-a' });
   await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/page-a', title: 'Page A' }, { id: 7 });
-
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/page-a', title: 'Page A' }, { id: 7 });
   const events = session().events.map((e) => e.type);
   assert.ok(events.includes('navigation'), 'the link click itself must still record its navigation event');
-  assert.equal(events.filter((t) => t === 'reload').length, 0, 'a tracked link navigation must not be relabelled as a reload');
+  assert.equal(events.filter((t) => t === 'reload').length, 0, 'a tracked link navigation must not be relabelled as a reload by either observation');
   assert.equal(session().nodes.at(-1).depth, 1, 'the branch must still grow from the link click');
 
-  // A genuine reload is still recorded.
+  // A genuine reload, observed twice like production, records exactly one —
+  // immediately after the link commit (commit memos are timing-independent).
   listeners.committed[0]?.({ frameId: 0, tabId: 7, transitionType: 'reload', transitionQualifiers: [], url: 'https://example.com/page-a' });
   await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/page-a', title: 'Page A' }, { id: 7 });
-  assert.equal(session().events.filter((e) => e.type === 'reload').length, 1, 'a real reload must still be recorded once');
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/page-a', title: 'Page A' }, { id: 7 });
+  assert.equal(session().events.filter((e) => e.type === 'reload').length, 1, 'a real reload must still be recorded exactly once');
 
-  // Back/forward is still recorded with its own event type.
+  // Back/forward, observed twice, records exactly one back_forward, no reload.
   listeners.committed[0]?.({ frameId: 0, tabId: 7, transitionType: 'back_forward', transitionQualifiers: [], url: 'https://example.com/page-a' });
   await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/page-a', title: 'Page A' }, { id: 7 });
-  assert.equal(session().events.filter((e) => e.type === 'back_forward').length, 1, 'back/forward returns must keep their own event');
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/page-a', title: 'Page A' }, { id: 7 });
+  assert.equal(session().events.filter((e) => e.type === 'back_forward').length, 1, 'back/forward returns must keep their own single event');
+  assert.equal(session().events.filter((e) => e.type === 'reload').length, 1, 'back/forward must not add reloads');
 });
 
 await test('A3: search_refinement events are persisted, not left in the cache only', async () => {
@@ -143,12 +151,39 @@ await test('A3: search_refinement events are persisted, not left in the cache on
   const nodesBefore = session().nodes.length;
   await send({ type: 'OBSERVE_PAGE', url: 'https://duckduckgo.com/?q=later+refinement', title: 'Search' }, { id: 7 });
 
+  // The commit's twin observation must not double-record the refinement.
+  await send({ type: 'OBSERVE_PAGE', url: 'https://duckduckgo.com/?q=later+refinement', title: 'Search' }, { id: 7 });
+
   const persisted = store.focusForestState.sessions.find((s) => s.id === store.focusForestState.activeSessionId).events.map((e) => e.type);
   const snapshot = await send({ type: 'GET_SNAPSHOT' });
   const inMemory = snapshot.session.events.map((e) => e.type);
   assert.ok(persisted.includes('search_refinement'), 'the refinement event must reach durable storage immediately');
+  assert.equal(persisted.filter((t) => t === 'search_refinement').length, 1, 'one commit records exactly one refinement (dual-observation safe)');
   assert.deepEqual(inMemory, persisted, 'cache and storage must not diverge after a refinement');
   assert.equal(session().nodes.length, nodesBefore, 'a search refinement must not grow a branch');
+});
+
+await test('A14: origin replant and known-page reuse observed twice record no spurious reload', async () => {
+  clearStateCache();
+  await send({ type: 'CLEAR_DATA' });
+  await send({ type: 'START_MISSION', mission: 'Replant probe', tab: { id: 7, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
+  // First ordinary page: observation #1 replants the placeholder root...
+  listeners.committed[0]?.({ frameId: 0, tabId: 7, transitionType: 'typed', transitionQualifiers: [], url: 'https://serp.example/results' });
+  await send({ type: 'OBSERVE_PAGE', url: 'https://serp.example/results', title: 'Results' }, { id: 7 });
+  // ...observation #2 (the tabs.onUpdated twin) arrives hint-less.
+  await send({ type: 'OBSERVE_PAGE', url: 'https://serp.example/results', title: 'Results' }, { id: 7 });
+  let events = session().events.map((e) => e.type);
+  assert.equal(events.filter((t) => t === 'origin_planted').length, 1, 'the root is planted exactly once');
+  assert.equal(events.filter((t) => t === 'reload').length, 0, 'the twin observation must not stamp a reload on the fresh root');
+  assert.equal(session().nodes.length, 1, 'no duplicate root node');
+  assert.equal(session().nodes[0].confidence, 'high', 'the twin must not degrade the root confidence either');
+
+  // Known-page reuse (another tab returns to a tracked URL) is twin-safe too.
+  await send({ type: 'OBSERVE_PAGE', url: 'https://serp.example/results', title: 'Results' }, { id: 8 });
+  await send({ type: 'OBSERVE_PAGE', url: 'https://serp.example/results', title: 'Results' }, { id: 8 });
+  events = session().events.map((e) => e.type);
+  assert.equal(events.filter((t) => t === 'return_to_path' || t === 'tab_joined_path').length, 1, 'known-page reuse records exactly one note');
+  assert.equal(events.filter((t) => t === 'reload').length, 0, 'known-page reuse twin adds no reload');
 });
 
 await test('A4: OPEN_PLANTING_PAGE navigates the sender tab (web pages cannot navigate to extension URLs themselves)', async () => {
@@ -253,17 +288,24 @@ await test('A10: self-link reloads are recorded exactly once via commit-verified
   await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/doc', title: 'Doc' }, { id: 7 });
 
   // A link to the URL the tab already shows is a genuine reload-by-link:
-  // trackLink finds the existing node (no navigation event) and the committed
-  // observation must record exactly one 'reload'.
+  // trackLink finds the existing node (no navigation event), marks it, and
+  // the dual commit observation must record exactly one 'reload' — with no
+  // timing assumptions (commit memos are keyed per commit, not per window).
   const before = session().events.length;
   await send({ type: 'LINK_CLICK', url: 'https://example.com/doc', title: 'Doc (self link)', targetBlank: false }, { id: 7 });
   listeners.committed[0]?.({ frameId: 0, tabId: 7, transitionType: 'link', transitionQualifiers: [], url: 'https://example.com/doc' });
   await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/doc', title: 'Doc' }, { id: 7 });
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/doc', title: 'Doc' }, { id: 7 });
   const recorded = session().events.slice(before).map((e) => e.type);
-  assert.deepEqual(recorded, ['reload'], 'a self-link reload must record exactly one reload event');
+  assert.deepEqual(recorded, ['reload'], 'a dual-observed self-link reload must record exactly one reload event');
 
-  // The mark is single-use: an unrelated later same-URL observation with a
-  // 'link' hint (no fresh click) must not inherit it.
+  // The hint-less twin and hint-carrying repeats add nothing without a mark.
+  listeners.committed[0]?.({ frameId: 0, tabId: 7, transitionType: 'link', transitionQualifiers: [], url: 'https://example.com/doc' });
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/doc', title: 'Doc' }, { id: 7 });
+  assert.equal(session().events.filter((e) => e.type === 'reload').length, 1, 'observations inside the window must not replay events');
+
+  // A 'link'-hint observation without a fresh mark is still suppressed (the
+  // mark was single-use and is gone; the hint branch covers it).
   listeners.committed[0]?.({ frameId: 0, tabId: 7, transitionType: 'link', transitionQualifiers: [], url: 'https://example.com/doc' });
   await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/doc', title: 'Doc' }, { id: 7 });
   assert.equal(session().events.filter((e) => e.type === 'reload').length, 1, 'marks must not replay into extra reload events');
@@ -318,8 +360,8 @@ await test('A12: V2 hardening sentinels (visibility gate, isolated bookkeeping, 
   const worker = readFileSync(new URL('./background/service-worker.js', import.meta.url), 'utf8');
   assert.match(worker, /try \{\s*\n\s*await recordActiveTab\(/, 'createSession must isolate interval bookkeeping failures from the START_MISSION result');
   assert.match(worker, /session\.endedAt \|\| \(session\.status === 'completed' \? sessionStart : now\)/, 'completed sessions with a null endedAt must not accrue time to now');
-  assert.ok(worker.includes('selfLinkMarks.clear()'), 'CLEAR_DATA must drop self-link marks with the other runtime tracking');
-  assert.ok(worker.includes('selfLinkMarks.delete(tabId)'), 'tab removal must drop that tab’s self-link mark');
+  assert.ok(worker.includes('trackedNavMarks.clear()'), 'CLEAR_DATA must drop tracked-nav marks with the other runtime tracking');
+    assert.ok(worker.includes('trackedNavMarks.delete(tabId)'), 'tab removal must drop that tab\u2019s tracked-nav mark');
 
   const bridge = readFileSync(new URL('./content/spa-bridge.js', import.meta.url), 'utf8');
   assert.match(bridge, /try \{\s*\n\s*history\.pushState = function pushState/, 'the bridge must survive pages with frozen History methods');
@@ -347,6 +389,66 @@ await test('A12: V2 hardening sentinels (visibility gate, isolated bookkeeping, 
     history: { pushState: undefined, replaceState: undefined }
   };
   bridgeSource.runInNewContext(sabotaged); // must not throw
+});
+
+await test('A13: rate limiting exempts extension pages and gives content senders a distinguishable signal', async () => {
+  const { SERVICE_WORKER } = await import('./shared/constants.js');
+  clearStateCache();
+  await send({ type: 'CLEAR_DATA' });
+  await send({ type: 'START_MISSION', mission: 'Rate probe', tab: { id: 7, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
+
+  // A fresh tab sender (untouched budget) is allowed exactly the configured
+  // number of messages per window; the next one is limited with the
+  // distinguishable signal — never a bare null that reads as "no mission".
+  const probeTab = { id: 888, url: 'https://probe.example/x', title: 'Probe' };
+  let limitedAt = -1;
+  for (let i = 0; i < SERVICE_WORKER.RATE_LIMIT_MAX_REQUESTS + 20; i++) {
+    const view = await send({ type: 'GET_ACTIVE_VIEW' }, probeTab);
+    if (view && view.rateLimited) { limitedAt = i + 1; break; }
+    assert.ok(view && !view.rateLimited, `message ${i + 1} within budget must be served`);
+  }
+  assert.equal(limitedAt, SERVICE_WORKER.RATE_LIMIT_MAX_REQUESTS + 1, 'the corrected budget must hold exactly');
+
+  // First-party extension pages are exempt entirely — even far beyond the
+  // content-sender budget, the dashboard must never be throttled into a
+  // blank render.
+  for (let i = 0; i < SERVICE_WORKER.RATE_LIMIT_MAX_REQUESTS + 100; i++) {
+    const snap = await send({ type: 'GET_SNAPSHOT' });
+    assert.ok(snap && !snap.rateLimited && snap.state, `extension-page sender must never be rate limited (message ${i + 1})`);
+  }
+});
+
+await test('A15: onUpdated observes only committed navigations; same-document completes belong to the SPA paths', async () => {
+  const settle = () => new Promise((r) => setTimeout(r, 60));
+  clearStateCache();
+  await send({ type: 'CLEAR_DATA' });
+  await send({ type: 'START_MISSION', mission: 'Commit gate probe', tab: { id: 7, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
+  tabInfo.set(7, { id: 7, windowId: 1, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' });
+
+  // A genuine cross-document navigation: committed -> loading -> complete.
+  listeners.committed[0]?.({ frameId: 0, tabId: 7, transitionType: 'typed', transitionQualifiers: [], url: 'https://example.com/real' });
+  await listeners.updated[0](7, { status: 'loading', url: 'https://example.com/real' }, { id: 7, url: 'https://example.com/real', windowId: 1 });
+  tabInfo.set(7, { id: 7, windowId: 1, url: 'https://example.com/real', title: 'Real' });
+  await listeners.updated[0](7, { status: 'complete' }, { id: 7, url: 'https://example.com/real', title: 'Real', windowId: 1 });
+  await settle();
+  assert.ok(session().nodes.some((n) => n.url === 'https://example.com/real'), 'a committed navigation must be observed');
+
+  // A same-document route change fires the IDENTICAL onUpdated signature but
+  // never fires onCommitted — observing it would race the SPA paths and
+  // mislabel the route as an unlinked depth-0 path.
+  await listeners.updated[0](7, { status: 'loading', url: 'https://example.com/route-1' }, { id: 7, url: 'https://example.com/route-1', windowId: 1 });
+  tabInfo.set(7, { id: 7, windowId: 1, url: 'https://example.com/route-1', title: 'Route' });
+  await listeners.updated[0](7, { status: 'complete' }, { id: 7, url: 'https://example.com/route-1', title: 'Route', windowId: 1 });
+  await settle();
+  assert.equal(session().nodes.some((n) => n.url === 'https://example.com/route-1'), false, 'an uncommitted (same-document) complete must not create a node');
+
+  // The SPA path owns the route change and records it properly linked.
+  await listeners.historyStateUpdated[0]({ frameId: 0, tabId: 7, url: 'https://example.com/route-1' });
+  await settle();
+  const spaNode = session().nodes.find((n) => n.url === 'https://example.com/route-1');
+  assert.ok(spaNode, 'the SPA path must still record the route');
+  assert.equal(spaNode.navigationKind, 'spa', 'SPA routes keep their spa classification');
+  assert.equal(spaNode.depth, 1, 'SPA routes stay linked to the page they changed from');
 });
 
 await new Promise((resolve) => setTimeout(resolve, 50));
