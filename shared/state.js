@@ -126,12 +126,16 @@ export function rewardHistoryView(history, limit = 12) {
  * @returns {object} Empty state matching the current schema version.
  */
 export function emptyState() {
-  return { 
-    schemaVersion: SCHEMA_VERSION, 
-    activeSessionId: null, 
-    sessions: [], 
-    compostItems: [], 
-    settings: { ...DEFAULT_SETTINGS },
+    // excludedSites gets a fresh array: a plain shallow spread would alias
+    // DEFAULT_SETTINGS.excludedSites, so any in-place mutation on one state
+    // (e.g. a .push from a future caller) would leak into the module
+    // constant and every other emptyState().
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    activeSessionId: null,
+    sessions: [],
+    compostItems: [],
+    settings: { ...DEFAULT_SETTINGS, excludedSites: [] },
     onboardingCompleted: false,
     rewardHistory: [] // Track earned rewards with timestamps
   };
@@ -363,7 +367,12 @@ export function normalizeState(value) {
       session.origin = { ...session.origin, url: DEFAULT_NEW_TAB_URL };
     }
   }
-  const activeSessionId = sessions.some((session) => session.id === value.activeSessionId) ? value.activeSessionId : null;
+  // Only honor the pointer when it still names a live garden. A hand-crafted
+  // or imported file can point activeSessionId at a completed session;
+  // accepting that would resurrect a finished mission as "active" (chip,
+  // badge, and "continue session" would all track a garden that is over).
+  const activeCandidate = sessions.find((session) => session.id === value.activeSessionId);
+  const activeSessionId = activeCandidate && activeCandidate.status === 'active' ? value.activeSessionId : null;
   return {
     schemaVersion: SCHEMA_VERSION,
     activeSessionId,
@@ -592,8 +601,11 @@ export function selectRandomReward(tier, seed = null) {
   
   let index;
   if (seed !== null) {
-    // Deterministic selection for testing
-    index = seed % catalog.length;
+    // Deterministic selection for testing. The double modulo keeps negative
+    // seeds inside the array (a bare `seed % length` would index negative
+    // slots and return undefined instead of a catalog entry or null).
+    const seedNumber = Number(seed);
+    index = Number.isFinite(seedNumber) ? ((seedNumber % catalog.length) + catalog.length) % catalog.length : Math.floor(Math.random() * catalog.length);
   } else if (typeof crypto !== 'undefined' && crypto.getRandomValues) {
     // True random using Web Crypto API
     const array = new Uint32Array(1);

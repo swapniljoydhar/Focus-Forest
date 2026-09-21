@@ -153,6 +153,10 @@ function mutate(mutator) {
 function replaceState(nextState) {
   const run = mutationQueue.then(async () => {
     await saveState(nextState);
+    // replaceState bypasses runMutatorWithRetry, so clear the toolbar badge
+    // here: after CLEAR_DATA the mission is gone but the badge would otherwise
+    // keep showing a live mission until an unrelated mutation happens.
+    updateBadge();
     return nextState;
   });
   mutationQueue = run.catch((error) => {
@@ -901,6 +905,10 @@ async function importAllData(payload) {
     }
   }
   
+  // A sessions-only file must not be treated as "no settings": replacing the
+  // user's tuned rhythm with defaults on every partial import silently resets
+  // their thresholds. Only an explicit settings object overrides local ones.
+  const incomingHasSettings = isRecord(incomingState.settings);
   const next = normalizeState({ ...incomingState, sessions: incomingSessions });
   return mutate((current) => {
     // Imported records win ID conflicts as whole snapshots, including their
@@ -914,6 +922,19 @@ async function importAllData(payload) {
     const activeSessionId = mergedSessions.some((s) => s.id === next.activeSessionId)
       ? next.activeSessionId
       : (mergedSessions.some((s) => s.id === current.activeSessionId) ? current.activeSessionId : null);
+    // When the import claims a *different* active garden, the displaced local
+    // session must be completed — mirroring createSession — or it stays
+    // "active" forever while the chip tracks the imported one.
+    if (activeSessionId && current.activeSessionId && activeSessionId !== current.activeSessionId) {
+      const displaced = mergedSessions.find((s) => s.id === current.activeSessionId);
+      if (displaced && displaced.status !== 'completed') {
+        displaced.status = 'completed';
+        displaced.endedAt = Date.now();
+        displaced.endReason = 'mission_changed';
+        for (const interval of displaced.activeIntervals || []) if (!interval.endedAt) interval.endedAt = displaced.endedAt;
+        addEvent(displaced, 'mission_changed');
+      }
+    }
     const compostMap = new Map();
     for (const item of [...next.compostItems, ...current.compostItems]) {
       if (item?.id && !compostMap.has(item.id)) compostMap.set(item.id, item);
@@ -929,7 +950,7 @@ async function importAllData(payload) {
       sessions: mergedSessions,
       compostItems: Array.from(compostMap.values()).slice(0, LIMITS.COMPOST),
       rewardHistory: Array.from(rewardMap.values()).sort((a, b) => a.timestamp - b.timestamp),
-      settings: next.settings,
+      settings: incomingHasSettings ? next.settings : current.settings,
       activeSessionId,
       onboardingCompleted: Boolean(current.onboardingCompleted || next.onboardingCompleted)
     });
@@ -965,10 +986,15 @@ chrome.contextMenus?.onClicked?.addListener((info, tab) => {
       const title = typeof info.selectionText === 'string' && info.selectionText.trim() ? info.selectionText.trim() : (tab?.title || tab?.url || 'New Tab');
       const mission = compactText(title, 140);
       if (!mission) return;
-      const cleanUrl = safeHttpUrl(tab?.url);
-      await createSession(mission, { id: tab?.id, url: cleanUrl || 'chrome://newtab', title: tab?.title || 'New Tab', windowId: tab?.windowId });
-      if (tab?.id != null && cleanUrl) {
-        await chrome.tabs.update(tab.id, { url: cleanUrl });
+      // A link's mission targets the link's destination, not the page hosting it.
+      const targetUrl = safeHttpUrl(info.linkUrl || tab?.url);
+      await createSession(mission, { id: tab?.id, url: targetUrl || 'chrome://newtab', title: tab?.title || 'New Tab', windowId: tab?.windowId });
+      // Navigate only when the target differs from where the tab already is.
+      // The old code re-navigated to the tab's own URL, which is a full page
+      // reload (losing scroll and form state) that added no information —
+      // the session already recorded the origin.
+      if (targetUrl && Number.isInteger(tab?.id) && targetUrl !== safeHttpUrl(tab?.url)) {
+        await chrome.tabs.update(tab.id, { url: targetUrl });
       }
     } else if (info.menuItemId === 'focus-forest-compost') {
       const targetUrl = safeHttpUrl(info.linkUrl || tab?.url);
@@ -1121,7 +1147,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
             const tabBelongsToSession = !origin.windowId || liveTab.windowId === origin.windowId;
             if (tabBelongsToSession && sameOriginUrl(liveTab?.url, origin.url)) {
               if (chrome.windows?.update && Number.isInteger(liveTab.windowId)) await chrome.windows.update(liveTab.windowId, { focused: true });
-              await chrome.tabs.update(originTabId, { url: returnUrl, active: true });
+              // sameOriginUrl already proves the tab is on the origin page
+              // (canonical URLs match), so passing `url` here would re-navigate
+              // the tab to the page it already shows — a full reload that
+              // discards scroll position, form state and SPA state. Activate
+              // the tab instead; the new-tab path below still navigates when
+              // the origin tab is gone or drifted.
+              await chrome.tabs.update(originTabId, { active: true });
               const rewardResult = await mutate((state) => ({ reward: earnReward(state, returnRewardTier(state), 'return_to_root') }));
               returnResult = { returned: true, reward: rewardResult?.reward || null };
             }
@@ -1129,7 +1161,10 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         }
         const { returned: didReturn, reward } = returnResult;
         if (!didReturn && hasRealOrigin) await chrome.tabs.create({ url: returnUrl, active: true });
-        return { ...activeView(await loadState(), didReturn ? originTabId : null), reward };
+        // Consumers (New Tab "Continue session") need the destination to report
+        // a truthful outcome; activeView deliberately omits origin, so without
+        // this field they could never tell a real return from a placeholder.
+        return { ...activeView(await loadState(), didReturn ? originTabId : null), reward, origin: hasRealOrigin ? { url: returnUrl, tabId: originTabId } : null, returned: didReturn };
       }
       case 'DISMISS_INTERVENTION': {
         if (!Number.isInteger(tab?.id)) return null;
@@ -1225,7 +1260,10 @@ chrome.commands?.onCommand?.addListener((command) => {
     } else {
       const tab = await chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => tabs[0]).catch(() => null);
       if (tab?.id != null && tab?.url) {
-        await createSession(compactText(tab.title || tab.url, 140), { id: tab.id, url: tab.url, title: tab.title, windowId: tab.windowId });
+        // A new-tab placeholder has no meaningful title; naming a mission
+        // after its internal URL (e.g. "chrome://newtab") reads as noise.
+        const missionSource = tab.title || (isBrowserNewTabUrl(tab.url) || isExtensionNewTabUrl(tab.url) ? 'New Tab' : tab.url);
+        await createSession(compactText(missionSource, 140), { id: tab.id, url: tab.url, title: tab.title, windowId: tab.windowId });
       }
     }
   }, { category: ERROR_CATEGORIES.MESSAGING, component: 'service-worker', function: 'commands.onCommand', swallow: true })();

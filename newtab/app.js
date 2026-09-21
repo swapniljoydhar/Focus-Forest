@@ -103,7 +103,11 @@ resumeBtn.addEventListener('click', wrapWithErrorBoundary(async () => {
   try {
     const view = await message('GO_HOME');
     status.hidden = false;
-    const originUrl = view?.session?.origin?.url;
+    // GO_HOME reports the destination in its own `origin` field; the compact
+    // active view it embeds intentionally omits origin, so reading
+    // view.session.origin.url was always undefined and this branch could
+    // never report a real return.
+    const originUrl = view?.origin?.url;
     let hasRealDestination = false;
     try {
       const parsed = new URL(originUrl || '');
@@ -149,6 +153,10 @@ if (onboardingStart) {
   onboardingStart.addEventListener('click', wrapWithErrorBoundary(async () => {
     const overlay = document.getElementById('onboarding-overlay');
     if (overlay) overlay.hidden = true;
+    // Hiding the overlay while focus is inside it drops focus to <body>,
+    // stranding keyboard users. The startup focus call was skipped while the
+    // overlay was visible, so move focus to the form explicitly here.
+    input.focus();
     await message('COMPLETE_ONBOARDING');
   }, { category: ERROR_CATEGORIES.MESSAGING, function: 'onboarding.start', swallow: true }));
 }

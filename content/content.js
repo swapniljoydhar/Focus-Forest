@@ -310,28 +310,39 @@
   }
   function applyChipPos(x, y) { chip.style.left = `${x}px`; chip.style.top = `${y}px`; chip.style.right = 'auto'; }
   const dragHandle = shadow.querySelector('[data-drag-handle]');
+  let dragging = false;
   dragHandle.addEventListener('pointerdown', wrapWithErrorBoundary((e) => {
     e.preventDefault();
+    if (dragging) return; // an interrupted drag (pointercancel) must not stack a second handler set
+    dragging = true;
     const rect = chip.getBoundingClientRect();
     const offsetX = e.clientX - rect.left;
     const offsetY = e.clientY - rect.top;
     chip.classList.add('dragging');
-    dragHandle.setPointerCapture(e.pointerId);
+    try { dragHandle.setPointerCapture(e.pointerId); } catch { /* pointer already gone */ }
     const onMove = wrapWithErrorBoundary((ev) => {
       const x = Math.max(8, Math.min(window.innerWidth - rect.width - 8, ev.clientX - offsetX));
       const y = Math.max(8, Math.min(window.innerHeight - rect.height - 8, ev.clientY - offsetY));
       applyChipPos(x, y);
     }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'drag.pointermove', swallow: true });
-    const onUp = wrapWithErrorBoundary((ev) => {
+    const finish = (ev) => {
+      if (!dragging) return;
+      dragging = false;
       chip.classList.remove('dragging');
-      dragHandle.releasePointerCapture(ev.pointerId);
+      // releasePointerCapture throws NotFoundError once the pointer is gone
+      // (e.g. pointercancel); the cleanup must still run in that case.
+      try { dragHandle.releasePointerCapture(ev?.pointerId ?? e.pointerId); } catch { /* pointer already released */ }
       const finalRect = chip.getBoundingClientRect();
       try { sessionStorage.setItem('ff-chip-pos', JSON.stringify({ x: finalRect.left, y: finalRect.top })); } catch { /* ignore */ }
       dragHandle.removeEventListener('pointermove', onMove);
       dragHandle.removeEventListener('pointerup', onUp);
-    }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'drag.pointerup', swallow: true });
+      dragHandle.removeEventListener('pointercancel', onCancel);
+    };
+    const onUp = wrapWithErrorBoundary((ev) => { finish(ev); }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'drag.pointerup', swallow: true });
+    const onCancel = wrapWithErrorBoundary((ev) => { finish(ev); }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'drag.pointercancel', swallow: true });
     dragHandle.addEventListener('pointermove', onMove);
     dragHandle.addEventListener('pointerup', onUp);
+    dragHandle.addEventListener('pointercancel', onCancel);
   }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'drag.pointerdown', swallow: true }));
   dragHandle.addEventListener('keydown', wrapWithErrorBoundary((event) => {
     const step = event.shiftKey ? 24 : 8;
@@ -414,7 +425,21 @@
     pauseBtn.textContent = paused ? 'Resume' : 'Pause';
     pauseBtn.setAttribute('aria-label', paused ? 'Resume Focus Forest' : 'Pause Focus Forest');
     if (isOriginLoad) await safeShowGrowthRitual(true); else if (enteredNewBranch) await safeShowGrowthRitual(false); else cancelGrowthRitual();
-    if (!paused && view.interventionEligible && choiceCard.dataset.shownFor !== location.href) showChoiceSheet(depth, current.node.confidence);
+    // The sheet is shown once per URL but must also be *hidden* when the view
+    // stops qualifying: without this, navigating from a deep page back to a
+    // shallow one (or pausing the mission) left the choice card pinned on
+    // screen even though the forest no longer had anything to ask.
+    const interventionEligible = !paused && Boolean(view.interventionEligible);
+    if (interventionEligible && choiceCard.dataset.shownFor !== location.href) showChoiceSheet(depth, current.node.confidence);
+    else if (!choiceCard.hidden && !interventionEligible) {
+      // Hiding while focus sits inside the card (e.g. an SPA navigation away
+      // while the dismissal button still held focus) would strand focus on
+      // <body>. shadow.activeElement is the closed-shadow view of the focused
+      // element — document.activeElement only ever sees the shadow host.
+      const shadowFocus = shadow.activeElement;
+      choiceCard.hidden = true;
+      if (shadowFocus && choiceCard.contains(shadowFocus)) restorePageFocus();
+    }
     stateEl.textContent = state;
   }
 
@@ -464,7 +489,15 @@
     else if (action === 'mission') { const result = await send('END_MISSION', { reason: 'mission_changed' }); showForestFind(result?.reward); hideChoiceCard(); window.location.href = chrome.runtime.getURL('newtab/index.html'); }
     else if (action === 'dismiss') { hideChoiceCard(); restorePageFocus(); send('DISMISS_INTERVENTION', { url: location.href }).catch((error) => logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'dismissIntervention' })); }
     else if (action === 'pause') { await send('PAUSE_INTERVENTION', { paused: !current?.interventionPaused }); await safeRefresh(false); }
-    else if (action === 'pause-site') { await send('PAUSE_SITE'); chip.hidden = true; choiceCard.hidden = true; }
+    else if (action === 'pause-site') {
+      await send('PAUSE_SITE');
+      // Hiding the chip while one of its buttons still holds focus strands
+      // focus on <body>; return it to the page control remembered earlier.
+      const shadowFocus = shadow.activeElement;
+      chip.hidden = true;
+      choiceCard.hidden = true;
+      if (shadowFocus && (chip.contains(shadowFocus) || choiceCard.contains(shadowFocus))) restorePageFocus();
+    }
     else if (action === 'minimize') { chip.classList.toggle('minimized'); minimizeBtn.textContent = chip.classList.contains('minimized') ? '+' : '\u2013'; }
   }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'shadow.click', swallow: true }));
 

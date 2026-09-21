@@ -220,7 +220,11 @@ function renderSessions(sessions, activeId, currentId) {
 }
 const safeRender = wrapWithErrorBoundary(render, { category: ERROR_CATEGORIES.UI_RENDER, function: 'render' });
 async function render() {
-  const snap = await message('GET_SNAPSHOT', { sessionId: selectedSessionId, includeHistory: true });
+  // GET_SNAPSHOT legally answers null (rate limit, worker restarting), and
+  // messaging rejects while the worker is down. A null snap used to throw on
+  // snap.settings and flip the whole garden into the error state over a
+  // transient condition; normalize it to an empty-but-valid shape instead.
+  const snap = (await message('GET_SNAPSHOT', { sessionId: selectedSessionId, includeHistory: true })) || { state: {}, settings: {}, session: null, thresholds: null, activeSessionId: null };
   document.body.dataset.motion = snap.settings?.ambientMotion === false ? 'off' : 'on';
   thresholds = snap.thresholds || { DESATURATE: Number(snap.settings?.gentleDepth) || 4, INTERRUPT: Number(snap.settings?.choiceDepth) || 5 };
   selectedSessionId = snap.session?.id || null;
@@ -405,13 +409,25 @@ function renderDomainChart(domainData) {
   let angle = -Math.PI / 2;
   domainData.forEach((d, i) => {
     const sliceAngle = (d.count / total) * 2 * Math.PI;
-    const x1 = cx + r * Math.cos(angle); const y1 = cy + r * Math.sin(angle);
-    const x2 = cx + r * Math.cos(angle + sliceAngle); const y2 = cy + r * Math.sin(angle + sliceAngle);
-    const ix1 = cx + innerR * Math.cos(angle); const iy1 = cy + innerR * Math.sin(angle);
-    const ix2 = cx + innerR * Math.cos(angle + sliceAngle); const iy2 = cy + innerR * Math.sin(angle + sliceAngle);
-    const large = sliceAngle > Math.PI ? 1 : 0;
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', `M${x1.toFixed(2)} ${y1.toFixed(2)} A${r} ${r} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} L${ix2.toFixed(2)} ${iy2.toFixed(2)} A${innerR} ${innerR} 0 ${large} 0 ${ix1.toFixed(2)} ${iy1.toFixed(2)} Z`);
+    if (sliceAngle >= Math.PI * 2 - 1e-6) {
+      // A single 100% slice would make the arc's endpoints coincide, which
+      // SVG renders as nothing — the ring would appear empty. Split the ring
+      // into two half-arcs and carve the hole with fill-rule: evenodd.
+      const top = { x: cx, y: cy - r }, topInner = { x: cx, y: cy - innerR };
+      const bottom = { x: cx, y: cy + r }, bottomInner = { x: cx, y: cy + innerR };
+      path.setAttribute('d',
+        `M${top.x} ${top.y} A${r} ${r} 0 1 1 ${bottom.x} ${bottom.y} A${r} ${r} 0 1 1 ${top.x} ${top.y} Z ` +
+        `M${topInner.x} ${topInner.y} A${innerR} ${innerR} 0 1 0 ${bottomInner.x} ${bottomInner.y} A${innerR} ${innerR} 0 1 0 ${topInner.x} ${topInner.y} Z`);
+      path.setAttribute('fill-rule', 'evenodd');
+    } else {
+      const x1 = cx + r * Math.cos(angle); const y1 = cy + r * Math.sin(angle);
+      const x2 = cx + r * Math.cos(angle + sliceAngle); const y2 = cy + r * Math.sin(angle + sliceAngle);
+      const ix1 = cx + innerR * Math.cos(angle); const iy1 = cy + innerR * Math.sin(angle);
+      const ix2 = cx + innerR * Math.cos(angle + sliceAngle); const iy2 = cy + innerR * Math.sin(angle + sliceAngle);
+      const large = sliceAngle > Math.PI ? 1 : 0;
+      path.setAttribute('d', `M${x1.toFixed(2)} ${y1.toFixed(2)} A${r} ${r} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} L${ix2.toFixed(2)} ${iy2.toFixed(2)} A${innerR} ${innerR} 0 ${large} 0 ${ix1.toFixed(2)} ${iy1.toFixed(2)} Z`);
+    }
     path.setAttribute('fill', colors[i % colors.length]);
     svg.append(path);
     angle += sliceAngle;
@@ -566,25 +582,44 @@ async function exportData() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+    // Revoking in the same task as a.click() can cancel a download that has
+    // not finished reading the blob; give the browser a moment first.
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
   } catch (error) {
     logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'exportData' });
   }
 }
+
+// 15 MiB is far above any realistic export (12 sessions x 96 nodes plus 80
+// compost items serializes to well under 1 MiB) and below the point where
+// JSON.parse on a hostile multi-gigabyte file can freeze the tab.
+const MAX_IMPORT_BYTES = 15 * 1024 * 1024;
+
+const importStatus = document.getElementById('import-status');
+function setImportStatus(text) { if (importStatus) importStatus.textContent = text || ''; }
 
 async function importData() {
   const input = document.getElementById('importFile');
   if (!input || !input.files?.length) return;
   const file = input.files[0];
   try {
+    if (file.size > MAX_IMPORT_BYTES) {
+      logError(new Error(`Import file exceeds ${MAX_IMPORT_BYTES} bytes (${file.size})`), { category: ERROR_CATEGORIES.VALIDATION, function: 'importData' });
+      // A rejected file is easy to miss without feedback: the picker closes
+      // either way, so say why nothing happened.
+      setImportStatus('That file is larger than 15 MiB — Focus Forest exports are far smaller. Check that you picked the right file.');
+      return;
+    }
     const text = await file.text();
     const payload = JSON.parse(text);
     const response = await message('IMPORT_DATA', { payload });
     if (!response || response.error) throw new Error(response.error);
     await renderSafely();
     await loadStatsTab();
+    setImportStatus('Import complete.');
   } catch (error) {
     logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'importData' });
+    setImportStatus('Import could not be read. Choose a Focus Forest export file.');
   } finally {
     input.value = '';
   }
