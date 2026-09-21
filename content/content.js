@@ -118,9 +118,6 @@
 .choice{appearance:none;border:1px solid rgba(74,104,71,.2);border-radius:14px;background:rgba(255,255,255,.85);color:#29432d;font:inherit;text-align:left;padding:12px 14px;cursor:pointer;display:flex;align-items:center;gap:12px;transition:background .15s,border-color .15s,transform .1s}
 .choice:hover{background:#ffffff;border-color:rgba(74,104,71,.4);transform:translateX(2px)}
 .choice:active{transform:scale(.98)}
-.choice.primary{background:linear-gradient(135deg,#4a7c59 0%,#3a5f46 100%);color:#ffffff;border:none}
-.choice.primary small{color:rgba(255,255,255,.85)}
-.choice.primary:hover{background:linear-gradient(135deg,#538b64 0%,#416b4f 100%)}
 .choice-icon{font-size:16px;width:22px;text-align:center;flex:none}
 .choice span{display:block}
 .choice strong{font-weight:600;font-size:13px}

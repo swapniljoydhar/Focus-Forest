@@ -74,7 +74,6 @@ for (const length of [7, 13, 96]) {
 const wide = [node('root', 0), ...Array.from({ length: 95 }, (_, i) => node(`leaf-${i}`, 1, 'root'))];
 assertInsideCrown(layoutTree(wide));
 assertConnected(layoutTree(wide), wide);
-assert.equal(layoutTree(wide).labels.length, 1, 'page titles should not clutter the illustration before selection');
 
 const malformed = [node('root', 0), node('orphan', 4, 'missing'), node('self', 2, 'self')];
 const malformedTree = layoutTree(malformed);
@@ -100,7 +99,12 @@ const duplicates = layoutTree([node('root', 0), node('a', 1, 'root'), node('a', 
 assert.equal(duplicates.positions.size, 2);
 assert.equal(duplicates.edges.length, 1);
 const staleDepths = Array.from({ length: 13 }, (_, i) => node(`node-${i}`, 0, i ? `node-${i - 1}` : null));
-assert.equal(layoutTree(staleDepths).maxDepth, 12, 'stale metadata must not change the true ancestry');
+// True ancestry comes from parentId chains, not the (stale, all-zero) depth
+// metadata: walking parentById from the last node must reach the root in 12 hops.
+const staleTree = layoutTree(staleDepths);
+let staleHops = 0;
+for (let id = 'node-12'; staleTree.parentById.has(id); id = staleTree.parentById.get(id)) staleHops++;
+assert.equal(staleHops, 12, 'stale metadata must not change the true ancestry');
 assert.deepEqual(layoutTree(canopy), layoutTree(canopy), 'all geometry and Maps must be deterministic');
 assert.equal(treeStage('invalid').mode, 'sapling');
 assert.equal(layoutTree([]).mode, 'empty', 'an empty garden stays an empty stage');
@@ -109,10 +113,9 @@ assert.equal(branchWidth(0), 5, 'roots and shallow branches stay thick');
 assert.equal(branchWidth(1), 5);
 assert.equal(branchWidth(5), 3.6);
 assert.equal(branchWidth(99), 2, 'deep branches never vanish below the minimum width');
-const rootLabel = labelPlacement({ x: 450, y: 400 }, 'root', true);
-assert.deepEqual(rootLabel, { nodeId: 'root', x: 450, y: 462, anchor: 'middle' });
-assert.equal(labelPlacement({ x: 50, y: 100 }, 'leaf').x, 200, 'labels clamp inside the artwork');
-assert.equal(labelPlacement({ x: 850, y: 100 }, 'leaf').x, 700);
+assert.deepEqual(labelPlacement({ x: 450, y: 400 }), { x: 450, y: 439 }, 'labels sit just below their leaf');
+assert.equal(labelPlacement({ x: 50, y: 100 }).x, 200, 'labels clamp inside the artwork');
+assert.equal(labelPlacement({ x: 850, y: 100 }).x, 700);
 // Replant-after-forget shape (B6): multiple depth-0 orphans with dangling
 // parent references must all receive finite positions; layoutTree repairs the
 // visual topology under the first depth-0 node without touching node data.

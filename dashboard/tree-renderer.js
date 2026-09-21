@@ -245,7 +245,7 @@ export function renderGardenTree(svg, session, { selectedNodeId = null, describe
     tree.nodes.length, node.id === selectedNodeId, describeNode, classForNode, trailIds.has(node.id))));
   svg.append(marks);
   if (selected && selected.id !== tree.root.id) {
-    const label = labelPlacement(tree.positions.get(selected.id), selected.id);
+    const label = labelPlacement(tree.positions.get(selected.id));
     const text = shortLabel(selected);
     const width = Math.min(244, Math.max(96, text.length * 6.6 + 26));
     const badge = group('selection-label', { 'aria-hidden': 'true', transform: `translate(${label.x} ${label.y})` });

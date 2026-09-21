@@ -12,7 +12,9 @@ export const ERROR_CATEGORIES = {
   UNKNOWN: 'unknown'
 };
 
-export const ERROR_SEVERITY = {
+// Module-internal severity scale: logCritical/logWarning and the ErrorTrace
+// default severity are the public surface; nothing imports the map itself.
+const ERROR_SEVERITY = {
   CRITICAL: 'critical',
   HIGH: 'high',
   MEDIUM: 'medium',

@@ -21,7 +21,6 @@
   --space-lg: 1.5rem;
   --space-xl: 2rem;
   --space-2xl: 3rem;
-  --radius-sm: 6px;
   --radius-md: 10px;
   --radius-lg: 16px;
   --radius-full: 9999px;
@@ -151,10 +150,6 @@ body[data-motion="off"] .atmo-gradient-1,
 body[data-motion="off"] .atmo-gradient-2,
 body[data-motion="off"] .leaf-drift,
 body[data-motion="off"] .light-rays,
-body[data-motion="off"] .leaf-cluster,
-body[data-motion="off"] .sapling-growth,
-body[data-motion="off"] .sapling-trunk,
-body[data-motion="off"] .sapling-branch,
 body[data-motion="off"] .forest-scene .tree-structure,
 body[data-motion="off"] .forest-scene .canopy-back,
 body[data-motion="off"] .forest-scene .canopy-front { animation: none !important; }
@@ -176,33 +171,6 @@ body[data-motion="off"] .forest-scene .canopy-front { animation: none !important
 .hero-section { flex: 1; display: flex; flex-direction: column; align-items: center; text-align: center; padding: var(--space-sm) 0; justify-content: center; }
 .sapling-container { width: 100%; max-width: 200px; height: 140px; margin: 0 auto var(--space-md); }
 .sapling-svg { width: 100%; height: 100%; overflow: visible; }
-.ground-shadow { fill: rgba(74, 124, 89, 0.12); }
-.ground-line { fill: none; stroke: rgba(74, 124, 89, 0.25); stroke-width: 2; stroke-linecap: round; }
-.sapling-growth { opacity: 0; animation: saplingGrow 1.2s ease-out forwards; animation-delay: 0.2s; }
-@keyframes saplingGrow { from { opacity: 0; transform: scale(0.95); } to { opacity: 1; transform: scale(1); } }
-.sapling-trunk { fill: none; stroke: var(--color-accent-green); stroke-width: 4; stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: 100; animation: drawPath 1s ease-out forwards 0.3s; }
-.sapling-branch { fill: none; stroke: var(--color-accent-green-light); stroke-width: 2.5; stroke-linecap: round; stroke-dasharray: 80; stroke-dashoffset: 80; animation: drawPath 0.8s ease-out forwards; }
-.branch-left { animation-delay: 0.5s; }
-.branch-right { animation-delay: 0.6s; }
-.branch-sub-left { animation-delay: 0.7s; }
-.branch-sub-right { animation-delay: 0.8s; }
-@keyframes drawPath { to { stroke-dashoffset: 0; } }
-.leaf-cluster { opacity: 0; animation: leafAppear 0.6s ease-out forwards; }
-.leaf-cluster-1 { animation-delay: 0.9s; }
-.leaf-cluster-2 { animation-delay: 1s; }
-.leaf-cluster-3 { animation-delay: 1.1s; }
-.leaf-cluster-4 { animation-delay: 1.15s; }
-.leaf-cluster-top { animation-delay: 1.25s; }
-@keyframes leafAppear { from { opacity: 0; transform: scale(0.3); } to { opacity: 1; transform: scale(1); } }
-.leaf-shape { fill: var(--color-accent-green-light); opacity: 0.9; transform-origin: center; }
-.leaf-large { fill: var(--color-accent-green); opacity: 0.85; }
-.leaf-cluster { transform-origin: center; animation: leafAppear 0.6s ease-out forwards, leafSway 3s ease-in-out infinite; }
-.leaf-cluster-1 { animation-delay: 0.9s, 2s; }
-.leaf-cluster-2 { animation-delay: 1s, 2.2s; }
-.leaf-cluster-3 { animation-delay: 1.1s, 2.4s; }
-.leaf-cluster-4 { animation-delay: 1.15s, 2.6s; }
-.leaf-cluster-top { animation-delay: 1.25s, 2.8s; }
-@keyframes leafSway { 0%, 100% { transform: rotate(-4deg); } 50% { transform: rotate(4deg); } }
 
 .hero-content { max-width: 540px; margin-bottom: var(--space-md); }
 .intro-eyebrow { margin: 0 0 var(--space-xs); font-size: 0.75rem; font-weight: 800; letter-spacing: 0.15em; text-transform: uppercase; color: var(--color-text-muted); }

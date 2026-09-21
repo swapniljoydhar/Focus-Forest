@@ -18,7 +18,9 @@ for(const [stage,count] of [['seed',1],['sapling',4],['canopy',12],['deep',24]])
  svg.addEventListener('keydown',e=>{const node=e.target.closest('[data-node-id]');if(node&&(e.key==='Enter'||e.key===' ')){e.preventDefault();const id=node.dataset.nodeId;choose(id);[...svg.querySelectorAll('.node')].find(n=>n.dataset.nodeId===id)?.focus();}});
  draw();
 }`;
-const assets = new Set(['dashboard/tree.css', 'dashboard/tree-renderer.js', 'dashboard/tree-layout.js', 'shared/constants.js', 'shared/state.js', 'shared/error-tracing.js', 'shared/chromium-api.js']);
+// Allowlist = exactly the module graph the preview page fetches:
+// tree.css (linked), tree-renderer -> tree-layout -> constants.
+const assets = new Set(['dashboard/tree.css', 'dashboard/tree-renderer.js', 'dashboard/tree-layout.js', 'shared/constants.js']);
 export function startPreview({ port = Number(process.env.PORT) || 4173, host = process.env.HOST || '127.0.0.1' } = {}) {
 return http.createServer(async (request, response) => {
   try {
