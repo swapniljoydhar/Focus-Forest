@@ -1,5 +1,5 @@
 import { layoutTree, treeStage, labelPlacement } from './tree-layout.js';
-import { TREE_LAYOUT, SERVICE_WORKER } from '../shared/constants.js';
+import { TREE_LAYOUT } from '../shared/constants.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
 
@@ -152,7 +152,10 @@ function pageMark(node, point, root, count, selected, describeNode, classForNode
     const leafIndex = node.id.charCodeAt(node.id.length - 1) % 3;
     const leafShape = leafIndex === 0 ? PAGE_LEAF : (leafIndex === 1 ? PAGE_LEAF_ALT : PAGE_LEAF);
     const createdAt = Number.isFinite(node.firstSeenAt) ? node.firstSeenAt : 0;
-    const isRecent = createdAt > 0 && Date.now() - createdAt < SERVICE_WORKER.RATE_LIMIT_WINDOW_MS; // Last 60 seconds
+    // Own visualization constant: this previously borrowed
+    // SERVICE_WORKER.RATE_LIMIT_WINDOW_MS, silently tying leaf rendering to an
+    // unrelated messaging limit.
+    const isRecent = createdAt > 0 && Date.now() - createdAt < TREE_LAYOUT.RECENT_NODE_WINDOW_MS; // Last 60 seconds
     const scale = count > 35 ? .69 : .90;
     const finalScale = isRecent ? scale * 0.85 : scale; // Slightly smaller for buds
     

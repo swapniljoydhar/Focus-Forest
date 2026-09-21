@@ -180,7 +180,11 @@ export function isSearchUrl(value) {
     }
     const baseDomain = host.split('.').slice(-2, -1)[0];
     if (SEARCH_DOMAINS.has(baseDomain) && baseDomain !== 'google') {
-      if (baseDomain === 'brave' && url.pathname === '/') return true;
+      // Brave Search serves queries from search.brave.com, whose root path is
+      // the search home. Other hosts on the same base domain (e.g.
+      // www.brave.com, the marketing site) are ordinary pages and must not be
+      // treated as search-result pages.
+      if (baseDomain === 'brave' && host === 'search.brave.com' && url.pathname === '/') return true;
       const isSearchPath = /^\/(search|web|results?)(\/|$)/i.test(url.pathname);
       const hasSearchParam = [...url.searchParams.keys()].some((key) => SEARCH_PARAMS.has(key.toLowerCase()));
       return isSearchPath || hasSearchParam;
@@ -467,9 +471,12 @@ export async function compactStateIfNeeded() {
   let compactionAttempts = 0;
   const MAX_COMPACTION_ATTEMPTS = 5;
   
-  // Work on a copy: loadState() returns the shared cache, and compaction must
-  // never mutate it before (or without) a successful durable write.
-  const state = structuredClone(await loadState());
+  // Work on a copy: loadStateForWrite() returns the shared cache, and
+  // compaction must never mutate it before (or without) a successful durable
+  // write. The strict loader also guarantees a transient read failure aborts
+  // compaction (throwing to the caller) instead of compacting—and then
+  // persisting—an empty fallback state over the user's real data.
+  const state = structuredClone(await loadStateForWrite());
   let changed = false;
   // Remove oldest completed sessions first (keep at least 3 recent ones).
   while (state.sessions.length > 3 && compactionAttempts < MAX_COMPACTION_ATTEMPTS) {
@@ -504,6 +511,11 @@ export async function compactStateIfNeeded() {
 /**
  * Loads the persisted Focus Forest state from chrome.storage.local.
  * Returns a cached copy if available and not invalidated.
+ * READ-ONLY consumers: on a storage read failure this resolves to a fresh
+ * empty state so UIs degrade to "nothing planted" instead of throwing.
+ * Never use this inside a mutation that will be written back — persisting the
+ * empty fallback over a transient read error would wipe the user's forest.
+ * Write paths must use loadStateForWrite() instead.
  * @returns {Promise<object>} Normalized state object.
  */
 export async function loadState() {
@@ -515,6 +527,25 @@ export async function loadState() {
   } catch {
     return emptyState();
   }
+}
+
+/**
+ * Strict loader for write paths (mutations, compaction).
+ * Identical to loadState() on success — including the shared cache — but a
+ * storage read failure propagates instead of resolving to emptyState(). A
+ * mutation that ran against a fabricated empty state would persist that empty
+ * state on the next save and silently destroy every stored garden; aborting
+ * the mutation keeps durable data untouched until reads recover.
+ * A missing key is NOT an error: a genuinely empty storage normalizes to the
+ * empty state and may legitimately be written to (first run).
+ * @returns {Promise<object>} Normalized state object.
+ * @throws When chrome.storage.local.get rejects.
+ */
+export async function loadStateForWrite() {
+  if (stateCache !== null) return stateCache;
+  const result = await chrome.storage.local.get(STORAGE_KEY);
+  stateCache = normalizeState(result[STORAGE_KEY]);
+  return stateCache;
 }
 
 /**

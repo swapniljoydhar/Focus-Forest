@@ -89,8 +89,11 @@ function setRitual(open) {
 const safeRender = wrapWithErrorBoundary(render, { category: ERROR_CATEGORIES.UI_RENDER, function: 'render' });
 
 async function render() {
-  const snap = await message('GET_SNAPSHOT');
-  document.body.dataset.motion = snap?.settings?.ambientMotion === false ? 'off' : 'on';
+  // GET_SNAPSHOT legally answers null (rate limit, worker restarting), and the
+  // dashboard already normalizes that case; the popup must too, or a transient
+  // null throws on snap.session and flips the whole popup into the error state.
+  const snap = (await message('GET_SNAPSHOT')) || { session: null, state: { compostItems: [] }, settings: null, thresholds: null };
+  document.body.dataset.motion = snap.settings?.ambientMotion === false ? 'off' : 'on';
   latest = snap.session;
   const session = snap.session;
   empty.hidden = Boolean(session);
@@ -120,7 +123,7 @@ async function render() {
   // Show a truthful zero: the 4% floor only exists so a non-zero depth stays visible.
   meterFillEl.style.width = `${clamp((reflection.deepest / thresholds.INTERRUPT) * 100, reflection.deepest > 0 ? 4 : 0, 100)}%`;
   nodesEl.textContent = session.nodes.length;
-  compostEl.textContent = snap.state.compostItems.length;
+  compostEl.textContent = Array.isArray(snap.state?.compostItems) ? snap.state.compostItems.length : 0;
 
   updatePauseCopy(session.interventionPaused);
   pauseEl.setAttribute('aria-pressed', String(Boolean(session.interventionPaused)));

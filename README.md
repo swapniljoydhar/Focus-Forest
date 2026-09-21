@@ -47,6 +47,7 @@ focus-forest/
   [manifest.json](manifest.json)
   [background/service-worker.js](background/service-worker.js)
   [content/content.js](content/content.js)
+  [content/spa-bridge.js](content/spa-bridge.js)
   [shared/state.js](shared/state.js)
   [shared/error-tracing.js](shared/error-tracing.js)
   [popup/](popup/index.html)
@@ -80,7 +81,7 @@ Dashboard duration statistics represent elapsed time between starting and ending
 
 ## Permissions
 
-The extension uses local storage for gardens and the `tabs` permission to replace Chromium new-tab pages, associate mission tabs, and navigate the planting tab to its first search step. The `search` permission is used only when **Browser default** is selected, sending the mission through Chromium's existing default provider without changing that setting. It uses declared HTTP(S) page access to render the mission chip and detect eligible link activations, plus `webNavigation` and the content script's History API hooks to support SPA route tracking on ordinary HTTP(S) sites. Browser-internal, restricted, and other protected pages may not support the content script and degrade gracefully.
+The extension uses local storage for gardens and the `tabs` permission to replace Chromium new-tab pages, associate mission tabs, and navigate the planting tab to its first search step. The `search` permission is used only when **Browser default** is selected, sending the mission through Chromium's existing default provider without changing that setting. It uses declared HTTP(S) page access to render the mission chip and detect eligible link activations, plus `webNavigation` and a minimal main-world SPA bridge (`content/spa-bridge.js`, which requires Chrome 111+) to support SPA route tracking on ordinary HTTP(S) sites. Browser-internal, restricted, and other protected pages may not support the content script and degrade gracefully.
 
 For single-page applications, Focus Forest observes `history.pushState`, `history.replaceState`, `popstate`, and Chromium's `webNavigation.onHistoryStateUpdated`. Each URL/title snapshot is captured when the route event occurs, so rapid chapter or product changes remain distinct branches. Browser Back and Forward navigation reports the route restored by the History API, while the page itself continues updating without a full reload. This preserves the SPA's bookmarkable and shareable URLs without treating the application as a new document on every route.
 

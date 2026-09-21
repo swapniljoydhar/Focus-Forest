@@ -240,8 +240,17 @@
     if (event.target !== root && event.target?.isConnected) lastPageFocus = event.target;
   }, true);
 
-  // === SPA SUPPORT: Intercept history.pushState and history.replaceState ===
-  // This ensures we detect navigation in Single Page Applications (Gmail, Twitter, YouTube, etc.)
+  // === SPA SUPPORT: history.pushState / history.replaceState patch ===
+  // IMPORTANT (isolated world): this content script normally runs in Chrome's
+  // ISOLATED world, where assigning to `history.pushState` only shadows the
+  // method for this world — the page's own pushState/replaceState calls never
+  // pass through it. In production, page-initiated history writes are covered
+  // by content/spa-bridge.js (a MAIN-world companion registered in the
+  // manifest, which re-announces them as DOM events below) and by the service
+  // worker's webNavigation.onHistoryStateUpdated listener. The patch is kept
+  // because it is inert-but-harmless in the isolated world and active wherever
+  // this module is imported directly into a page world (the repository's
+  // Playwright harness does exactly that).
   const originalPushState = history.pushState;
   const originalReplaceState = history.replaceState;
   let spaUpdateChain = Promise.resolve();
@@ -486,7 +495,15 @@
     const action = event.target.closest('[data-action]')?.dataset.action;
     if (action === 'home') { hideChoiceCard(); showForestFind((await send('GO_HOME'))?.reward); }
     else if (action === 'compost') { showForestFind((await send('COMPOST', { url: location.href, title: document.title }))?.reward); hideChoiceCard(); restorePageFocus(); }
-    else if (action === 'mission') { const result = await send('END_MISSION', { reason: 'mission_changed' }); showForestFind(result?.reward); hideChoiceCard(); window.location.href = chrome.runtime.getURL('newtab/index.html'); }
+    else if (action === 'mission') {
+      const result = await send('END_MISSION', { reason: 'mission_changed' });
+      showForestFind(result?.reward);
+      hideChoiceCard();
+      // A web page cannot navigate itself to a chrome-extension:// URL that is
+      // not web_accessible_resources (this extension keeps that list empty on
+      // purpose), so ask the worker to navigate this tab to the planting page.
+      await send('OPEN_PLANTING_PAGE');
+    }
     else if (action === 'dismiss') { hideChoiceCard(); restorePageFocus(); send('DISMISS_INTERVENTION', { url: location.href }).catch((error) => logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'dismissIntervention' })); }
     else if (action === 'pause') { await send('PAUSE_INTERVENTION', { paused: !current?.interventionPaused }); await safeRefresh(false); }
     else if (action === 'pause-site') {
@@ -520,8 +537,12 @@
     await send('LINK_CLICK', { url: target.href, title: link.textContent?.trim() || target.hostname, targetBlank: opensElsewhere });
   }, { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'document.click', swallow: true }), true);
 
+  // Timestamp of the most recent view refresh; the storage-sync gate below
+  // uses it to skip redundant refreshes right after a navigation-driven one.
+  let lastRefreshAt = 0;
   const safeRefresh = wrapWithErrorBoundary(refresh, { category: ERROR_CATEGORIES.MESSAGING, function: 'refresh', swallow: true });
   async function refresh(observe = true) {
+    lastRefreshAt = Date.now();
     try {
       if (observe) await send('OBSERVE_PAGE', { url: location.href, title: document.title });
       await safeUpdate(await send('GET_ACTIVE_VIEW'));
@@ -557,14 +578,52 @@
   const safeOnNavigation = wrapWithErrorBoundary(onNavigation, { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'onNavigation', swallow: true });
   window.addEventListener('popstate', safeOnNavigation, { passive: true });
   window.addEventListener('hashchange', safeOnNavigation, { passive: true });
-  
-  // SPA navigation detection already implemented above with history interception and MutationObserver
+
+  // MAIN-world bridge: content/spa-bridge.js (manifest content_scripts entry
+  // with "world": "MAIN", Chrome 111+) re-announces page-initiated
+  // pushState/replaceState writes as this payload-less DOM event, which crosses
+  // into the isolated world. It carries no data on purpose — the handler
+  // re-reads location/document itself, so a page cannot inject values into the
+  // extension through this channel, and a synthetic event without an actual
+  // URL/title change is a no-op inside notifyUrlChange.
+  document.addEventListener('focus-forest-history', safeOnNavigation);
+
+  // SPA navigation detection: bridge event (above), popstate/hashchange, the
+  // title MutationObserver, the service worker's onHistoryStateUpdated, and
+  // the visibility-gated polling watch below.
   
   window.addEventListener('pageshow', wrapWithErrorBoundary(() => safeRefresh(false), { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'pageshow', swallow: true }), { passive: true });
   document.addEventListener('visibilitychange', wrapWithErrorBoundary(() => { if (document.hidden) window.clearTimeout(watchTimer); else { safeRefresh(false); scheduleWatch(); } }, { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'visibilitychange', swallow: true }));
 
   const safeLoadSettings = wrapWithErrorBoundary(loadSettings, { category: ERROR_CATEGORIES.MESSAGING, function: 'loadSettings', swallow: true });
   const safeScheduleWatch = wrapWithErrorBoundary(scheduleWatch, { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'scheduleWatch', swallow: true });
+
+  // Cross-context sync: a mission can be planted, ended, paused, or re-tuned
+  // from the popup, the New Tab page, the dashboard, or the Alt+F shortcut
+  // while this page sits idle. Every such change is persisted to
+  // chrome.storage.local by the worker, so watching that key keeps the chip
+  // and choice card truthful without waiting for a navigation. The debounce
+  // coalesces write bursts, and the freshness gate skips the sync when a
+  // navigation-driven refresh just ran, keeping this tab well inside the
+  // worker's message rate limit. The key mirrors STORAGE_KEY in
+  // shared/state.js; this classic content script cannot import ES modules.
+  let storageSyncTimer = 0;
+  const STORAGE_SYNC_KEY = 'focusForestState';
+  const STORAGE_SYNC_DEBOUNCE_MS = 200;
+  const STORAGE_SYNC_MIN_GAP_MS = 600;
+  chrome.storage?.onChanged?.addListener(wrapWithErrorBoundary((changes, area) => {
+    if (area !== 'local' || !changes || !Object.hasOwn(changes, STORAGE_SYNC_KEY)) return;
+    window.clearTimeout(storageSyncTimer);
+    storageSyncTimer = window.setTimeout(() => {
+      // Hidden tabs skip the sync entirely: nobody can see the chip, and the
+      // visibilitychange handler already refreshes the moment the tab is shown.
+      // This keeps background tabs out of the worker's message rate budget
+      // when many tabs are open and another one is browsing actively.
+      if (document.hidden) return;
+      if (Date.now() - lastRefreshAt < STORAGE_SYNC_MIN_GAP_MS) return;
+      safeRefresh(false);
+    }, STORAGE_SYNC_DEBOUNCE_MS);
+  }, { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'storage.onChanged', swallow: true }));
 
   safeLoadSettings();
   safeRefresh(true);

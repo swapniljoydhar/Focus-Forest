@@ -34,6 +34,11 @@
 }
 
 *, *::before, *::after { box-sizing: border-box; }
+/* Author display rules (e.g. .action-btn{display:flex}) override the UA
+   sheet's [hidden]{display:none}, which left #resume-mission-btn visible even
+   with the hidden attribute set. This guard matches the dashboard/popup
+   convention and keeps the hidden attribute authoritative. */
+[hidden] { display: none !important; }
 body {
   position: relative;
   isolation: isolate;

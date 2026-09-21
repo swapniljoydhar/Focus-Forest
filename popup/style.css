@@ -1,3 +1,8 @@
+/* The author-origin display rules below (e.g. footer{display:flex}) override
+   the UA sheet's [hidden]{display:none}, which silently defeated every
+   element.hidden toggle in popup/app.js. This guard matches the dashboard's
+   convention and keeps the hidden attribute authoritative. */
+[hidden]{display:none!important}
 *{box-sizing:border-box}body{position:relative;isolation:isolate;margin:0;width:340px;min-height:420px;overflow:hidden;background:linear-gradient(180deg,#f5f7ef,#edf3e8);color:#29432d;font:13px/1.45 ui-sans-serif,system-ui,-apple-system,sans-serif}
 .popup-ambient{position:absolute;z-index:-1;inset:0;overflow:hidden;pointer-events:none}
 .popup-ambient span:first-child{position:absolute;top:-42px;right:-45px;width:190px;height:155px;border-radius:50%;background:radial-gradient(circle,rgba(232,239,190,.5),rgba(232,239,190,0) 68%);animation:ambientPulse 6s ease-in-out infinite}
