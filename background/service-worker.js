@@ -4,18 +4,40 @@ import { DAY_MS, SERVICE_WORKER, MEMORY_LIMITS, VALIDATION } from '../shared/con
 
 const pendingBranches = new Map();
 const MAX_PENDING_BRANCHES = MEMORY_LIMITS.LRU_CACHE_SIZE;
-// Self-link marks: tabId -> { url, createdAt }. Set when a same-tab LINK_CLICK
-// targets the URL the tab already shows (trackLink finds the node it is already
-// on and records no navigation event); consumed by observeTab after the browser
-// actually commits, so a genuine reload-by-self-link still gets its 'reload'
-// trail note while ordinary link navigations stay silent. Commit-verified on
-// purpose: marking at click time would record reloads the page may cancel.
-const selfLinkMarks = new Map();
-const MAX_SELF_LINK_MARKS = 64;
+// Tracked-navigation marks: tabId -> { url, kind, createdAt }. Set by trackLink
+// when a same-tab click either creates a node ('new-node': trackLink already
+// recorded the navigation event) or finds the tab already on the destination
+// ('self-link': a genuine reload-by-link whose trail note the commit
+// observation must restore). Consumed by observeTab after the browser actually
+// commits, which makes reload suppression order-independent: production
+// observes every commit TWICE (the new document's content-script OBSERVE_PAGE
+// and the worker's own tabs.onUpdated), and the navigation hint is consumed by
+// whichever arrives first — marks are not hint-dependent. Commit-verified on
+// purpose: marking at click time only records reloads that really happened.
+const trackedNavMarks = new Map();
+const MAX_TRACKED_NAV_MARKS = 64;
+// Commit memos: tabId -> { url } of the last observation the worker already
+// classified for that tab. A single commit is observed twice in production
+// (the new document's content-script OBSERVE_PAGE and the worker's own
+// tabs.onUpdated), in EITHER order, with an unbounded gap on slow pages — so
+// twin suppression must not depend on timing. Exactly one observation of a
+// commit carries the webNavigation hint; the hint-less twin is recognized by
+// this memo and adds nothing. The memo is overwritten by every newly
+// classified commit, so genuine repeated reloads (which arrive WITH a fresh
+// hint) are still recorded.
+const commitMemos = new Map();
+const MAX_COMMIT_MEMOS = MEMORY_LIMITS.LRU_CACHE_SIZE;
 const spaDedup = new Map();
 const MAX_SPA_DEDUP = MEMORY_LIMITS.LRU_CACHE_SIZE;
 const activeTabs = new Map();
 const navigationHints = new Map();
+// Commit records: tabId -> { url, at }. webNavigation.onCommitted fires ONLY
+// for genuine cross-document navigations, while tabs.onUpdated fires the same
+// loading->complete signature for BOTH full navigations and same-document
+// history updates (pushState/replaceState) — indistinguishable at 'complete'
+// (Chromium sends no changeInfo.url there). The record is the positive signal
+// that a 'complete' event corresponds to a real navigation.
+const committedNavs = new Map();
 // Rate limiting for messages from content scripts (prevents spam attacks)
 const messageCounts = new Map();
 const MAX_MESSAGES_PER_MINUTE = SERVICE_WORKER.RATE_LIMIT_MAX_REQUESTS;
@@ -24,35 +46,50 @@ const RATE_LIMIT_INITIAL_WINDOW = 0; // First message creates a fresh window at 
 
 function clearRuntimeTracking() {
   pendingBranches.clear();
-  selfLinkMarks.clear();
+  trackedNavMarks.clear();
+  commitMemos.clear();
   spaDedup.clear();
   activeTabs.clear();
   navigationHints.clear();
+  committedNavs.clear();
   messageCounts.clear();
 }
 
-function markSelfLink(tabId, url) {
+function markTrackedNav(tabId, url, kind) {
   if (!Number.isInteger(tabId) || typeof url !== 'string' || !url) return;
   const now = Date.now();
-  for (const [key, entry] of selfLinkMarks) {
-    if (now - entry.createdAt >= SERVICE_WORKER.SESSION_TIMEOUT_MS) selfLinkMarks.delete(key);
+  for (const [key, entry] of trackedNavMarks) {
+    if (now - entry.createdAt >= SERVICE_WORKER.SESSION_TIMEOUT_MS) trackedNavMarks.delete(key);
   }
-  while (selfLinkMarks.size >= MAX_SELF_LINK_MARKS) {
-    selfLinkMarks.delete(selfLinkMarks.keys().next().value);
+  while (trackedNavMarks.size >= MAX_TRACKED_NAV_MARKS) {
+    trackedNavMarks.delete(trackedNavMarks.keys().next().value);
   }
-  selfLinkMarks.set(tabId, { url, createdAt: now });
+  trackedNavMarks.set(tabId, { url, kind, createdAt: now });
 }
 
 /**
- * Consumes a self-link mark for the tab. Returns true only when the mark is
- * fresh and names the exact URL just committed, so an unrelated later
- * navigation can never inherit it.
+ * Consumes the tracked-navigation mark for the tab. Returns the entry only
+ * when it is fresh and names the exact URL just committed, so an unrelated
+ * later navigation can never inherit it.
  */
-function takeSelfLinkMark(tabId, url) {
-  const entry = selfLinkMarks.get(tabId);
-  if (!entry) return false;
-  selfLinkMarks.delete(tabId);
-  return entry.url === url && Date.now() - entry.createdAt < SERVICE_WORKER.SESSION_TIMEOUT_MS;
+function takeTrackedNavMark(tabId, url) {
+  const entry = trackedNavMarks.get(tabId);
+  if (!entry) return null;
+  trackedNavMarks.delete(tabId);
+  if (entry.url !== url || Date.now() - entry.createdAt >= SERVICE_WORKER.SESSION_TIMEOUT_MS) return null;
+  return entry;
+}
+
+function memoizeCommit(tabId, url) {
+  if (!Number.isInteger(tabId)) return;
+  while (commitMemos.size >= MAX_COMMIT_MEMOS) {
+    commitMemos.delete(commitMemos.keys().next().value);
+  }
+  commitMemos.set(tabId, { url });
+}
+/** True when this exact (tab, url) commit was already classified. */
+function isTwinObservation(tabId, url) {
+  return commitMemos.get(tabId)?.url === url;
 }
 
 /**
@@ -315,7 +352,18 @@ function plantingPageUrl() {
 
 const takingOverNewTabs = new Set();
 function newTabCandidateUrl(tab) {
-  return tab?.pendingUrl || tab?.url || '';
+  // Committed URL only — never pendingUrl. When our own chrome_url_overrides
+  // newtab is active, a fresh tab transiently reports the browser placeholder
+  // (chrome://newtab) as pendingUrl before the override resolves to our
+  // planting page. Acting on that placeholder issues a redundant reload of
+  // the page the override is ALREADY loading; the duplicate navigation races
+  // whatever happens next and can cancel it (proven in the real-extension
+  // suite: it aborted the post-plant search navigation and snapped the tab
+  // back to the planting page). Committed URLs are unambiguous: with the
+  // override active they are our extension page (skip); when the override is
+  // genuinely not in effect (browser NTP retained, Brave-style confirmation
+  // pending) they are the placeholder and the takeover proceeds.
+  return tab?.url || '';
 }
 async function takeOverBrowserNewTab(tab) {
   const tabId = tab?.id;
@@ -518,10 +566,10 @@ async function trackLink({ tabId, url, title, targetBlank = false, windowId, nav
       // A same-tab click on a link that points at the page the tab already
       // shows is a reload-by-link about to commit. No navigation event is
       // recorded here (the node already existed), so leave a short-lived,
-      // commit-verified mark for observeTab to turn into a single 'reload'
-      // note. New-tab clicks and SPA route changes are not browser reloads
-      // and must not be marked.
-      if (!targetBlank && navigationKind !== 'spa') markSelfLink(tabId, destination);
+      // commit-verified 'self-link' mark for observeTab to turn into a single
+      // 'reload' note. New-tab clicks and SPA route changes are not browser
+      // reloads and must not be marked.
+      if (!targetBlank && navigationKind !== 'spa') markTrackedNav(tabId, destination, 'self-link');
       return existing;
     }
     if (targetBlank || isRedirectLike(destination)) {
@@ -537,6 +585,12 @@ async function trackLink({ tabId, url, title, targetBlank = false, windowId, nav
     if (!pushNode(session, node)) { addEvent(session, 'garden_at_capacity'); return { capped: true }; }
     moveTabToNode(session, tabId, node.id);
     addEvent(session, 'navigation', { nodeId: node.id, depth, url: destination });
+    // Mark the tracked navigation so BOTH commit observations (the content
+    // script's OBSERVE_PAGE and the worker's tabs.onUpdated) suppress their
+    // same-URL 'reload' fallback regardless of which one consumes the
+    // navigation hint first. SPA route nodes are marked too: any later
+    // same-URL full observation of an SPA route is not a reload either.
+    if (!targetBlank) markTrackedNav(tabId, destination, 'new-node');
     return node;
   });
 }
@@ -561,11 +615,17 @@ async function observeTab(tabId, rawUrl, rawTitle, openerTabId, windowId) {
       // URL, so the surviving tree stays intact and the session can grow again.
       if (root && !root.url.startsWith('http')) {
         attachTab(root, tabId); root.url = url; root.title = title; root.firstSeenAt = Date.now(); root.relationshipConfidence = 'direct';
+        // Memoize the commit: production observes it a second time
+        // (tabs.onUpdated after the content script's OBSERVE_PAGE), and that
+        // hint-less twin must not fall into the same-URL branch and stamp a
+        // 'reload' onto the freshly planted root.
+        memoizeCommit(tabId, url);
         session.origin = nextOrigin; addEvent(session, 'origin_planted', { url }); return root;
       }
       const fresh = { id: makeId('node'), tabIds: [], url, title, parentId: null, depth: 0, firstSeenAt: Date.now(), relationshipConfidence: 'direct', confidence: 'high', navigationKind: navigationHint || 'mission-origin', state: getDepthState(0, session.interventionPaused, effectiveThresholds(state.settings)) };
-      if (!pushNode(session, fresh)) { addEvent(session, 'garden_at_capacity'); return { capped: true }; }
+      if (!pushNode(session, fresh)) { if (!isTwinObservation(tabId, url)) { addEvent(session, 'garden_at_capacity'); memoizeCommit(tabId, url); } return { capped: true }; }
       moveTabToNode(session, tabId, fresh.id);
+      memoizeCommit(tabId, url);
       session.origin = nextOrigin; addEvent(session, 'origin_planted', { url }); return fresh;
     }
     if (current && current.url === url) {
@@ -573,23 +633,32 @@ async function observeTab(tabId, rawUrl, rawTitle, openerTabId, windowId) {
         current.navigationKind = navigationHint;
         current.confidence = 'low';
       }
-      // A 'link' hint means the content script's LINK_CLICK already grew this
-      // node and recorded its own 'navigation' event moments ago; stamping
-      // 'reload' on top mislabels every ordinary link click as a reload and
-      // burns the per-session event cap twice as fast. The one exception is a
-      // self-link (a click on a link to the page the tab already showed):
-      // trackLink found the existing node and recorded nothing, so its
-      // commit-verified mark restores the single genuine 'reload' note here.
-      if (navigationHint === 'back-forward') addEvent(session, 'back_forward', { nodeId: current.id, url });
-      else if (navigationHint === 'link') { if (takeSelfLinkMark(tabId, url)) addEvent(session, 'reload', { nodeId: current.id, url }); }
+      // Production observes every commit TWICE (content-script OBSERVE_PAGE
+      // and the worker's tabs.onUpdated), in either order and with an
+      // unbounded gap on slow pages. Classification is timing-independent:
+      //   - the hint-less twin of an already-classified commit adds nothing
+      //     (commit memo);
+      //   - 'new-node' marks (trackLink grew this node and recorded the
+      //     navigation event) suppress the same-URL event order-independently;
+      //   - 'self-link' marks restore exactly one genuine 'reload' note;
+      //   - a fresh hint ('reload', 'back-forward', 'manual', ...) always
+      //     classifies, so genuine repeated reloads are still recorded.
+      const mark = takeTrackedNavMark(tabId, url);
+      if (!mark && !navigationHint && isTwinObservation(tabId, url)) return current;
+      if (mark?.kind === 'new-node') { /* trackLink already recorded this navigation */ }
+      else if (mark?.kind === 'self-link') addEvent(session, 'reload', { nodeId: current.id, url });
+      else if (navigationHint === 'back-forward') addEvent(session, 'back_forward', { nodeId: current.id, url });
+      else if (navigationHint === 'link') { /* tracked link whose mark expired; navigation event already recorded */ }
       else addEvent(session, 'reload', { nodeId: current.id, url });
+      memoizeCommit(tabId, url);
       return current;
     }
-    // Returning NO_CHANGE after addEvent() mutated the shared state cache left
-    // the event unpersisted (visible to reads, then lost on a worker restart or
-    // smuggled into a later unrelated write). Return a changed marker so the
-    // refinement note is durably saved like every other recorded event.
-    if (isSearchUrl(url) && !originNotSet) { addEvent(session, 'search_refinement', { url }); return { refined: true, nodeId: current?.id || null }; }
+    // Memo-gated so the commit's twin observation (content OBSERVE_PAGE vs
+    // tabs.onUpdated, either order) cannot double-record the refinement.
+    if (isSearchUrl(url) && !originNotSet) {
+      if (!isTwinObservation(tabId, url)) { addEvent(session, 'search_refinement', { url }); memoizeCommit(tabId, url); }
+      return { refined: true, nodeId: current?.id || null };
+    }
     const known = session.nodes.find((node) => node.url === url && !TERMINAL_STATES.has(node.state));
     if (known) {
       clearPendingRedirect(session, tabId);
@@ -600,6 +669,9 @@ async function observeTab(tabId, rawUrl, rawTitle, openerTabId, windowId) {
       if (navigationHint === 'back-forward' || navigationHint === 'manual') known.confidence = 'low';
       else known.confidence = known.confidence || 'medium';
       if (known.closedAt) delete known.closedAt;
+      // Memoize the commit so the twin observation cannot add a spurious
+      // same-URL event on top of the reuse note recorded here.
+      memoizeCommit(tabId, url);
       if (attached) addEvent(session, 'tab_joined_path', { nodeId: known.id, url });
       else addEvent(session, 'return_to_path', { nodeId: known.id, url });
       return known;
@@ -621,8 +693,11 @@ async function observeTab(tabId, rawUrl, rawTitle, openerTabId, windowId) {
     const confidence = relationshipConfidence === 'direct' ? 'high' : relationshipConfidence === 'tab-inferred' ? 'medium' : 'low';
     const navigationKind = navigationHint || (redirectParent ? 'redirect' : pendingParent ? 'new-tab-link' : opener ? 'manual' : 'manual');
     const node = { id: makeId('node'), tabIds: Number.isInteger(tabId) ? [tabId] : [], url, title, parentId: parent?.id || null, depth, firstSeenAt: Date.now(), relationshipConfidence, confidence, navigationKind, state: getDepthState(depth, session.interventionPaused, effectiveThresholds(state.settings)) };
-    if (!pushNode(session, node)) { addEvent(session, 'garden_at_capacity'); return { capped: true }; }
+    if (!pushNode(session, node)) { if (!isTwinObservation(tabId, url)) { addEvent(session, 'garden_at_capacity'); memoizeCommit(tabId, url); } return { capped: true }; }
     moveTabToNode(session, tabId, node.id);
+    // Memoize the commit: the twin observation must find it already
+    // classified instead of stamping a 'reload'.
+    memoizeCommit(tabId, url);
     addEvent(session, relationshipConfidence === 'external' ? 'external_path' : 'navigation', { nodeId: node.id, depth, url });
     return node;
   });
@@ -897,13 +972,16 @@ async function forgetSite(rawHostname) {
     for (const [key, entry] of pendingBranches) {
       if (matches(entry.url) || removedNodeIds.has(entry.parentId) || removedTabIds.has(entry.sourceTabId)) pendingBranches.delete(key);
     }
-    // SPA keys contain URLs; invalidating this small dedupe cache also removes
-    // forgotten URLs without changing the user's permanent tracking settings.
+    // SPA keys and commit memos contain URLs; invalidating these small
+    // caches also removes forgotten URLs without changing the user's
+    // permanent tracking settings.
     spaDedup.clear();
+    commitMemos.clear();
+    committedNavs.clear();
     for (const [key, entry] of activeTabs) {
       if (removedTabIds.has(entry.tabId)) activeTabs.delete(key);
     }
-    removedTabIds.forEach((id) => { navigationHints.delete(id); selfLinkMarks.delete(id); });
+    removedTabIds.forEach((id) => { navigationHints.delete(id); trackedNavMarks.delete(id); });
     return { hostname, removed };
   });
 }
@@ -1095,16 +1173,24 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (!isRecord(message) || typeof message.type !== 'string') { sendResponse(null); return false; }
   if (sender?.id !== chrome.runtime.id) { sendResponse(null); return false; }
   
-  // Rate limit messages from content scripts to prevent spam attacks
-  const senderId = sender?.tab?.id ? `tab:${sender.tab.id}` : sender?.url ? `url:${sender.url}` : null;
-  if (!checkRateLimit(senderId)) {
-    logWarning(new Error('Message rate limit exceeded'), { 
-      category: ERROR_CATEGORIES.MESSAGING, 
-      senderId,
-      messageType: message.type 
-    });
-    sendResponse(null);
-    return false;
+  // Rate limit messages from content-script senders to blunt page-context
+  // spam. First-party extension pages (popup, New Tab, dashboard, settings)
+  // are exempt: they run our own code, and throttling them made the dashboard
+  // blank out during busy browsing. Limited content senders receive a
+  // distinguishable { rateLimited: true } response — answering plain null was
+  // indistinguishable from "no active session" and made the companion hide
+  // its chip mid-mission under load.
+  if (!isExtensionPageSender(sender)) {
+    const senderId = sender?.tab?.id ? `tab:${sender.tab.id}` : sender?.url ? `url:${sender.url}` : null;
+    if (!checkRateLimit(senderId)) {
+      logWarning(new Error('Message rate limit exceeded'), { 
+        category: ERROR_CATEGORIES.MESSAGING, 
+        senderId,
+        messageType: message.type 
+      });
+      sendResponse({ rateLimited: true });
+      return false;
+    }
   }
   
   const tab = sender && typeof sender === 'object' && sender.tab && typeof sender.tab === 'object' ? sender.tab : null;
@@ -1368,11 +1454,12 @@ chrome.commands?.onCommand?.addListener((command) => {
   }, { category: ERROR_CATEGORIES.MESSAGING, component: 'service-worker', function: 'commands.onCommand', swallow: true })();
 });
 
-chrome.tabs.onCreated?.addListener((tab) => {
-  return wrapWithErrorBoundary(async (tab) => {
-    await takeOverBrowserNewTab(tab);
-  }, { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'tabs.onCreated', swallow: true })(tab);
-});
+// NOTE: there is deliberately no tabs.onCreated takeover. At creation time a
+// tab has no committed URL (or, during session restore, a placeholder that the
+// new-tab override is already resolving); acting there re-introduces the
+// redundant-reload race documented on the tabs.onUpdated handler. Committed
+// NTP tabs are taken over by onUpdated (status 'complete'), and tabs that
+// already exist at startup/install are covered by takeOverOpenNewTabs().
 chrome.runtime.onSuspend?.addListener(() => {
   // Best-effort flush: the worker may terminate mid-queue, so attempt to
   // finish any pending mutation writes before shutdown. onSuspend cannot
@@ -1388,8 +1475,31 @@ chrome.runtime.onStartup?.addListener(() => {
 });
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   return wrapWithErrorBoundary(async (tabId, changeInfo, tab) => {
+    // Take over only once the tab has COMMITTED (status 'complete'). While a
+    // new tab is still loading, tab.url transiently reports the browser
+    // placeholder (chrome://newtab) even when our own chrome_url_overrides is
+    // resolving it to the planting page; issuing an update from that transient
+    // state aborts the override's own load and can cancel whatever navigation
+    // happens next (proven in the real-extension suite: it killed the
+    // post-plant search navigation). At 'complete' the URL is unambiguous:
+    // our override page -> skip; a genuine browser NTP (override disabled or
+    // a Brave-style confirmation pending) -> take over.
+    if (changeInfo.status !== 'complete') return;
     if (await takeOverBrowserNewTab(tab)) return;
-    if (changeInfo.status === 'complete' && tab.url) await observeTab(tabId, tab.url, tab.title, tab.openerTabId, tab.windowId);
+    if (!tab.url) return;
+    // Same-document history updates (pushState/replaceState) produce the
+    // identical onUpdated loading->complete signature as full navigations,
+    // and onCommitted never fires for them. Observing on those events raced
+    // the SPA paths (webNavigation.onHistoryStateUpdated and the companion's
+    // SPA_NAVIGATION) and mislabeled every SPA route as an unlinked depth-0
+    // 'manual' path — fragmenting the tree. Require a matching commit record;
+    // the SPA paths own same-document route changes. Content-script
+    // OBSERVE_PAGE still covers full navigations even if this record was lost
+    // to a worker restart.
+    const commit = committedNavs.get(tabId);
+    if (!commit || commit.url !== tab.url) return;
+    committedNavs.delete(tabId);
+    await observeTab(tabId, tab.url, tab.title, tab.openerTabId, tab.windowId);
   }, { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'tabs.onUpdated', swallow: true })(tabId, changeInfo, tab);
 });
 chrome.tabs.onActivated?.addListener((activeInfo) => {
@@ -1398,9 +1508,13 @@ chrome.tabs.onActivated?.addListener((activeInfo) => {
 chrome.webNavigation?.onCommitted?.addListener((details) => {
   if (details.frameId !== 0 || !Number.isInteger(details.tabId)) return;
   navigationHints.set(details.tabId, navigationKindForTransition(details.transitionType, details.transitionQualifiers || []));
-  // FIFO eviction keeps the hint map bounded; hints are single-use and safe to drop.
+  committedNavs.set(details.tabId, { url: details.url || '', at: Date.now() });
+  // FIFO eviction keeps the hint maps bounded; entries are single-use and safe to drop.
   while (navigationHints.size > SERVICE_WORKER.MAX_ACTIVE_TABS) {
     navigationHints.delete(navigationHints.keys().next().value);
+  }
+  while (committedNavs.size > SERVICE_WORKER.MAX_ACTIVE_TABS) {
+    committedNavs.delete(committedNavs.keys().next().value);
   }
 });
 chrome.tabs.onRemoved.addListener((tabId) => {
@@ -1410,7 +1524,9 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     // Drop the remaining per-tab in-memory entries too; otherwise they linger
     // until their own TTL/size eviction runs, holding URLs longer than needed.
     navigationHints.delete(tabId);
-    selfLinkMarks.delete(tabId);
+    trackedNavMarks.delete(tabId);
+    commitMemos.delete(tabId);
+    committedNavs.delete(tabId);
     for (const key of spaDedup.keys()) { if (key.startsWith(`${tabId}::`)) spaDedup.delete(key); }
     for (const [key, entry] of pendingBranches) { if (entry.sourceTabId === tabId) pendingBranches.delete(key); }
     await mutate((state) => {

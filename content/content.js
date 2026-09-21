@@ -368,6 +368,7 @@
   async function loadSettings() {
     try {
       const snap = await send('GET_ACTIVE_VIEW');
+      if (snap?.rateLimited) return; // keep current settings; the next refresh retries
       growthAnimationTrigger = snap.settings?.growthAnimationTrigger || 'mission-origin';
       ambientMotion = snap.settings?.ambientMotion !== false;
       rootEl.classList.toggle('motion-off', !ambientMotion);
@@ -411,6 +412,10 @@
 
   const safeUpdate = wrapWithErrorBoundary(update, { category: ERROR_CATEGORIES.UI_RENDER, function: 'update' });
   async function update(view) {
+    // A rate-limited GET_ACTIVE_VIEW answers { rateLimited: true }. Keeping
+    // the last known view is the calm degradation; treating the throttle as
+    // "no session" would hide the chip mid-mission during busy browsing.
+    if (view && view.rateLimited) return;
     const previous = current;
     current = view?.session || null;
     if (!current?.node || view?.sitePaused) { cancelGrowthRitual(); chip.hidden = true; choiceCard.hidden = true; return; }
@@ -592,7 +597,10 @@
   // title MutationObserver, the service worker's onHistoryStateUpdated, and
   // the visibility-gated polling watch below.
   
-  window.addEventListener('pageshow', wrapWithErrorBoundary(() => safeRefresh(false), { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'pageshow', swallow: true }), { passive: true });
+  // pageshow fires on the initial load too, where init already refreshed;
+  // only bfcache restores (persisted) need a follow-up view refresh. This
+  // removes one redundant message per navigation from the tab's rate budget.
+  window.addEventListener('pageshow', wrapWithErrorBoundary((event) => { if (event?.persisted) safeRefresh(false); }, { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'pageshow', swallow: true }), { passive: true });
   document.addEventListener('visibilitychange', wrapWithErrorBoundary(() => { if (document.hidden) window.clearTimeout(watchTimer); else { safeRefresh(false); scheduleWatch(); } }, { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'visibilitychange', swallow: true }));
 
   const safeLoadSettings = wrapWithErrorBoundary(loadSettings, { category: ERROR_CATEGORIES.MESSAGING, function: 'loadSettings', swallow: true });

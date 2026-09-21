@@ -20,7 +20,15 @@ export const DAY_MS = 86400000;
 export const SERVICE_WORKER = {
   SESSION_TIMEOUT_MS: 15000, // 15 seconds
   RATE_LIMIT_WINDOW_MS: 60000, // 1 minute
-  RATE_LIMIT_MAX_REQUESTS: 100,
+  // Per content-script sender (tab) budget. A tracked navigation costs ~3
+  // messages (settings probe, observation, view refresh), so the historical
+  // 100/min clipped legitimate research sessions at ~33 navigations/min:
+  // the companion chip vanished mid-mission and branches stopped tracking.
+  // 300/min keeps the DoS guard meaningful while surviving the hero use
+  // case (Gate 5 of test-extension-load.mjs pins this in a real browser).
+  // First-party extension pages are exempt entirely; sender validation — not
+  // this budget — is the security boundary.
+  RATE_LIMIT_MAX_REQUESTS: 300,
   MAX_ACTIVE_TABS: 1000,
 };
 
