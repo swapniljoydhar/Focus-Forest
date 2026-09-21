@@ -4,7 +4,8 @@
  * choice (extension pages share one localStorage origin).
  */
 
-export const THEME_STORAGE_KEY = 'focus-forest-theme';
+// Module-internal storage key; pages interact through applyStoredTheme/toggleTheme.
+const THEME_STORAGE_KEY = 'focus-forest-theme';
 
 /** Apply the user's stored theme (dark/light) to the current page's <html>. */
 export function applyStoredTheme() {

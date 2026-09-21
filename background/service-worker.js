@@ -256,7 +256,9 @@ if (chrome.alarms) {
 }
 
 function nodeHasTab(node, tabId) {
-  return Number.isInteger(tabId) && (node.tabIds?.includes(tabId) || node.tabId === tabId);
+  // Normalized nodes always carry a tabIds array (compactNode migrates the
+  // legacy singular tabId at load time), so no singular fallback is needed.
+  return Number.isInteger(tabId) && Boolean(node.tabIds?.includes(tabId));
 }
 const TERMINAL_STATES = new Set(['pruned', 'composted']);
 function nodeForTab(session, tabId) {
@@ -469,7 +471,7 @@ async function recordActiveTab(tabId, windowId) {
     }
     return session;
   });
-  activeTabs.set(key, { tabId, startedAt: now });
+  activeTabs.set(key, { tabId });
 }
 
 async function createSession(mission, tab, rawNote = '') {
@@ -725,7 +727,7 @@ async function pruneNode(sessionId, nodeId, toCompost = false) {
     if (!session) return NO_CHANGE;
     const node = session.nodes.find((item) => item.id === nodeId && !item.closedAt);
     if (!node || node.depth === 0 || node.state === 'pruned') return NO_CHANGE;
-    node.state = 'pruned'; node.prunedAt = Date.now(); node.tabIds = []; delete node.tabId;
+    node.state = 'pruned'; node.prunedAt = Date.now(); node.tabIds = [];
     addEvent(session, 'pruned', { nodeId: node.id, depth: node.depth });
     if (toCompost && !state.compostItems.some((item) => item.url === node.url)) {
       state.compostItems.unshift({ id: makeId('compost'), url: node.url, title: compactText(node.title || node.url), mission: session.mission, savedAt: Date.now() });
@@ -746,7 +748,7 @@ async function compost(tabId, rawUrl, title) {
       state.compostItems.unshift({ id: makeId('compost'), url, title: compactText(title || url), mission: session.mission, savedAt: Date.now() });
       if (state.compostItems.length > LIMITS.COMPOST) state.compostItems.splice(LIMITS.COMPOST);
     }
-    if (node) { node.state = 'composted'; node.closedAt = Date.now(); node.tabIds = []; delete node.tabId; }
+    if (node) { node.state = 'composted'; node.closedAt = Date.now(); node.tabIds = []; }
     addEvent(session, 'composted', { url });
     
     return { saved: true, reward: earnReward(state, 'leaves', 'compost_choice') };
@@ -762,7 +764,9 @@ async function getSnapshot(sessionId = null, includeHistory = false) {
 
 function formatHistoryDomain(url) {
   if (!url) return 'Unknown';
-  if (isBrowserNewTabUrl(url) || isPlaceholderOriginUrl(url)) return 'New Tab';
+  // isPlaceholderOriginUrl covers both browser NTP aliases and this
+  // extension's own New Tab page.
+  if (isPlaceholderOriginUrl(url)) return 'New Tab';
   if (isExtensionNewTabUrl(url)) return 'Focus Forest';
   try {
     const parsed = new URL(url);
@@ -785,9 +789,7 @@ async function getDashboardStats() {
   let totalActiveTabTime = 0;
   let intentionalBranches = 0;
   let unlinkedPaths = 0;
-  let interruptionsAccepted = 0;
   let interruptionsDismissed = 0;
-  let returnToMission = 0;
   let branchDepthTotal = 0;
   const domainCounts = {};
   const dailySeconds = {};
@@ -835,9 +837,7 @@ async function getDashboardStats() {
     intentionalBranches += session.nodes.filter((node) => node.depth > 0 && node.confidence !== 'low').length;
     unlinkedPaths += session.nodes.filter((node) => node.depth > 0 && node.confidence === 'low').length;
     branchDepthTotal += session.nodes.reduce((sum, node) => sum + Math.max(0, node.depth || 0), 0);
-    interruptionsAccepted += session.events.filter((event) => event.type === 'return_to_path' || event.type === 'mission_changed').length;
     interruptionsDismissed += session.events.filter((event) => event.type === 'interruption_dismissed').length;
-    returnToMission += session.events.filter((event) => event.type === 'return_to_path').length;
     
     // Split sessions at UTC midnight so a long session is represented on each day it touched.
     const firstDay = Math.floor(sessionStart / ONE_DAY_MS) * ONE_DAY_MS;
@@ -908,9 +908,7 @@ async function getDashboardStats() {
     totalActiveTabTime: Math.floor(totalActiveTabTime),
     intentionalBranches,
     unlinkedPaths,
-    interruptionsAccepted,
     interruptionsDismissed,
-    returnToMission,
     averageBranchDepth: totalSessions ? Number((branchDepthTotal / totalSessions).toFixed(2)) : 0,
     currentStreak,
     weeklyData,
@@ -1325,13 +1323,11 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'PRUNE_NODE': return isExtensionPageSender(sender) && safeId(message.sessionId) && safeId(message.nodeId) ? pruneNode(message.sessionId, message.nodeId, Boolean(message.toCompost)) : null;
       case 'DELETE_SESSION': return isExtensionPageSender(sender) && safeId(message.sessionId) ? mutate((state) => { const before = state.sessions.length; state.sessions = state.sessions.filter((session) => session.id !== message.sessionId); if (state.activeSessionId === message.sessionId) { state.activeSessionId = null; clearRuntimeTracking(); } return before === state.sessions.length ? NO_CHANGE : state.sessions; }) : null;
       case 'FORGET_SITE': return isExtensionPageSender(sender) && typeof message.hostname === 'string' ? forgetSite(message.hostname) : null;
-      case 'CLEAR_DATA':
-      case 'CLEAR_ALL_DATA': return isExtensionPageSender(sender) ? (clearRuntimeTracking(), replaceState(emptyState())) : null;
+      case 'CLEAR_DATA': return isExtensionPageSender(sender) ? (clearRuntimeTracking(), replaceState(emptyState())) : null;
       case 'GET_DASHBOARD_STATS': return isExtensionPageSender(sender) ? getDashboardStats() : null;
       case 'REMOVE_SAVED_ITEM': return isExtensionPageSender(sender) && safeId(message.id) ? removeSavedItem(message.id) : null;
       case 'EXPORT_DATA': return isExtensionPageSender(sender) ? exportAllData() : null;
       case 'IMPORT_DATA': return isExtensionPageSender(sender) && isRecord(message.payload) ? importAllData(message.payload) : null;
-      case 'CHECK_STORAGE_QUOTA': return isExtensionPageSender(sender) ? checkStorageQuota() : null;
       case 'COMPLETE_ONBOARDING': return isExtensionPageSender(sender) ? mutate((state) => { state.onboardingCompleted = true; return state; }) : null;
       case 'GO_HOME': {
         const snapshot = await getSnapshot(); const origin = snapshot.session?.origin; const originTabId = Number.isInteger(origin?.tabId) ? origin.tabId : null; const returnUrl = safeNavigationUrl(origin?.url);
@@ -1424,11 +1420,9 @@ const SCHEMAS = {
   REMOVE_SAVED_ITEM: { id: 'string' },
   EXPORT_DATA: {},
   IMPORT_DATA: { payload: 'object' },
-  CLEAR_ALL_DATA: {},
   GO_HOME: {},
   OPEN_PLANTING_PAGE: {},
   DISMISS_INTERVENTION: { url: 'string?' },
-  CHECK_STORAGE_QUOTA: {},
   COMPLETE_ONBOARDING: {}
 };
 const TYPE_CHECKS = {

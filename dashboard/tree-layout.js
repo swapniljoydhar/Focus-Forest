@@ -30,8 +30,8 @@ export function branchWidth(depth) {
     TREE_LAYOUT.BRANCH_WIDTH_BASE - Math.max(0, depth - 1) * 0.35
   ); 
 }
-export function labelPlacement(point, nodeId, root = false) {
-  return { nodeId, x: Math.max(200, Math.min(700, point.x)), y: point.y + (root ? 62 : 39), anchor: 'middle' };
+export function labelPlacement(point) {
+  return { x: Math.max(200, Math.min(700, point.x)), y: point.y + 39 };
 }
 export function treeStage(mode = 'sapling') {
   const config = STAGES[mode] || STAGES.sapling;
@@ -63,8 +63,7 @@ function edgePath(parent, child, seed = '') {
 export function layoutTree(inputNodes = []) {
   const valid = Array.isArray(inputNodes) ? inputNodes.filter(node => node && typeof node.id === 'string' && node.id) : [];
   const nodes = [...new Map(valid.map(node => [node.id, node])).values()];
-  const empty = { ...treeStage('empty'), nodes: [], root: null, positions: new Map(), parentById: new Map(),
-    parentAnchors: new Map(), children: new Map(), edges: [], labels: [], maxDepth: 0 };
+  const empty = { ...treeStage('empty'), nodes: [], root: null, positions: new Map(), parentById: new Map(), edges: [] };
   if (!nodes.length) return empty;
   const nodeMap = new Map(nodes.map(node => [node.id, node]));
   const root = nodes.find(node => depthOf(node) === 0) || nodes[0];
@@ -117,15 +116,12 @@ export function layoutTree(inputNodes = []) {
       angle: Math.cos(angle) * 32
     });
   });
-  const parentAnchors = new Map();
   const edges = ordered.map(node => {
     const parentId = parentById.get(node.id);
     const parent = parentId === root.id ? { x: trunk.x, y: trunk.forkY } : positions.get(parentId);
-    parentAnchors.set(node.id, parent);
     const depth = levels.get(node.id);
     return { nodeId: node.id, parentId, depth, kind: depth === 1 ? 'primary' : 'secondary',
       width: branchWidth(depth), path: edgePath(parent, positions.get(node.id), node.id) };
   });
-  return { ...stage, nodes, root, positions, parentById, parentAnchors, children, edges,
-    labels: [labelPlacement(positions.get(root.id), root.id, true)], maxDepth };
+  return { ...stage, nodes, root, positions, parentById, edges };
 }

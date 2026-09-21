@@ -1,9 +1,0 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="title">
-  <title id="title">Focus Forest leaf logo</title>
-  <rect width="128" height="128" rx="32" fill="#1B5E4B"/>
-  <circle cx="64" cy="64" r="40" fill="none" stroke="#A5D6A7" stroke-width="6" stroke-linecap="round" stroke-dasharray="178 74" transform="rotate(-42 64 64)"/>
-  <path d="M64 91V62" fill="none" stroke="#E8F5E9" stroke-width="7" stroke-linecap="round"/>
-  <path d="M64 64C45 64 35 51 38 35C54 35 68 44 64 64Z" fill="#C8E6C9"/>
-  <path d="M64 61C64 42 76 32 91 35C91 51 80 62 64 61Z" fill="#81C784"/>
-  <circle cx="64" cy="92" r="5" fill="#E8F5E9"/>
-</svg>

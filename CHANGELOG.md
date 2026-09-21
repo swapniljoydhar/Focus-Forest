@@ -90,6 +90,23 @@ All notable Focus Forest changes are documented here.
 
 - The dashboard's dark/light theme choice is now respected by the popup, settings, and New Tab pages.
 
+### Removed (dead-code cleanup — 2026-09-21)
+
+Whole-repository dead-code pass. Every item was proven to have zero consumers (runtime, tests, scripts, HTML) by a symbol-usage sweep before removal; the full suite was re-run after (record: `AUDIT_2026-09-21.md`, Phase 5).
+
+- **Files:** six superseded working docs (`AUDIT_2026-09-17.md`, `AUDIT_2026-09-20.md`, `COMPREHENSIVE_ANALYSIS.md`, `ENHANCEMENT_SUMMARY.md`, `IMPROVEMENTS.md`, `REFACTORING_PLAN.md`), the unreferenced `icons/focus-forest-logo.svg`, and orphaned `test-tree-stress.mjs` (never executed by `npm test` or CI; its coverage — cyclic repair, wide/deep shapes, `branchWidth` bounds — lives in `test-tree-layout.mjs` at product scale). All remain in git history.
+- **Service worker:** dead `CLEAR_ALL_DATA` alias (zero senders anywhere; `CLEAR_DATA` is the live path) and the `CHECK_STORAGE_QUOTA` message case (zero senders; the `checkStorageQuota()` function itself stays — install-time quota check and the compaction alarm use it — re-add the message surface together with a UI if the proposed "Forest footprint" settings row is built). Also two never-read dashboard-stat counters (`interruptionsAccepted`, `returnToMission`), legacy singular `node.tabId` vestiges (normalization migrates every node to `tabIds`), and the never-read `startedAt` field on `activeTabs` entries.
+- **Dead CSS generations** of two retired tree renderers and the old static New Tab sapling: `dashboard/style.css` lost ~35 rules (filled `.branch-taper` styles referencing nonexistent `#branch-grad`/`#bark-grad` gradients; `.junction-mark`/`.terminal-leaf`/`.root-seed`/`.root-bud`/`.empty-sprig`/`.empty-leaf`/`.tree-shoot`/`.tree-root-flare`/`.sapling-bole`/`.leaf-layer`/`.tree-ground`/`.empty-ground`/`.empty-root`/`.empty-tree`/`.tree-leaf-bud`/`.root-base`/`.root-sprout` classes the storybook renderer never emits; `.node*` state, `.tree-bole`, `.branch-layer`, `.highlight-layer`, `.node-label`, `.empty-trunk` and `.leaf-shape` rules always outranked by `tree.css`'s `.forest-scene`-scoped equivalents; a superseded `[data-tree-mode]` sizing block; unreferenced `grow-branch`/`arrive-node` keyframes; six unused dark-theme custom properties; stale `.green`/`.ochre`/`.clay` legend swatches). `newtab/style.css` lost the old hero-animation suite (`.sapling-growth/-trunk/-branch`, `.branch-left/right/sub-*`, `.leaf-cluster*`, `.leaf-large`, `.leaf-shape`, `.ground-line`, `.ground-shadow`, their exclusive keyframes, `--radius-sm`, and the matching motion-off list entries).
+- **Companion shadow CSS:** `.choice.primary` rules — no choice ever renders with a `primary` variant.
+- **Layout module API surface:** `layoutTree()` no longer emits fields nothing reads (`parentAnchors`, `children`, `labels`, `maxDepth`; internal computation unchanged, `maxDepth` still drives stage selection); `labelPlacement()` narrowed to its consumed contract (`{x, y}`); `test-tree-layout.mjs` re-pinned to the live contract (stale-depth ancestry now proven via a `parentById` chain walk).
+- **De-exported module internals** (exported but imported nowhere): `REWARD_LIMITS`, `REWARD_TRIGGER_NOTES` (`shared/state.js`), `ERROR_SEVERITY` (`shared/error-tracing.js`), `THEME_STORAGE_KEY` (`shared/theme.js`).
+- **Preview server:** asset allowlist trimmed to the actual fetched module graph (dropped `shared/state.js`, `shared/error-tracing.js`, `shared/chromium-api.js`; nothing in the tree-renderer import chain loads them).
+- **.gitignore:** trimmed to the Node/extension-relevant set (dropped Python/Java/Gradle/Rust/binary-archive entries and duplicate swap-file lines; added `test-results/`, `playwright-report/`, `profile-newtab.json`).
+
+### Fixed (found during the cleanup pass)
+
+- **New Tab character counter had a broken `aria-describedby`:** `#mission-input` described itself with `input-hint char-count`, but no element carried the `char-count` id — screen readers silently skipped the counter. The counter container now carries it.
+
 ## [0.3.6] — 2026-09-18
 
 ### Improved

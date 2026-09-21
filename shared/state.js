@@ -46,8 +46,8 @@ export const REWARD_CATALOG = {
   ]
 };
 
-// Reward cooldowns and limits
-export const REWARD_LIMITS = {
+// Reward cooldowns and limits (module-internal: consumed by canEarnReward/earnReward)
+const REWARD_LIMITS = {
   COOLDOWN_MS: 5 * 60 * 1000, // 5 minutes between rewards
   MAX_PER_SESSION: 3, // Maximum rewards per session
   REWARD_HISTORY_DAYS: 30 // Keep reward history for 30 days
@@ -57,8 +57,9 @@ export const REWARD_LIMITS = {
  * Explains why a reward appeared. Rewards stay informational rather than
  * controlling: each note names the choice the user made, never a score,
  * a duration or a deadline.
+ * (Module-internal: consumed by rewardNote.)
  */
-export const REWARD_TRIGGER_NOTES = {
+const REWARD_TRIGGER_NOTES = {
   return_to_root: 'You came back to the intention you set.',
   compost_choice: 'You chose to keep this for later instead of following it now.',
   session_end: 'You set the garden down deliberately.',
