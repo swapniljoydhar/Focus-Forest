@@ -293,7 +293,10 @@ detail.addEventListener('click', wrapWithErrorBoundary(async event => { const ac
 document.querySelector('#compost').addEventListener('click', wrapWithErrorBoundary(async event => { const id = event.target.dataset.id; if (id) { await message('DELETE_COMPOST', { id }); await renderSafely(); } }, { category: ERROR_CATEGORIES.MESSAGING, function: 'compost.click', swallow: true }));
 document.querySelector('#forget').addEventListener('click', wrapWithErrorBoundary(event => { if (selectedSessionId) openCareDialog('forget', event.currentTarget); }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'forget.click', swallow: true }));
 document.querySelector('#forget-site').addEventListener('click', wrapWithErrorBoundary(async () => {
-  const session = selectedSessionId ? (await message('GET_SNAPSHOT', { sessionId: selectedSessionId })).session : null;
+  // GET_SNAPSHOT can legitimately answer null (rate limit, worker restart);
+  // dereferencing it directly threw and made the button look inert.
+  const snapshot = selectedSessionId ? await message('GET_SNAPSHOT', { sessionId: selectedSessionId }) : null;
+  const session = snapshot?.session || null;
   const node = session?.nodes?.find((item) => item.id === selectedNodeId) || session?.nodes?.at(-1);
   let hostname = '';
   try { hostname = new URL(node?.url || '').hostname; } catch {}

@@ -1,9 +1,17 @@
-import { LIMITS, SCHEMA_VERSION, STORAGE_KEY, DEFAULT_NEW_TAB_URL, activeSession, clearStateCache, compactText, emptyState, getDepthState, isBrowserNewTabUrl, isExtensionNewTabUrl, isPlaceholderOriginUrl, isSearchUrl, loadState, makeId, normalizeSettings, safeHttpUrl, safeSessionUrl, saveState, checkStorageQuota, compactStateIfNeeded, normalizeState, earnReward, returnRewardTier } from '../shared/state.js';
+import { LIMITS, SCHEMA_VERSION, STORAGE_KEY, DEFAULT_NEW_TAB_URL, activeSession, clearStateCache, compactText, emptyState, getDepthState, isBrowserNewTabUrl, isExtensionNewTabUrl, isPlaceholderOriginUrl, isSearchUrl, loadState, loadStateForWrite, makeId, normalizeSettings, safeHttpUrl, safeSessionUrl, saveState, checkStorageQuota, compactStateIfNeeded, normalizeState, earnReward, returnRewardTier } from '../shared/state.js';
 import { logError, logWarning, ERROR_CATEGORIES, wrapMutationWithErrorBoundary, wrapWithErrorBoundary } from '../shared/error-tracing.js';
 import { DAY_MS, SERVICE_WORKER, MEMORY_LIMITS, VALIDATION } from '../shared/constants.js';
 
 const pendingBranches = new Map();
 const MAX_PENDING_BRANCHES = MEMORY_LIMITS.LRU_CACHE_SIZE;
+// Self-link marks: tabId -> { url, createdAt }. Set when a same-tab LINK_CLICK
+// targets the URL the tab already shows (trackLink finds the node it is already
+// on and records no navigation event); consumed by observeTab after the browser
+// actually commits, so a genuine reload-by-self-link still gets its 'reload'
+// trail note while ordinary link navigations stay silent. Commit-verified on
+// purpose: marking at click time would record reloads the page may cancel.
+const selfLinkMarks = new Map();
+const MAX_SELF_LINK_MARKS = 64;
 const spaDedup = new Map();
 const MAX_SPA_DEDUP = MEMORY_LIMITS.LRU_CACHE_SIZE;
 const activeTabs = new Map();
@@ -16,10 +24,35 @@ const RATE_LIMIT_INITIAL_WINDOW = 0; // First message creates a fresh window at 
 
 function clearRuntimeTracking() {
   pendingBranches.clear();
+  selfLinkMarks.clear();
   spaDedup.clear();
   activeTabs.clear();
   navigationHints.clear();
   messageCounts.clear();
+}
+
+function markSelfLink(tabId, url) {
+  if (!Number.isInteger(tabId) || typeof url !== 'string' || !url) return;
+  const now = Date.now();
+  for (const [key, entry] of selfLinkMarks) {
+    if (now - entry.createdAt >= SERVICE_WORKER.SESSION_TIMEOUT_MS) selfLinkMarks.delete(key);
+  }
+  while (selfLinkMarks.size >= MAX_SELF_LINK_MARKS) {
+    selfLinkMarks.delete(selfLinkMarks.keys().next().value);
+  }
+  selfLinkMarks.set(tabId, { url, createdAt: now });
+}
+
+/**
+ * Consumes a self-link mark for the tab. Returns true only when the mark is
+ * fresh and names the exact URL just committed, so an unrelated later
+ * navigation can never inherit it.
+ */
+function takeSelfLinkMark(tabId, url) {
+  const entry = selfLinkMarks.get(tabId);
+  if (!entry) return false;
+  selfLinkMarks.delete(tabId);
+  return entry.url === url && Date.now() - entry.createdAt < SERVICE_WORKER.SESSION_TIMEOUT_MS;
 }
 
 /**
@@ -121,7 +154,10 @@ let mutationQueue = Promise.resolve();
 // against freshly loaded state before surfacing the error to the caller.
 async function runMutatorWithRetry(wrappedMutator) {
   const attempt = async () => {
-    const state = await loadState();
+    // Strict loader: if the storage READ fails, abort the mutation instead of
+    // running it against an empty fallback state — persisting that fallback
+    // would wipe every stored garden on a transient read error.
+    const state = await loadStateForWrite();
     const result = await wrappedMutator(state);
     if (result === NO_CHANGE || result == null) return result === NO_CHANGE ? null : result;
     await saveState(state);
@@ -411,7 +447,18 @@ async function createSession(mission, tab, rawNote = '') {
     if (state.sessions.length > LIMITS.SESSIONS) state.sessions.splice(0, state.sessions.length - LIMITS.SESSIONS);
     state.activeSessionId = session.id;
     return session;
-  }).then(async (result) => { await recordActiveTab(Number.isInteger(tab?.id) ? tab.id : null, tab?.windowId); return result; });
+  }).then(async (result) => {
+    // Interval bookkeeping must not poison the user-facing START_MISSION
+    // response: if recording the active tab fails (e.g. a storage read hiccup
+    // between the session write and this follow-up, now that write paths use
+    // the strict loader), log it and still return the created session.
+    try {
+      await recordActiveTab(Number.isInteger(tab?.id) ? tab.id : null, tab?.windowId);
+    } catch (error) {
+      logError(error, { category: ERROR_CATEGORIES.STATE_MUTATION, component: 'service-worker', function: 'createSession.recordActiveTab' });
+    }
+    return result;
+  });
 }
 
 async function endSession(reason = 'user_ended') {
@@ -468,6 +515,13 @@ async function trackLink({ tabId, url, title, targetBlank = false, windowId, nav
     if (existing) {
       const nextTitle = compactText(title || destination);
       if (nextTitle && nextTitle !== existing.title) existing.title = nextTitle;
+      // A same-tab click on a link that points at the page the tab already
+      // shows is a reload-by-link about to commit. No navigation event is
+      // recorded here (the node already existed), so leave a short-lived,
+      // commit-verified mark for observeTab to turn into a single 'reload'
+      // note. New-tab clicks and SPA route changes are not browser reloads
+      // and must not be marked.
+      if (!targetBlank && navigationKind !== 'spa') markSelfLink(tabId, destination);
       return existing;
     }
     if (targetBlank || isRedirectLike(destination)) {
@@ -519,10 +573,23 @@ async function observeTab(tabId, rawUrl, rawTitle, openerTabId, windowId) {
         current.navigationKind = navigationHint;
         current.confidence = 'low';
       }
-      addEvent(session, navigationHint === 'back-forward' ? 'back_forward' : 'reload', { nodeId: current.id, url });
+      // A 'link' hint means the content script's LINK_CLICK already grew this
+      // node and recorded its own 'navigation' event moments ago; stamping
+      // 'reload' on top mislabels every ordinary link click as a reload and
+      // burns the per-session event cap twice as fast. The one exception is a
+      // self-link (a click on a link to the page the tab already showed):
+      // trackLink found the existing node and recorded nothing, so its
+      // commit-verified mark restores the single genuine 'reload' note here.
+      if (navigationHint === 'back-forward') addEvent(session, 'back_forward', { nodeId: current.id, url });
+      else if (navigationHint === 'link') { if (takeSelfLinkMark(tabId, url)) addEvent(session, 'reload', { nodeId: current.id, url }); }
+      else addEvent(session, 'reload', { nodeId: current.id, url });
       return current;
     }
-    if (isSearchUrl(url) && !originNotSet) { addEvent(session, 'search_refinement', { url }); return NO_CHANGE; }
+    // Returning NO_CHANGE after addEvent() mutated the shared state cache left
+    // the event unpersisted (visible to reads, then lost on a worker restart or
+    // smuggled into a later unrelated write). Return a changed marker so the
+    // refinement note is durably saved like every other recorded event.
+    if (isSearchUrl(url) && !originNotSet) { addEvent(session, 'search_refinement', { url }); return { refined: true, nodeId: current?.id || null }; }
     const known = session.nodes.find((node) => node.url === url && !TERMINAL_STATES.has(node.state));
     if (known) {
       clearPendingRedirect(session, tabId);
@@ -650,7 +717,12 @@ async function getDashboardStats() {
     // Use session duration from startedAt to endedAt (not sum of node durations
     // which double-counts concurrent tabs)
     const sessionStart = session.startedAt || now;
-    const sessionEnd = session.endedAt || now;
+    // A completed session with a missing endedAt (an import whose inverted or
+    // future-skewed timestamp was repaired to null, or a legacy record) must
+    // NOT accrue elapsed time up to "now" — that fabricates phantom multi-day
+    // sessions in the totals. Count it as zero-length; only genuinely active
+    // sessions accrue to the present.
+    const sessionEnd = session.endedAt || (session.status === 'completed' ? sessionStart : now);
     const sessionDuration = Math.max(0, (sessionEnd - sessionStart) / 1000);
     
     for (const node of session.nodes) {
@@ -718,7 +790,9 @@ async function getDashboardStats() {
   // Recent history (last 10 sessions)
   const history = state.sessions.slice(-10).reverse().map(session => {
     const start = session.startedAt || now;
-    const end = session.endedAt || now;
+    // Same rule as totalFocusTime: a completed session without a usable
+    // endedAt is zero-length, never "still running since startedAt".
+    const end = session.endedAt || (session.status === 'completed' ? start : now);
     const duration = Math.max(0, (end - start) / 1000);
     
     return {
@@ -829,7 +903,7 @@ async function forgetSite(rawHostname) {
     for (const [key, entry] of activeTabs) {
       if (removedTabIds.has(entry.tabId)) activeTabs.delete(key);
     }
-    removedTabIds.forEach((id) => navigationHints.delete(id));
+    removedTabIds.forEach((id) => { navigationHints.delete(id); selfLinkMarks.delete(id); });
     return { hostname, removed };
   });
 }
@@ -882,7 +956,10 @@ async function importAllData(payload) {
         logWarning(new Error('Invalid startedAt timestamp in import'), { category: ERROR_CATEGORIES.STORAGE, component: 'import', startedAt: session.startedAt });
         session.startedAt = now;
       }
-      if (session.endedAt && (session.endedAt > now + MAX_TIMESTAMP_FUTURE_MS || session.endedAt < session.startedAt - MAX_AGE_MS)) {
+      if (session.endedAt && (session.endedAt > now + MAX_TIMESTAMP_FUTURE_MS || session.endedAt < session.startedAt)) {
+        // Ended-before-started is logically invalid (it would yield a negative
+        // session duration), and absurd past values fail the age bound; either
+        // way the record survives with an open-ended timestamp instead.
         logWarning(new Error('Invalid endedAt timestamp in import'), { category: ERROR_CATEGORIES.STORAGE, component: 'import', endedAt: session.endedAt });
         session.endedAt = null;
       }
@@ -973,10 +1050,17 @@ chrome.runtime.onInstalled.addListener((details) => {
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  wrapWithErrorBoundary(() => {
-    chrome.contextMenus?.create({ id: 'focus-forest-start', title: 'Start Focus Mission for "%s"', contexts: ['link', 'page', 'selection'] });
-    chrome.contextMenus?.create({ id: 'focus-forest-compost', title: 'Save Page for Later', contexts: ['page', 'link'] });
-    chrome.contextMenus?.create({ id: 'focus-forest-end', title: 'End Current Focus Mission', contexts: ['page'] });
+  wrapWithErrorBoundary(async () => {
+    if (!chrome.contextMenus?.create) return;
+    // MV3 create() returns a promise that rejects on duplicate ids (e.g. when
+    // menus survived an update). Fire-and-forget calls turned that into an
+    // "Uncaught (in promise)" rejection and skipped the remaining menus when
+    // the first threw. Remove-then-await keeps registration idempotent and
+    // lets the swallow boundary log genuine failures.
+    await chrome.contextMenus.removeAll();
+    await chrome.contextMenus.create({ id: 'focus-forest-start', title: 'Start Focus Mission for "%s"', contexts: ['link', 'page', 'selection'] });
+    await chrome.contextMenus.create({ id: 'focus-forest-compost', title: 'Save Page for Later', contexts: ['page', 'link'] });
+    await chrome.contextMenus.create({ id: 'focus-forest-end', title: 'End Current Focus Mission', contexts: ['page'] });
   }, { category: ERROR_CATEGORIES.MESSAGING, component: 'service-worker', function: 'contextMenus.create', swallow: true })();
 });
 
@@ -1166,6 +1250,20 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
         // this field they could never tell a real return from a placeholder.
         return { ...activeView(await loadState(), didReturn ? originTabId : null), reward, origin: hasRealOrigin ? { url: returnUrl, tabId: originTabId } : null, returned: didReturn };
       }
+      case 'OPEN_PLANTING_PAGE': {
+        // Web pages cannot navigate to chrome-extension:// URLs that are not
+        // web_accessible_resources (and this extension deliberately keeps that
+        // list empty), so the content script's "Start a new mission" action
+        // asks the worker — an extension context — to navigate its own tab.
+        if (!Number.isInteger(tab?.id)) return null;
+        try {
+          await chrome.tabs.update(tab.id, { url: plantingPageUrl() });
+          return { opened: true };
+        } catch (error) {
+          logError(error, { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'OPEN_PLANTING_PAGE', tabId: tab.id });
+          return null;
+        }
+      }
       case 'DISMISS_INTERVENTION': {
         if (!Number.isInteger(tab?.id)) return null;
         return mutate((state) => {
@@ -1210,6 +1308,7 @@ const SCHEMAS = {
   IMPORT_DATA: { payload: 'object' },
   CLEAR_ALL_DATA: {},
   GO_HOME: {},
+  OPEN_PLANTING_PAGE: {},
   DISMISS_INTERVENTION: { url: 'string?' },
   CHECK_STORAGE_QUOTA: {},
   COMPLETE_ONBOARDING: {}
@@ -1311,6 +1410,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     // Drop the remaining per-tab in-memory entries too; otherwise they linger
     // until their own TTL/size eviction runs, holding URLs longer than needed.
     navigationHints.delete(tabId);
+    selfLinkMarks.delete(tabId);
     for (const key of spaDedup.keys()) { if (key.startsWith(`${tabId}::`)) spaDedup.delete(key); }
     for (const [key, entry] of pendingBranches) { if (entry.sourceTabId === tabId) pendingBranches.delete(key); }
     await mutate((state) => {

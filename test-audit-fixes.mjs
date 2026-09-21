@@ -1,0 +1,354 @@
+// Regression tests for the 2026-09-21 deep audit fixes.
+// Covers: storage-read-failure data wipe, spurious reload events, unpersisted
+// search_refinement events, blocked web->extension navigation (OPEN_PLANTING_PAGE),
+// context-menu duplicate-id rejections, import endedAt validation, Brave search
+// detection scoping, [hidden] CSS guards, and the MAIN-world SPA bridge wiring.
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+
+const store = {};
+const listeners = { installed: [], message: [], committed: [], historyStateUpdated: [], created: [], updated: [], removed: [] };
+const tabActions = [];
+const tabInfo = new Map();
+const menuActions = [];
+let failGets = 0;
+let menuCreateShouldReject = false;
+const unhandled = [];
+process.on('unhandledRejection', (reason) => unhandled.push(reason));
+
+globalThis.chrome = {
+  storage: {
+    local: {
+      async get(key) {
+        if (failGets > 0) { failGets -= 1; throw new Error('simulated transient read failure'); }
+        return key in store ? { [key]: structuredClone(store[key]) } : {};
+      },
+      async set(value) { Object.assign(store, structuredClone(value)); }
+    }
+  },
+  runtime: {
+    id: 'test',
+    getURL(path) { return `chrome-extension://test/${path}`; },
+    onInstalled: { addListener(fn) { listeners.installed.push(fn); } },
+    onMessage: { addListener(fn) { listeners.message.push(fn); } }
+  },
+  alarms: { create() {}, onAlarm: { addListener() {} } },
+  search: { async query() {} },
+  contextMenus: {
+    async removeAll() { menuActions.push(['removeAll']); },
+    async create(item) {
+      if (menuCreateShouldReject) { menuCreateShouldReject = false; throw new Error('Cannot create item with duplicate id'); }
+      menuActions.push(['create', item.id]);
+    }
+  },
+  webNavigation: {
+    onCommitted: { addListener(fn) { listeners.committed.push(fn); } },
+    onHistoryStateUpdated: { addListener(fn) { listeners.historyStateUpdated.push(fn); } }
+  },
+  windows: { async update() {} },
+  tabs: {
+    onCreated: { addListener(fn) { listeners.created.push(fn); } },
+    onUpdated: { addListener(fn) { listeners.updated.push(fn); } },
+    onRemoved: { addListener(fn) { listeners.removed.push(fn); } },
+    async query() { return [...tabInfo.values()].map((t) => structuredClone(t)); },
+    async get(id) { const tab = tabInfo.get(id); if (!tab) throw new Error('No tab'); return structuredClone({ id, windowId: 1, ...tab }); },
+    async update(id, patch) { const next = { ...(tabInfo.get(id) || { id, windowId: 1 }), ...patch }; tabInfo.set(id, next); tabActions.push(['update', id, patch]); },
+    async create(info) { const id = 999 + tabInfo.size; tabInfo.set(id, { id, windowId: 1, ...info }); tabActions.push(['create', info]); return { id, ...info }; }
+  }
+};
+globalThis.ServiceWorkerGlobalScope = class {};
+globalThis.self = new globalThis.ServiceWorkerGlobalScope();
+
+await import('./background/service-worker.js');
+// Same module instance the worker uses (identical resolved specifier), so the
+// cache controls below act on the worker's live state cache.
+const { clearStateCache, isSearchUrl } = await import('./shared/state.js');
+
+const handler = listeners.message[0];
+async function rawSend(message, sender) {
+  return await new Promise((resolve, reject) => handler(message, sender, (response) => response?.error ? reject(new Error(response.error)) : resolve(response)));
+}
+async function send(message, tab = undefined) {
+  const sender = tab
+    ? { id: 'test', tab, url: `https://page.test/${tab.id}` }
+    : { id: 'test', url: 'chrome-extension://test/dashboard/index.html' };
+  return rawSend(message, sender);
+}
+function session() { return store.focusForestState.sessions.find((s) => s.id === store.focusForestState.activeSessionId); }
+
+await test('A1: a transient storage read failure aborts mutations instead of wiping durable data', async () => {
+  clearStateCache();
+  await send({ type: 'CLEAR_DATA' });
+  await send({ type: 'START_MISSION', mission: 'Precious garden', tab: { id: 7, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/start', title: 'Start' }, { id: 7 });
+  assert.equal(store.focusForestState.sessions.length, 1, 'fixture mission must be persisted');
+
+  // Simulate a worker restart / external invalidation so the next load hits
+  // storage, then fail BOTH the attempt and its retry: the mutation must abort
+  // with an error instead of running against (and persisting) an empty
+  // fallback state.
+  clearStateCache();
+  failGets = 2;
+  await assert.rejects(
+    send({ type: 'PAUSE_INTERVENTION', paused: true }),
+    /INTERNAL_ERROR/,
+    'a failed state read must surface as an error, not as a silent empty state'
+  );
+  assert.equal(failGets, 0, 'both read attempts must have been exercised');
+  assert.equal(store.focusForestState.sessions.length, 1, 'durable data must survive a failed read');
+  assert.equal(store.focusForestState.sessions[0].mission, 'Precious garden', 'no session may be lost or replaced by an empty fallback');
+  assert.equal(session().interventionPaused, false, 'the aborted mutation must not half-apply');
+
+  // A single-attempt (truly transient) failure is recovered by the retry
+  // against freshly loaded state — and still never wipes anything.
+  clearStateCache();
+  failGets = 1;
+  await send({ type: 'PAUSE_INTERVENTION', paused: true });
+  assert.equal(session().interventionPaused, true, 'mutations must recover once storage reads succeed again');
+  assert.equal(store.focusForestState.sessions[0].mission, 'Precious garden');
+});
+
+await test('A2: an ordinary link navigation no longer records a spurious reload event', async () => {
+  clearStateCache();
+  await send({ type: 'CLEAR_DATA' });
+  await send({ type: 'START_MISSION', mission: 'Research laptops', tab: { id: 7, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/start', title: 'Start' }, { id: 7 });
+  await send({ type: 'LINK_CLICK', url: 'https://example.com/page-a', title: 'Page A', targetBlank: false }, { id: 7 });
+  listeners.committed[0]?.({ frameId: 0, tabId: 7, transitionType: 'link', transitionQualifiers: [], url: 'https://example.com/page-a' });
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/page-a', title: 'Page A' }, { id: 7 });
+
+  const events = session().events.map((e) => e.type);
+  assert.ok(events.includes('navigation'), 'the link click itself must still record its navigation event');
+  assert.equal(events.filter((t) => t === 'reload').length, 0, 'a tracked link navigation must not be relabelled as a reload');
+  assert.equal(session().nodes.at(-1).depth, 1, 'the branch must still grow from the link click');
+
+  // A genuine reload is still recorded.
+  listeners.committed[0]?.({ frameId: 0, tabId: 7, transitionType: 'reload', transitionQualifiers: [], url: 'https://example.com/page-a' });
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/page-a', title: 'Page A' }, { id: 7 });
+  assert.equal(session().events.filter((e) => e.type === 'reload').length, 1, 'a real reload must still be recorded once');
+
+  // Back/forward is still recorded with its own event type.
+  listeners.committed[0]?.({ frameId: 0, tabId: 7, transitionType: 'back_forward', transitionQualifiers: [], url: 'https://example.com/page-a' });
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/page-a', title: 'Page A' }, { id: 7 });
+  assert.equal(session().events.filter((e) => e.type === 'back_forward').length, 1, 'back/forward returns must keep their own event');
+});
+
+await test('A3: search_refinement events are persisted, not left in the cache only', async () => {
+  clearStateCache();
+  await send({ type: 'CLEAR_DATA' });
+  await send({ type: 'START_MISSION', mission: 'Research', tab: { id: 7, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/start', title: 'Start' }, { id: 7 });
+  const nodesBefore = session().nodes.length;
+  await send({ type: 'OBSERVE_PAGE', url: 'https://duckduckgo.com/?q=later+refinement', title: 'Search' }, { id: 7 });
+
+  const persisted = store.focusForestState.sessions.find((s) => s.id === store.focusForestState.activeSessionId).events.map((e) => e.type);
+  const snapshot = await send({ type: 'GET_SNAPSHOT' });
+  const inMemory = snapshot.session.events.map((e) => e.type);
+  assert.ok(persisted.includes('search_refinement'), 'the refinement event must reach durable storage immediately');
+  assert.deepEqual(inMemory, persisted, 'cache and storage must not diverge after a refinement');
+  assert.equal(session().nodes.length, nodesBefore, 'a search refinement must not grow a branch');
+});
+
+await test('A4: OPEN_PLANTING_PAGE navigates the sender tab (web pages cannot navigate to extension URLs themselves)', async () => {
+  clearStateCache();
+  tabActions.length = 0;
+  const result = await send({ type: 'OPEN_PLANTING_PAGE' }, { id: 42, url: 'https://deep.example/rabbit/hole', title: 'Deep page' });
+  assert.deepEqual(result, { opened: true });
+  const update = tabActions.findLast((a) => a[0] === 'update' && a[1] === 42);
+  assert.ok(update, 'the worker must navigate the requesting tab');
+  assert.equal(update[2].url, 'chrome-extension://test/newtab/index.html');
+
+  tabActions.length = 0;
+  const withoutTab = await send({ type: 'OPEN_PLANTING_PAGE' });
+  assert.equal(withoutTab, null, 'senders without a tab must be rejected');
+  assert.equal(tabActions.filter((a) => a[0] === 'update').length, 0, 'no navigation may happen without a sender tab');
+});
+
+await test('A5: context-menu registration is idempotent and duplicate-id rejections are swallowed', async () => {
+  // onInstalled listeners: [storage seeding, context menus]
+  assert.equal(listeners.installed.length, 2, 'both onInstalled listeners must be registered');
+  menuActions.length = 0;
+  await listeners.installed[1]({ reason: 'install' });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.deepEqual(menuActions, [['removeAll'], ['create', 'focus-forest-start'], ['create', 'focus-forest-compost'], ['create', 'focus-forest-end']], 'removeAll must run first so re-registration cannot hit duplicate ids');
+
+  // Even when a create rejects (stale duplicate), the failure is logged and
+  // swallowed instead of surfacing as an unhandled promise rejection.
+  menuActions.length = 0;
+  menuCreateShouldReject = true;
+  await listeners.installed[1]({ reason: 'update' });
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(unhandled.length, 0, 'duplicate-id menu rejections must never become unhandled rejections');
+});
+
+await test('A6: imported sessions ending before they started are repaired to an open-ended record', async () => {
+  clearStateCache();
+  await send({ type: 'CLEAR_DATA' });
+  const now = Date.now();
+  await send({
+    type: 'IMPORT_DATA',
+    payload: {
+      data: {
+        sessions: [{
+          id: 'session-bad-range', mission: 'Time-tangled import', status: 'completed',
+          startedAt: now, endedAt: now - 60000, endReason: 'user_ended',
+          origin: { tabId: null, windowId: null, url: 'chrome://newtab', title: 'New Tab' },
+          nodes: [], events: [], activeIntervals: [], pendingRedirects: []
+        }]
+      }
+    }
+  });
+  const imported = store.focusForestState.sessions.find((s) => s.id === 'session-bad-range');
+  assert.ok(imported, 'the imported session must survive validation');
+  assert.equal(imported.endedAt, null, 'endedAt before startedAt must be cleared, not stored');
+});
+
+await test('A7: Brave search detection is scoped to search.brave.com', () => {
+  assert.equal(isSearchUrl('https://search.brave.com/'), true, 'the Brave Search home is a search page');
+  assert.equal(isSearchUrl('https://search.brave.com/search?q=trees'), true, 'Brave Search results are search pages');
+  assert.equal(isSearchUrl('https://www.brave.com/'), false, 'the Brave marketing site root must not be misread as a search page');
+  assert.equal(isSearchUrl('https://www.brave.com/features'), false, 'ordinary Brave marketing pages are not search pages');
+  // A ?q= parameter on any known search-domain family still counts (generic
+  // SEARCH_PARAMS rule shared with duckduckgo.com/?q=, bing.com/?q=, etc.).
+  assert.equal(isSearchUrl('https://duckduckgo.com/?q=test'), true, 'the generic query-parameter rule is unchanged');
+});
+
+await test('A8: popup and New Tab stylesheets keep the hidden attribute authoritative', () => {
+  for (const file of ['./popup/style.css', './newtab/style.css', './dashboard/style.css']) {
+    const css = readFileSync(new URL(file, import.meta.url), 'utf8');
+    assert.match(css, /\[hidden\]\s*\{\s*display:\s*none\s*!important;?\s*\}/, `${file} must guard [hidden] against author display rules`);
+  }
+});
+
+await test('A9: the companion never navigates the page to an extension URL directly', () => {
+  const content = readFileSync(new URL('./content/content.js', import.meta.url), 'utf8');
+  assert.ok(!content.includes("window.location.href = chrome.runtime.getURL"), 'web-origin navigation to chrome-extension:// URLs is blocked without web_accessible_resources');
+  assert.match(content, /send\('OPEN_PLANTING_PAGE'\)/, 'the mission action must ask the worker to navigate instead');
+  assert.match(content, /chrome\.storage\?\.onChanged\?\.addListener/, 'the companion must sync with cross-context state changes');
+  assert.match(content, /focus-forest-history/, 'the companion must listen for the MAIN-world SPA bridge event');
+  assert.equal(/setInterval\(/.test(content), false, 'companion timers must stay bounded');
+
+  const bridge = readFileSync(new URL('./content/spa-bridge.js', import.meta.url), 'utf8');
+  const checked = spawnSync(process.execPath, ['--check', new URL('./content/spa-bridge.js', import.meta.url).pathname], { encoding: 'utf8' });
+  assert.equal(checked.status, 0, `spa-bridge.js must parse as a classic script:\n${checked.stderr}`);
+  assert.match(bridge, /history\.pushState/, 'the bridge must wrap pushState in the page world');
+  assert.match(bridge, /history\.replaceState/, 'the bridge must wrap replaceState in the page world');
+  assert.match(bridge, /focus-forest-history/, 'the bridge must announce via the namespaced DOM event');
+
+  const manifest = JSON.parse(readFileSync(new URL('./manifest.json', import.meta.url), 'utf8'));
+  const bridgeEntry = (manifest.content_scripts || []).find((entry) => (entry.js || []).includes('content/spa-bridge.js'));
+  assert.ok(bridgeEntry, 'the bridge must be registered as a content script');
+  assert.equal(bridgeEntry.world, 'MAIN', 'the bridge only works in the page world');
+  assert.equal(bridgeEntry.run_at, 'document_start', 'the bridge must wrap history before page scripts run');
+  assert.ok(Number(manifest.minimum_chrome_version) >= 111, 'manifest world:"MAIN" requires Chrome 111+');
+  assert.deepEqual(manifest.web_accessible_resources, [], 'the fix must not open any web-accessible resources');
+});
+
+await test('A10: self-link reloads are recorded exactly once via commit-verified marks', async () => {
+  clearStateCache();
+  await send({ type: 'CLEAR_DATA' });
+  await send({ type: 'START_MISSION', mission: 'Self-link probe', tab: { id: 7, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/doc', title: 'Doc' }, { id: 7 });
+
+  // A link to the URL the tab already shows is a genuine reload-by-link:
+  // trackLink finds the existing node (no navigation event) and the committed
+  // observation must record exactly one 'reload'.
+  const before = session().events.length;
+  await send({ type: 'LINK_CLICK', url: 'https://example.com/doc', title: 'Doc (self link)', targetBlank: false }, { id: 7 });
+  listeners.committed[0]?.({ frameId: 0, tabId: 7, transitionType: 'link', transitionQualifiers: [], url: 'https://example.com/doc' });
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/doc', title: 'Doc' }, { id: 7 });
+  const recorded = session().events.slice(before).map((e) => e.type);
+  assert.deepEqual(recorded, ['reload'], 'a self-link reload must record exactly one reload event');
+
+  // The mark is single-use: an unrelated later same-URL observation with a
+  // 'link' hint (no fresh click) must not inherit it.
+  listeners.committed[0]?.({ frameId: 0, tabId: 7, transitionType: 'link', transitionQualifiers: [], url: 'https://example.com/doc' });
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/doc', title: 'Doc' }, { id: 7 });
+  assert.equal(session().events.filter((e) => e.type === 'reload').length, 1, 'marks must not replay into extra reload events');
+
+  // A target=_blank click on the current URL opens a new tab; it is not a
+  // reload of this tab and must not leave a mark behind.
+  await send({ type: 'LINK_CLICK', url: 'https://example.com/doc', title: 'Doc', targetBlank: true }, { id: 7 });
+  listeners.committed[0]?.({ frameId: 0, tabId: 7, transitionType: 'link', transitionQualifiers: [], url: 'https://example.com/doc' });
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/doc', title: 'Doc' }, { id: 7 });
+  assert.equal(session().events.filter((e) => e.type === 'reload').length, 1, 'new-tab self-links must not fabricate reloads');
+});
+
+await test('A11: completed sessions without a usable endedAt never accrue phantom time', async () => {
+  clearStateCache();
+  await send({ type: 'CLEAR_DATA' });
+  const now = Date.now();
+  const DAY = 86400000;
+  await send({
+    type: 'IMPORT_DATA',
+    payload: {
+      data: {
+        sessions: [{
+          id: 'session-inverted', mission: 'Inverted import', status: 'completed',
+          startedAt: now - 90 * DAY, endedAt: now - 91 * DAY, // ends before it starts
+          origin: { url: 'chrome://newtab', title: 'New Tab' },
+          nodes: [], events: [], activeIntervals: [], pendingRedirects: []
+        }]
+      }
+    }
+  });
+  const imported = store.focusForestState.sessions.find((s) => s.id === 'session-inverted');
+  assert.equal(imported.endedAt, null, 'the inverted endedAt must be repaired to null');
+  const stats = await send({ type: 'GET_DASHBOARD_STATS' });
+  assert.equal(stats.totalFocusTime, 0, 'a repaired completed session must count as zero-length, not accrue to now');
+  const invertedRow = stats.history.find((row) => row.timestamp <= now - 89 * DAY);
+  assert.ok(invertedRow, 'the repaired session must still appear in recent history');
+  assert.equal(invertedRow.duration, 0, 'the history table must not show a phantom 90-day session');
+  assert.ok(stats.weeklyData.every((day) => day.minutes === 0), 'weekly minutes must not be inflated by the repaired session');
+
+  // Genuinely active sessions still accrue elapsed time up to now.
+  await send({ type: 'START_MISSION', mission: 'Live garden', tab: { id: 7, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
+  store.focusForestState.sessions.find((s) => s.id === store.focusForestState.activeSessionId).startedAt = now - 3600000;
+  clearStateCache();
+  const liveStats = await send({ type: 'GET_DASHBOARD_STATS' });
+  assert.ok(liveStats.totalFocusTime >= 3599 && liveStats.totalFocusTime <= 3601, `active session time must still accrue (got ${liveStats.totalFocusTime})`);
+});
+
+await test('A12: V2 hardening sentinels (visibility gate, isolated bookkeeping, frozen-history bridge)', async () => {
+  const content = readFileSync(new URL('./content/content.js', import.meta.url), 'utf8');
+  assert.match(content, /if \(document\.hidden\) return;\s*\n\s*if \(Date\.now\(\) - lastRefreshAt < STORAGE_SYNC_MIN_GAP_MS\) return;/, 'storage sync must skip hidden tabs before spending rate-limit budget');
+
+  const worker = readFileSync(new URL('./background/service-worker.js', import.meta.url), 'utf8');
+  assert.match(worker, /try \{\s*\n\s*await recordActiveTab\(/, 'createSession must isolate interval bookkeeping failures from the START_MISSION result');
+  assert.match(worker, /session\.endedAt \|\| \(session\.status === 'completed' \? sessionStart : now\)/, 'completed sessions with a null endedAt must not accrue time to now');
+  assert.ok(worker.includes('selfLinkMarks.clear()'), 'CLEAR_DATA must drop self-link marks with the other runtime tracking');
+  assert.ok(worker.includes('selfLinkMarks.delete(tabId)'), 'tab removal must drop that tab’s self-link mark');
+
+  const bridge = readFileSync(new URL('./content/spa-bridge.js', import.meta.url), 'utf8');
+  assert.match(bridge, /try \{\s*\n\s*history\.pushState = function pushState/, 'the bridge must survive pages with frozen History methods');
+  assert.match(bridge, /typeof history\.pushState !== 'function'/, 'the bridge must not throw when History methods are missing or replaced');
+
+  // Execute the bridge against stubs: normal history patches cleanly and
+  // announces; a sabotaged history object exits without throwing.
+  const { Script } = await import('node:vm');
+  const bridgeSource = new Script(bridge);
+  const events = [];
+  const healthy = {
+    // A bare vm context has no DOM globals; the bridge only needs these two.
+    CustomEvent: class CustomEvent { constructor(type) { this.type = type; } },
+    document: { dispatchEvent(event) { events.push(event.type); return true; } },
+    history: { pushState() {}, replaceState() {} }
+  };
+  bridgeSource.runInNewContext(healthy);
+  healthy.history.pushState({}, '', '/a');
+  healthy.history.replaceState({}, '', '/b');
+  assert.deepEqual(events, ['focus-forest-history', 'focus-forest-history'], 'patched history must announce each write');
+
+  const sabotaged = {
+    CustomEvent: class CustomEvent { constructor(type) { this.type = type; } },
+    document: { dispatchEvent() { throw new Error('must not be called'); } },
+    history: { pushState: undefined, replaceState: undefined }
+  };
+  bridgeSource.runInNewContext(sabotaged); // must not throw
+});
+
+await new Promise((resolve) => setTimeout(resolve, 50));
+assert.equal(unhandled.length, 0, 'no unhandled promise rejections may escape the audit fixes');
+console.log('test-audit-fixes.mjs: all audit regression checks passed');
