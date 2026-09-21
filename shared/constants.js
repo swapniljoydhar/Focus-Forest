@@ -39,6 +39,13 @@ export const TREE_LAYOUT = {
   NODE_RADIUS_MIN: 6,
   BRANCH_WIDTH_BASE: 5,
   BRANCH_WIDTH_MIN: 2,
+  // Normalized leaf placement inside the crown (fraction of crown radius).
+  // The old NODE_RADIUS_*/50 derivation clustered every leaf into the middle
+  // third of the crown; these bounds fill the crown while keeping the pinned
+  // inside-crown constraint (normalized dx^2+dy^2 < 0.6) with headroom even
+  // after the per-leaf radial jitter.
+  LEAF_SPREAD_MIN: 0.14,
+  LEAF_SPREAD_MAX: 0.62,
   // Nodes first seen within this window render as fresh buds instead of
   // full leaves. Own constant on purpose: this previously borrowed
   // SERVICE_WORKER.RATE_LIMIT_WINDOW_MS, silently coupling a visual choice to

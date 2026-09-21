@@ -59,3 +59,23 @@ body[data-garden-state="resting"] .garden-card{background:rgba(247,248,239,.84)}
 .leaf-layer{pointer-events:none}
 .node:focus-visible .leaf-shape{stroke:#29432d;stroke-width:2}
 .finds-panel{min-height:0;margin-top:20px;background:rgba(249,249,240,.78)}.find-item{display:flex;align-items:center;gap:10px;padding:12px 0;border-top:1px solid #e8ede4}.find-item:first-child{border-top:0;padding-top:0}.find-icon{flex:none;font-size:16px;line-height:1}.find-item strong{display:block;color:#486a4a;font-size:12px;font-weight:650;line-height:1.35}.find-item small{display:block;margin-top:3px;color:#8d9a87;font-size:10px}[data-theme="dark"] .finds-panel{background:rgba(30,38,30,.9)}[data-theme="dark"] .find-item{border-color:#3d453d}[data-theme="dark"] .find-item strong{color:#c8d4c8}[data-theme="dark"] .find-item small{color:#7a8a7a}
+
+/* ---- Garden upgrade (2026-09-21): page-level polish ---- */
+/* Weather cue tint follows the garden's mood. */
+.weather-cue[data-cue="dusk"]:before{background:#d9a05b;box-shadow:0 0 0 3px rgba(217,160,91,.15)}
+.weather-cue[data-cue="resting"]:before{background:#9db39a;box-shadow:0 0 0 3px rgba(157,179,154,.15)}
+.weather-cue[data-cue="fern"]:before{background:#a8c48f;box-shadow:0 0 0 3px rgba(168,196,143,.15)}
+/* Tab changes settle with one short fade; disabled with ambient motion. */
+.tab-content.active{animation:tabIn .35s ease both}
+@keyframes tabIn{from{opacity:0;transform:translateY(5px)}to{opacity:1;transform:none}}
+body[data-motion="off"] .tab-content.active{animation:none}
+/* Selected-branch detail: the address line and a quiet visit link. */
+.detail-copy .detail-url{margin:5px 0 0!important;color:#7d8f7a!important;font:11px/1.4 ui-monospace,SFMono-Regular,Menlo,monospace!important;overflow-wrap:anywhere;opacity:.85}
+.detail-copy .detail-visit{display:inline-block;margin-top:8px;color:#5d865c;font:650 11px ui-sans-serif,system-ui,sans-serif;text-decoration:none;border-bottom:1px dashed rgba(93,134,92,.45);padding-bottom:1px}
+.detail-copy .detail-visit:hover{color:#3e6242;border-bottom-style:solid}
+[data-theme="dark"] .detail-copy .detail-url{color:#8fa38c!important}
+[data-theme="dark"] .detail-copy .detail-visit{color:#8fbc8a;border-bottom-color:rgba(143,188,138,.45)}
+[data-theme="dark"] .detail-copy .detail-visit:hover{color:#b6d8b2}
+/* Weekly chart: today's bar wears a quiet outline. */
+.today-bar{stroke:#527154;stroke-width:1.5}
+[data-theme="dark"] .today-bar{stroke:#8ca086}

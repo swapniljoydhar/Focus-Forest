@@ -44,7 +44,7 @@ export function treeStage(mode = 'sapling') {
       forkY: config.crownY + config.ry * 0.66, boleWidth: config.boleWidth }
   };
 }
-function variation(value) {
+export function variation(value) {
   let hash = 2166136261;
   for (const char of String(value || '')) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
   return (hash >>> 0) / 4294967296;
@@ -108,7 +108,7 @@ export function layoutTree(inputNodes = []) {
   // chain. Depth is data, not a reason to turn the artwork into a vertical pole.
   ordered.forEach((node, index) => {
     const spread = Math.max(3, ordered.length);
-    const radius = TREE_LAYOUT.NODE_RADIUS_MIN / 50 + (TREE_LAYOUT.NODE_RADIUS_BASE / 50) * Math.sqrt((index + .5) / spread);
+    const radius = TREE_LAYOUT.LEAF_SPREAD_MIN + (TREE_LAYOUT.LEAF_SPREAD_MAX - TREE_LAYOUT.LEAF_SPREAD_MIN) * Math.sqrt((index + .5) / spread);
     const angle = -2.32 + index * GOLDEN_ANGLE + (variation(node.id) - .5) * .24;
     const radial = radius * (.92 + variation(`${node.id}:radius`) * .12);
     positions.set(node.id, {

@@ -31,10 +31,25 @@ function pathReason(node) {
 }
 function nodeDescription(node) { const state = node.state === 'pruned' ? 'pruned and kept in the trail' : node.state === 'composted' ? 'resting in compost' : node.depth === 0 ? 'mission root' : `${branchClass(node)} branch`; return `${(node.title || node.url || 'Untitled path').slice(0, 80)}, ${state}, ${confidenceLabel(node)}, depth ${node.depth}`; }
 function shortLabel(node) { const value = (node.title || node.url || 'Untitled path').replace(/^https?:\/\//, ''); return value.length > 20 ? `${value.slice(0, 19)}…` : value; }
+let lastTree = null;
+let lastTreeMode = null;
+let stageShiftTimer = 0;
 function renderTree(session) {
   const tree = renderGardenTree(svg, session, {
     selectedNodeId, describeNode: nodeDescription, classForNode: nodeClasses, shortLabel
   });
+  lastTree = tree;
+  delete svg.dataset.preview; // the DOM was rebuilt; no stale hover preview
+  // A stage change (seed -> sapling -> canopy -> deep) is a milestone: give
+  // the whole scene one gentle crossfade. One-shot timer, no loops.
+  if (lastTreeMode && lastTreeMode !== tree.mode) {
+    svg.classList.remove('stage-shift');
+    void svg.getBoundingClientRect(); // restart the one-shot animation
+    svg.classList.add('stage-shift');
+    window.clearTimeout(stageShiftTimer);
+    stageShiftTimer = window.setTimeout(() => svg.classList.remove('stage-shift'), 900);
+  }
+  lastTreeMode = tree.mode;
   const stages = { empty: 'Every forest starts somewhere.', seed: 'A little beginning.', sapling: 'Putting down roots.', canopy: 'Room for your curiosity.', deep: 'A whole world of little discoveries.' };
   document.querySelector('#tree-stage').textContent = stages[tree.mode];
   document.querySelector('#tree-hint').textContent = !tree.root
@@ -100,6 +115,18 @@ function renderDetail(node, session) {
     makeTextElement('p', pathReason(node), 'detail-reason')
   );
   if (durationLabel) copy.append(makeTextElement('p', durationLabel, 'detail-duration'));
+  // Where this path lives: the bare address as text, plus a safe visit link
+  // for real pages (property-assigned href, noopener — same discipline as the
+  // compost links).
+  const urlText = String(node.url || '').replace(/^https?:\/\//, '');
+  if (urlText) copy.append(makeTextElement('p', urlText.length > 64 ? `${urlText.slice(0, 63)}…` : urlText, 'detail-url'));
+  if (/^https?:\/\//i.test(node.url || '')) {
+    const visit = makeTextElement('a', 'Visit this page ↗', 'detail-visit');
+    visit.href = node.url;
+    visit.target = '_blank';
+    visit.rel = 'noopener noreferrer';
+    copy.append(visit);
+  }
   const actions = document.createElement('div');
   actions.className = 'detail-actions';
   if (isRoot) {
@@ -145,6 +172,17 @@ function readableEvent(e) {
   const fallback = String(e.type || '').replaceAll('_', ' ').trim();
   return fallback ? `${fallback[0].toUpperCase()}${fallback.slice(1)}.` : 'A small step along this path.';
 }
+function relTime(at) {
+  const diff = Date.now() - Number(at);
+  if (!Number.isFinite(diff) || diff < 0) return '';
+  const minutes = Math.floor(diff / 60000);
+  if (minutes < 1) return 'just now';
+  if (minutes < 60) return `${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return days < 30 ? `${days}d ago` : '';
+}
 function renderEvents(session) {
   const box = document.querySelector('#events');
   box.replaceChildren();
@@ -159,7 +197,8 @@ function renderEvents(session) {
     item.append(makeTextElement('span', '', 'event-dot'));
     const copy = document.createElement('div');
     copy.append(makeTextElement('strong', readableEvent(event)));
-    copy.append(makeTextElement('small', `${new Date(event.at).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' })}${event.depth != null ? ` · branch ${event.depth}` : ''}`));
+    const ago = relTime(event.at);
+    copy.append(makeTextElement('small', `${new Date(event.at).toLocaleTimeString([], { hour:'numeric', minute:'2-digit' })}${event.depth != null ? ` · branch ${event.depth}` : ''}${ago ? ` · ${ago}` : ''}`));
     item.append(copy);
     box.append(item);
   });
@@ -250,7 +289,9 @@ async function render() {
             ? `You grew ${nodes.length} pages and found a long branch worth noticing.`
             : `You grew ${nodes.length} pages from a single clear intention.`;
   document.querySelector('#storyline').textContent = storyline;
-  document.querySelector('#weather-cue').textContent = session?.status === 'completed' ? 'Resting garden' : deepest >= thresholds.DESATURATE ? 'A little dusk' : nodes.length > 4 ? 'Fern light' : 'Soft light';
+  const weatherCue = document.querySelector('#weather-cue');
+  weatherCue.textContent = session?.status === 'completed' ? 'Resting garden' : deepest >= thresholds.DESATURATE ? 'A little dusk' : nodes.length > 4 ? 'Fern light' : 'Soft light';
+  weatherCue.dataset.cue = session?.status === 'completed' ? 'resting' : deepest >= thresholds.DESATURATE ? 'dusk' : nodes.length > 4 ? 'fern' : 'soft';
   document.body.dataset.gardenState = session?.status === 'completed' ? 'resting' : 'growing';
   renderTree(session);
   renderEvents(session);
@@ -286,9 +327,50 @@ async function selectNode(nodeId, returnFocus = false) { selectedNodeId = nodeId
 document.querySelector('#tree-page-select').addEventListener('change', wrapWithErrorBoundary(event => safeSelectNode(event.target.value || null, true), { category: ERROR_CATEGORIES.UI_RENDER, function: 'treePageSelect.change', swallow: true }));
 sessionSelect.addEventListener('change', wrapWithErrorBoundary(() => { selectedSessionId = sessionSelect.value; selectedNodeId = null; renderSafely(); }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'sessionSelect.change', swallow: true }));
 svg.addEventListener('click', wrapWithErrorBoundary(event => { const node = event.target.closest?.('[data-node-id]'); if (node) safeSelectNode(node.dataset.nodeId); }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'svg.click', swallow: true }));
-svg.addEventListener('keydown', wrapWithErrorBoundary(event => { const node = event.target.closest?.('[data-node-id]'); if (node && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); safeSelectNode(node.dataset.nodeId, true); } }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'svg.keydown', swallow: true }));
-svg.addEventListener('mouseover', wrapWithErrorBoundary(event => { const node = event.target.closest?.('[data-node-id]'); if (node) node.classList.add('hovered'); }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'svg.mouseover', swallow: true }));
-svg.addEventListener('mouseout', wrapWithErrorBoundary(event => { const node = event.target.closest?.('[data-node-id]'); if (node) node.classList.remove('hovered'); }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'svg.mouseout', swallow: true }));
+svg.addEventListener('keydown', wrapWithErrorBoundary(event => {
+  const node = event.target.closest?.('[data-node-id]');
+  if (node && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); safeSelectNode(node.dataset.nodeId, true); return; }
+  // Arrow keys walk the leaves in reading order (DOM order = arrival order),
+  // so the whole garden is traversable without a pointer.
+  if (['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp'].includes(event.key)) {
+    const leaves = [...svg.querySelectorAll('.node[data-node-id]')];
+    if (!leaves.length) return;
+    event.preventDefault();
+    const current = event.target.closest?.('.node[data-node-id]');
+    const index = current ? leaves.indexOf(current) : -1;
+    const delta = (event.key === 'ArrowRight' || event.key === 'ArrowDown') ? 1 : -1;
+    // With no leaf focused yet, ArrowRight/Down enters at the first leaf and
+    // ArrowLeft/Up at the last — Math.max(index,0) used to skip leaves[0].
+    const start = index === -1 ? (delta === 1 ? -1 : 0) : index;
+    const next = leaves[((start + delta) % leaves.length + leaves.length) % leaves.length];
+    next?.focus();
+  }
+}, { category: ERROR_CATEGORIES.UI_RENDER, function: 'svg.keydown', swallow: true }));
+// Hover preview: softly light a leaf's ancestry before the user commits to
+// selecting it. Pure class toggling on existing edges (data-edge-for), so it
+// never interferes with the selection highlight layer.
+function ancestorsOf(nodeId) {
+  const ids = new Set();
+  if (!lastTree || !nodeId) return ids;
+  let id = nodeId;
+  while (id && !ids.has(id)) { ids.add(id); id = lastTree.parentById.get(id); }
+  return ids;
+}
+function clearTrailPreview() {
+  svg.querySelectorAll('.branch-taper.trail-preview').forEach((edge) => edge.classList.remove('trail-preview'));
+  delete svg.dataset.preview;
+}
+function applyTrailPreview(nodeId) {
+  clearTrailPreview();
+  if (!nodeId || nodeId === selectedNodeId) return; // selection already traces it
+  const ids = ancestorsOf(nodeId);
+  svg.querySelectorAll('.branch-layer .branch-taper[data-edge-for]').forEach((edge) => {
+    if (ids.has(edge.dataset.edgeFor)) edge.classList.add('trail-preview');
+  });
+  svg.dataset.preview = 'on';
+}
+svg.addEventListener('mouseover', wrapWithErrorBoundary(event => { const node = event.target.closest?.('[data-node-id]'); if (node) { node.classList.add('hovered'); applyTrailPreview(node.dataset.nodeId); } }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'svg.mouseover', swallow: true }));
+svg.addEventListener('mouseout', wrapWithErrorBoundary(event => { const node = event.target.closest?.('[data-node-id]'); if (node) { node.classList.remove('hovered'); clearTrailPreview(); } }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'svg.mouseout', swallow: true }));
 detail.addEventListener('click', wrapWithErrorBoundary(async event => { const action = event.target.dataset.branchAction; if (!action) return; if (action === 'close') { selectedNodeId = null; await renderSafely(); return; } if (!selectedSessionId || !selectedNodeId) return; await message('PRUNE_NODE', { sessionId: selectedSessionId, nodeId: selectedNodeId, toCompost: action === 'compost' }); await renderSafely(); }, { category: ERROR_CATEGORIES.MESSAGING, function: 'detail.click', swallow: true }));
 document.querySelector('#compost').addEventListener('click', wrapWithErrorBoundary(async event => { const id = event.target.dataset.id; if (id) { await message('DELETE_COMPOST', { id }); await renderSafely(); } }, { category: ERROR_CATEGORIES.MESSAGING, function: 'compost.click', swallow: true }));
 document.querySelector('#forget').addEventListener('click', wrapWithErrorBoundary(event => { if (selectedSessionId) openCareDialog('forget', event.currentTarget); }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'forget.click', swallow: true }));
@@ -367,8 +449,13 @@ function renderWeeklyChart(weeklyData) {
     const y = chartY - barH;
     const rect = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
     rect.setAttribute('x', String(x)); rect.setAttribute('y', String(y));
-    rect.setAttribute('width', String(barW)); rect.setAttribute('height', String(barH));
+    rect.setAttribute('width', String(barW)); rect.setAttribute('height', String(Math.max(barH, 0)));
     rect.setAttribute('rx', '4'); rect.setAttribute('fill', '#10b981');
+    // Native SVG tooltip + a quiet marker on today's bar (the last bucket).
+    rect.setAttribute('class', i === weeklyData.length - 1 ? 'week-bar today-bar' : 'week-bar');
+    const tip = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    tip.textContent = `${d.day} (${d.date}): ${d.minutes} minute${d.minutes === 1 ? '' : 's'}`;
+    rect.append(tip);
     svg.append(rect);
     if (d.minutes > 0) {
       const val = document.createElementNS('http://www.w3.org/2000/svg', 'text');
@@ -432,6 +519,9 @@ function renderDomainChart(domainData) {
       path.setAttribute('d', `M${x1.toFixed(2)} ${y1.toFixed(2)} A${r} ${r} 0 ${large} 1 ${x2.toFixed(2)} ${y2.toFixed(2)} L${ix2.toFixed(2)} ${iy2.toFixed(2)} A${innerR} ${innerR} 0 ${large} 0 ${ix1.toFixed(2)} ${iy1.toFixed(2)} Z`);
     }
     path.setAttribute('fill', colors[i % colors.length]);
+    const sliceTip = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+    sliceTip.textContent = `${d.domain}: ${d.count} page${d.count === 1 ? '' : 's'}`;
+    path.append(sliceTip);
     svg.append(path);
     angle += sliceAngle;
   });

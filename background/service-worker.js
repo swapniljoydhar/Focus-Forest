@@ -685,7 +685,23 @@ async function observeTab(tabId, rawUrl, rawTitle, openerTabId, windowId) {
       setPendingRedirect(session, tabId, (pendingParent || redirectParent || current).id);
       return { redirectPending: true };
     }
-    if (!current && !openerTabId && !pendingParent && !redirectParent) return NO_CHANGE;
+    // A tab that took part in this session — the planting tab, or any tab
+    // foregrounded while the mission ran (both durably recorded in
+    // activeIntervals, so this survives worker restarts) — is not a stranger.
+    // Without this, composting or pruning the page a tab sits on detached its
+    // node and the unlinked-tab guard then treated the tab as unrelated
+    // forever: the mission kept running, but nothing the user did was tracked
+    // again (verified in vivo). Re-entry grows a neutral external path,
+    // exactly like typed navigation; never-activated tabs stay excluded.
+    // Participation signals (both durable, both survive worker restarts):
+    // the tab the origin was planted from, or a still-open foreground
+    // interval. Requiring an OPEN interval means a closed tab's recycled id
+    // inherits nothing (onRemoved ends its intervals).
+    const participatedInSession = Number.isInteger(tabId) && (
+      session.origin?.tabId === tabId ||
+      (session.activeIntervals || []).some((entry) => entry.tabId === tabId && !entry.endedAt)
+    );
+    if (!current && !openerTabId && !pendingParent && !redirectParent && !participatedInSession) return NO_CHANGE;
     const parent = redirectParent || opener || pendingParent || null;
     if (redirectParent) clearPendingRedirect(session, tabId);
     const depth = parent ? parent.depth + 1 : 0;
@@ -1004,9 +1020,23 @@ async function exportAllData() {
 // Import data from a previously exported snapshot.
 // Merges sessions/compost/events and replaces settings.
 async function importAllData(payload) {
-  if (!isRecord(payload) || !isRecord(payload.data)) throw new Error('invalid_payload');
-  const incoming = payload.data;
+  if (!isRecord(payload)) throw new Error('invalid_payload');
+  // Accept every shape this project has ever produced: the dashboard export
+  // file is the BARE state object (exportData unwraps { data }), while older
+  // tooling and tests may send { data: state } or { state }. Requiring the
+  // envelope made the dashboard's own export file un-importable.
+  const enveloped = isRecord(payload.data);
+  const incoming = enveloped ? payload.data : payload;
   const incomingState = isRecord(incoming.state) ? incoming.state : incoming;
+  if (!isRecord(incomingState)) throw new Error('invalid_payload');
+  // A BARE payload comes from a user-picked file: require at least one
+  // recognizable collection, so choosing the wrong JSON fails honestly with
+  // the "could not be read" message instead of importing a silent empty
+  // state. Enveloped payloads ({ data: ... }) are deliberate code paths
+  // (tooling/tests) and may legitimately merge nothing.
+  if (!enveloped && !(Array.isArray(incomingState.sessions) || Array.isArray(incomingState.compostItems) || isRecord(incomingState.settings))) {
+    throw new Error('invalid_payload');
+  }
   
   // Validate session IDs, URLs, and timestamps before normalization. Keep the
   // preprocessing window bounded; normalizeState applies the final storage cap.
@@ -1145,7 +1175,9 @@ chrome.runtime.onInstalled.addListener(() => {
 chrome.contextMenus?.onClicked?.addListener((info, tab) => {
   wrapWithErrorBoundary(async () => {
     if (info.menuItemId === 'focus-forest-start') {
-      const title = typeof info.selectionText === 'string' && info.selectionText.trim() ? info.selectionText.trim() : (tab?.title || tab?.url || 'New Tab');
+      // Title fallbacks must never adopt an unsafe scheme as mission text:
+      // only a valid http(s) tab URL is acceptable, else the neutral label.
+      const title = typeof info.selectionText === 'string' && info.selectionText.trim() ? info.selectionText.trim() : (tab?.title || safeHttpUrl(tab?.url) || 'New Tab');
       const mission = compactText(title, 140);
       if (!mission) return;
       // A link's mission targets the link's destination, not the page hosting it.
@@ -1445,9 +1477,10 @@ chrome.commands?.onCommand?.addListener((command) => {
     } else {
       const tab = await chrome.tabs.query({ active: true, currentWindow: true }).then((tabs) => tabs[0]).catch(() => null);
       if (tab?.id != null && tab?.url) {
-        // A new-tab placeholder has no meaningful title; naming a mission
-        // after its internal URL (e.g. "chrome://newtab") reads as noise.
-        const missionSource = tab.title || (isBrowserNewTabUrl(tab.url) || isExtensionNewTabUrl(tab.url) ? 'New Tab' : tab.url);
+        // A new-tab placeholder (or any non-http URL) has no meaningful
+        // title; naming a mission after an internal or unsafe URL reads as
+        // noise. Only a genuine http(s) address is acceptable as the name.
+        const missionSource = tab.title || (safeHttpUrl(tab.url) ? tab.url : 'New Tab');
         await createSession(compactText(missionSource, 140), { id: tab.id, url: tab.url, title: tab.title, windowId: tab.windowId });
       }
     }
@@ -1469,6 +1502,21 @@ chrome.runtime.onSuspend?.addListener(() => {
 chrome.runtime.onStartup?.addListener(() => {
   wrapWithErrorBoundary(async () => {
     await takeOverOpenNewTabs();
+    // A browser restart ends every previous foreground interval: intervals
+    // left open would keep accruing phantom "foreground time" across the
+    // restart, and recycled tab ids could inherit stale participation in a
+    // surviving mission. Fresh intervals for the current active tabs are
+    // recorded right below.
+    await mutate((state) => {
+      const session = activeSession(state);
+      if (!session) return NO_CHANGE;
+      let closed = false;
+      const restartedAt = Date.now();
+      for (const entry of session.activeIntervals || []) {
+        if (!entry.endedAt) { entry.endedAt = restartedAt; closed = true; }
+      }
+      return closed ? session : NO_CHANGE;
+    });
     const tabs = await chrome.tabs.query({ active: true }).catch(() => []);
     await Promise.all(tabs.filter((tab) => Number.isInteger(tab.id)).map((tab) => recordActiveTab(tab.id, tab.windowId)));
   }, { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'onStartup', swallow: true })();
@@ -1537,6 +1585,15 @@ chrome.tabs.onRemoved.addListener((tabId) => {
       const pendingBefore = (session.pendingRedirects || []).length;
       clearPendingRedirect(session, tabId);
       if (session.pendingRedirects.length !== pendingBefore) changed = true;
+      // End the removed tab's open foreground interval: a closed tab accrues
+      // no further foreground time (previously it kept accruing until session
+      // end), and an ended interval correctly ends the tab's participation —
+      // so a REUSED tab id (Chrome recycles ids across browser sessions) can
+      // never inherit the removed tab's relationships.
+      const removedAt = Date.now();
+      for (const entry of session.activeIntervals || []) {
+        if (entry.tabId === tabId && !entry.endedAt) { entry.endedAt = removedAt; changed = true; }
+      }
       const node = nodeForTab(session, tabId);
       if (!node || node.closedAt) return changed ? session : NO_CHANGE;
       detachTab(node, tabId);

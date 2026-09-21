@@ -355,7 +355,8 @@ await test('A11: completed sessions without a usable endedAt never accrue phanto
 
 await test('A12: V2 hardening sentinels (visibility gate, isolated bookkeeping, frozen-history bridge)', async () => {
   const content = readFileSync(new URL('./content/content.js', import.meta.url), 'utf8');
-  assert.match(content, /if \(document\.hidden\) return;\s*\n\s*if \(Date\.now\(\) - lastRefreshAt < STORAGE_SYNC_MIN_GAP_MS\) return;/, 'storage sync must skip hidden tabs before spending rate-limit budget');
+  assert.match(content, /if \(document\.hidden\) return;/, 'storage sync must skip hidden tabs before spending rate-limit budget');
+  assert.match(content, /STORAGE_SYNC_MIN_GAP_MS - since \+ 50/, 'storage sync inside the freshness gate must DEFER (re-arm), never drop the update');
 
   const worker = readFileSync(new URL('./background/service-worker.js', import.meta.url), 'utf8');
   assert.match(worker, /try \{\s*\n\s*await recordActiveTab\(/, 'createSession must isolate interval bookkeeping failures from the START_MISSION result');
@@ -449,6 +450,71 @@ await test('A15: onUpdated observes only committed navigations; same-document co
   assert.ok(spaNode, 'the SPA path must still record the route');
   assert.equal(spaNode.navigationKind, 'spa', 'SPA routes keep their spa classification');
   assert.equal(spaNode.depth, 1, 'SPA routes stay linked to the page they changed from');
+});
+
+await test('A16: composting or pruning the current page never orphans the tab from the garden', async () => {
+  clearStateCache();
+  await send({ type: 'CLEAR_DATA' });
+  await send({ type: 'START_MISSION', mission: 'Orphan probe', tab: { id: 7, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/doc', title: 'Doc' }, { id: 7 });
+  await send({ type: 'LINK_CLICK', url: 'https://example.com/saved', title: 'Saved', targetBlank: false }, { id: 7 });
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/saved', title: 'Saved' }, { id: 7 });
+  await send({ type: 'COMPOST', url: 'https://example.com/saved', title: 'Saved' }, { id: 7 });
+  const compostedNode = session().nodes.find((n) => n.url === 'https://example.com/saved');
+  assert.equal(compostedNode.state, 'composted');
+  assert.deepEqual(compostedNode.tabIds, [], 'composting still detaches every live tab alias (pinned contract)');
+
+  // The tab keeps participating: the next navigation re-enters the garden as
+  // a neutral external path instead of vanishing forever.
+  listeners.committed[0]?.({ frameId: 0, tabId: 7, transitionType: 'link', transitionQualifiers: [], url: 'https://example.com/next' });
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/next', title: 'Next' }, { id: 7 });
+  const next = session().nodes.find((n) => n.url === 'https://example.com/next');
+  assert.ok(next, 'a composted tab must keep growing the garden');
+  assert.equal(next.depth, 0, 'post-compost re-entry is a neutral path, not a deep branch');
+  assert.equal(next.relationshipConfidence, 'external');
+
+  // Same guarantee after pruning a branch the tab moved onto.
+  await send({ type: 'LINK_CLICK', url: 'https://example.com/deeper', title: 'Deeper', targetBlank: false }, { id: 7 });
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/deeper', title: 'Deeper' }, { id: 7 });
+  const deeper = session().nodes.find((n) => n.url === 'https://example.com/deeper');
+  assert.equal(deeper.depth, 1, 'the re-rooted tab grows linked branches again');
+  await send({ type: 'PRUNE_NODE', sessionId: session().id, nodeId: deeper.id, toCompost: false });
+  await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/after-prune', title: 'After' }, { id: 7 });
+  assert.ok(session().nodes.find((n) => n.url === 'https://example.com/after-prune'), 'a pruned tab must keep growing the garden');
+
+  // A never-seen, never-foregrounded tab is still a stranger.
+  await send({ type: 'OBSERVE_PAGE', url: 'https://stranger.example/x', title: 'X' }, { id: 99 });
+  assert.equal(session().nodes.some((n) => n.url === 'https://stranger.example/x'), false, 'unrelated tabs must still not become branches');
+
+  // The replanted origin tab participates even without any activation
+  // interval: a tab planted via replant (the common real flow) must never
+  // orphan. (Covered structurally: tab 7 is the origin tab in this fixture.)
+  // Closing the tab ends its participation: a REUSED tab id (Chrome recycles
+  // ids) must not inherit the closed tab's place in the garden.
+  await listeners.removed[0](7);
+  await send({ type: 'OBSERVE_PAGE', url: 'https://reused.example/y', title: 'Y' }, { id: 7 });
+  assert.equal(session().nodes.some((n) => n.url === 'https://reused.example/y'), false, 'a reused tab id must not inherit participation');
+});
+
+await test('A17: the dashboard export file re-imports bare, enveloped forms still work, garbage is rejected', async () => {
+  clearStateCache();
+  await send({ type: 'CLEAR_DATA' });
+  await send({ type: 'START_MISSION', mission: 'Round trip', tab: { id: 7, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
+  const exported = await send({ type: 'EXPORT_DATA' });
+  const fileContents = exported.data; // exactly what dashboard exportData writes to the file
+
+  // Bare-state payload (the real dashboard export/import round-trip).
+  await send({ type: 'CLEAR_DATA' });
+  assert.deepEqual(await send({ type: 'IMPORT_DATA', payload: fileContents }), { imported: true });
+  assert.ok(store.focusForestState.sessions.some((s) => s.mission === 'Round trip'), 'bare export file must restore the garden');
+
+  // Envelope form ({ data: state }) still works.
+  await send({ type: 'CLEAR_DATA' });
+  assert.deepEqual(await send({ type: 'IMPORT_DATA', payload: { data: fileContents } }), { imported: true });
+  assert.ok(store.focusForestState.sessions.some((s) => s.mission === 'Round trip'), 'enveloped export must restore the garden');
+
+  // Arbitrary JSON is still rejected with the honest error.
+  await assert.rejects(send({ type: 'IMPORT_DATA', payload: { hello: 'world' } }), /INTERNAL_ERROR/, 'unrecognized files must be rejected, not silently imported as empty');
 });
 
 await new Promise((resolve) => setTimeout(resolve, 50));

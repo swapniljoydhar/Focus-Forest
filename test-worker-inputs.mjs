@@ -1,0 +1,169 @@
+// Worker input surfaces that no other suite could reach: the Alt+F command
+// handler (chrome.commands.onCommand) and the context-menu handler
+// (chrome.contextMenus.onClicked). Both are registered behind optional
+// chaining, so mock harnesses that omit those APIs silently skip them —
+// this file supplies them and exercises every branch.
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+
+const store = {};
+const listeners = { installed: [], message: [], committed: [], historyStateUpdated: [], created: [], updated: [], removed: [], command: [], menu: [] };
+const tabActions = [];
+const tabInfo = new Map();
+
+globalThis.chrome = {
+  storage: { local: {
+    async get(key) { return key in store ? { [key]: structuredClone(store[key]) } : {}; },
+    async set(value) { Object.assign(store, structuredClone(value)); }
+  } },
+  runtime: { id: 'test', getURL(p) { return `chrome-extension://test/${p}`; },
+    onInstalled: { addListener(fn) { listeners.installed.push(fn); } },
+    onMessage: { addListener(fn) { listeners.message.push(fn); } } },
+  alarms: { create() {}, onAlarm: { addListener() {} } },
+  search: { async query() {} },
+  commands: { onCommand: { addListener(fn) { listeners.command.push(fn); } } },
+  contextMenus: {
+    onClicked: { addListener(fn) { listeners.menu.push(fn); } },
+    async removeAll() {}, async create() {}
+  },
+  webNavigation: { onCommitted: { addListener(fn) { listeners.committed.push(fn); } }, onHistoryStateUpdated: { addListener(fn) { listeners.historyStateUpdated.push(fn); } } },
+  windows: { async update() {} },
+  tabs: {
+    onCreated: { addListener(fn) { listeners.created.push(fn); } },
+    onUpdated: { addListener(fn) { listeners.updated.push(fn); } },
+    onRemoved: { addListener(fn) { listeners.removed.push(fn); } },
+    async query() { return [...tabInfo.values()].map((t) => structuredClone(t)); },
+    async get(id) { const t = tabInfo.get(id); if (!t) throw new Error('No tab'); return structuredClone({ id, windowId: 1, ...t }); },
+    async update(id, patch) { const next = { ...(tabInfo.get(id) || { id, windowId: 1 }), ...patch }; tabInfo.set(id, next); tabActions.push(['update', id, patch]); },
+    async create(info) { const id = 900 + tabInfo.size; tabInfo.set(id, { id, windowId: 1, ...info }); tabActions.push(['create', info]); return { id, ...info }; },
+    async remove(id) { tabActions.push(['remove', id]); }
+  }
+};
+globalThis.ServiceWorkerGlobalScope = class {};
+globalThis.self = new globalThis.ServiceWorkerGlobalScope();
+
+await import('./background/service-worker.js');
+const { clearStateCache } = await import('./shared/state.js');
+const handler = listeners.message[0];
+async function send(message, tab) {
+  const sender = tab ? { id: 'test', tab, url: `https://page.test/${tab.id}` } : { id: 'test', url: 'chrome-extension://test/dashboard/index.html' };
+  return await new Promise((resolve, reject) => handler(message, sender, (r) => r?.error ? reject(new Error(r.error)) : resolve(r)));
+}
+function session() { return store.focusForestState.sessions.find((s) => s.id === store.focusForestState.activeSessionId); }
+const settle = () => new Promise((r) => setTimeout(r, 60));
+
+assert.equal(listeners.command.length, 1, 'the toggle-mission command listener must be registered');
+assert.equal(listeners.menu.length, 1, 'the context-menu click listener must be registered');
+
+await test('Alt+F starts a mission from the active tab when none is running', async () => {
+  clearStateCache();
+  await send({ type: 'CLEAR_DATA' });
+  tabInfo.clear(); tabInfo.set(1, { id: 1, windowId: 1, url: 'https://article.example/deep-dive', title: 'A long article' });
+  await listeners.command[0]('toggle-mission');
+  await settle();
+  assert.equal(session().mission, 'A long article', 'mission is named after the active tab title');
+  assert.equal(session().origin.url, 'https://article.example/deep-dive', 'origin is the tab the shortcut fired on');
+});
+
+await test('Alt+F names browser new tabs "New Tab" instead of an internal URL', async () => {
+  clearStateCache();
+  await send({ type: 'CLEAR_DATA' });
+  tabInfo.clear(); tabInfo.set(2, { id: 2, windowId: 1, url: 'chrome://newtab', title: '' });
+  await listeners.command[0]('toggle-mission');
+  await settle();
+  assert.equal(session().mission, 'New Tab', 'a new-tab placeholder must not become the mission name');
+});
+
+await test('Alt+F ends the running mission (toggle)', async () => {
+  await listeners.command[0]('toggle-mission');
+  await settle();
+  const ended = store.focusForestState.sessions.at(-1);
+  assert.equal(ended.status, 'completed');
+  assert.equal(ended.endReason, 'user_ended');
+  assert.equal(store.focusForestState.activeSessionId, null);
+});
+
+await test('Alt+F ignores unrelated commands and missing tabs', async () => {
+  clearStateCache();
+  await send({ type: 'CLEAR_DATA' });
+  tabInfo.clear(); // no active tab at all
+  await listeners.command[0]('some-other-command');
+  await listeners.command[0]('toggle-mission');
+  await settle();
+  assert.equal(store.focusForestState.sessions.length, 0, 'no mission may be created without an active tab');
+});
+
+await test('context menu: start mission from a link targets the link, and only navigates when needed', async () => {
+  clearStateCache();
+  await send({ type: 'CLEAR_DATA' });
+  tabInfo.clear(); tabInfo.set(3, { id: 3, windowId: 1, url: 'https://blog.example/post', title: 'Blog post' });
+  tabActions.length = 0;
+  await listeners.menu[0]({ menuItemId: 'focus-forest-start', linkUrl: 'https://target.example/guide', selectionText: '  Reading the guide  ' }, { id: 3, windowId: 1, url: 'https://blog.example/post', title: 'Blog post' });
+  await settle();
+  assert.equal(session().mission, 'Reading the guide', 'selection text becomes the mission, trimmed and compacted');
+  assert.equal(session().origin.url, 'https://target.example/guide', "a link's mission targets the link destination, not the host page");
+  assert.deepEqual(tabActions.at(-1), ['update', 3, { url: 'https://target.example/guide' }], 'the tab is navigated to the link target');
+
+  // Same-URL case: no redundant reload of the page the tab already shows.
+  tabActions.length = 0;
+  await listeners.menu[0]({ menuItemId: 'focus-forest-start', linkUrl: 'https://target.example/guide' }, { id: 3, windowId: 1, url: 'https://target.example/guide', title: 'Guide' });
+  await settle();
+  assert.equal(tabActions.some((a) => a[0] === 'update'), false, 'starting from a link the tab already shows must not reload it');
+});
+
+await test('context menu: start mission from the page falls back to the page title', async () => {
+  clearStateCache();
+  await send({ type: 'CLEAR_DATA' });
+  tabInfo.clear(); tabInfo.set(4, { id: 4, windowId: 1, url: 'https://docs.example/intro', title: 'Documentation intro' });
+  await listeners.menu[0]({ menuItemId: 'focus-forest-start' }, { id: 4, windowId: 1, url: 'https://docs.example/intro', title: 'Documentation intro' });
+  await settle();
+  assert.equal(session().mission, 'Documentation intro');
+  assert.equal(session().origin.url, 'https://docs.example/intro');
+});
+
+await test('context menu: save-for-later handles links and pages distinctly', async () => {
+  clearStateCache();
+  await send({ type: 'CLEAR_DATA' });
+  tabInfo.clear(); tabInfo.set(5, { id: 5, windowId: 1, url: 'https://reader.example/now', title: 'Reading now' });
+  await send({ type: 'START_MISSION', mission: 'Compost menu probe', tab: { id: 5, url: 'https://reader.example/now', title: 'Reading now' } });
+  // A LINK target is saved without touching the tab's own node.
+  await listeners.menu[0]({ menuItemId: 'focus-forest-compost', linkUrl: 'https://later.example/article', linkText: 'An article for later' }, { id: 5, windowId: 1, url: 'https://reader.example/now', title: 'Reading now' });
+  await settle();
+  let items = store.focusForestState.compostItems;
+  assert.equal(items.length, 1);
+  assert.equal(items[0].url, 'https://later.example/article');
+  assert.equal(items[0].title, 'An article for later');
+  // The PAGE itself: saves and composts the tab's current node.
+  await listeners.menu[0]({ menuItemId: 'focus-forest-compost' }, { id: 5, windowId: 1, url: 'https://reader.example/now', title: 'Reading now' });
+  await settle();
+  items = store.focusForestState.compostItems;
+  assert.equal(items.length, 2);
+  assert.equal(items[0].url, 'https://reader.example/now', 'newest save first');
+  const node = session().nodes.find((n) => n.url === 'https://reader.example/now');
+  assert.equal(node.state, 'composted', 'composting the page composts its node');
+});
+
+await test('context menu: end mission completes the garden', async () => {
+  await listeners.menu[0]({ menuItemId: 'focus-forest-end' }, { id: 5, windowId: 1, url: 'https://reader.example/now', title: 'Reading now' });
+  await settle();
+  assert.equal(store.focusForestState.activeSessionId, null);
+  assert.equal(store.focusForestState.sessions.at(-1).endReason, 'user_ended');
+});
+
+await test('context menu: unknown items are ignored; unsafe page URLs are sanitized, never persisted', async () => {
+  clearStateCache();
+  await send({ type: 'CLEAR_DATA' });
+  tabInfo.clear(); tabInfo.set(6, { id: 6, windowId: 1, url: 'https://safe.example/x', title: 'Safe' });
+  await listeners.menu[0]({ menuItemId: 'something-else' }, { id: 6, windowId: 1, url: 'https://safe.example/x', title: 'Safe' });
+  await settle();
+  assert.equal(store.focusForestState.sessions.length, 0, 'unknown menu items must do nothing');
+  // A blank selection on a page with an unsafe URL still plants (the menu is
+  // always available), but the origin must sanitize to the new-tab placeholder.
+  await listeners.menu[0]({ menuItemId: 'focus-forest-start', selectionText: '   ' }, { id: 6, windowId: 1, url: 'javascript:alert(1)', title: '' });
+  await settle();
+  assert.equal(store.focusForestState.sessions.length, 1);
+  assert.equal(session().origin.url, 'chrome://newtab', 'unsafe page URLs must fall back to the new-tab placeholder');
+  assert.ok(!JSON.stringify(store.focusForestState).includes('javascript:'), 'no unsafe scheme may be persisted anywhere');
+});
+
+console.log('test-worker-inputs.mjs: command + context-menu surfaces passed');
