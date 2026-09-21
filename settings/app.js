@@ -1,5 +1,5 @@
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
-import { normalizeSettings } from '../shared/state.js';
+import { normalizeSettings, DEFAULT_SETTINGS } from '../shared/state.js';
 import { applyStoredTheme } from '../shared/theme.js';
 
 applyStoredTheme();
@@ -26,7 +26,10 @@ const gentleValue = document.querySelector('#gentle-value'); const choiceValue =
 const gentlePreviewLabel = document.querySelector('#gentle-preview-label'); const choicePreviewLabel = document.querySelector('#choice-preview-label');
 const previewGentle = document.querySelector('#preview-gentle'); const previewChoice = document.querySelector('#preview-choice');
 const previewCopy = document.querySelector('#preview-copy');
-const original = { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false }; let saved = { ...original }; let ready = false;
+// The "original rhythm" is the shared DEFAULT_SETTINGS, not a hand-copied
+// literal: if defaults ever change, reset must restore the true defaults
+// (the old copy would have silently restored a stale rhythm).
+const original = { ...DEFAULT_SETTINGS, excludedSites: [...DEFAULT_SETTINGS.excludedSites] }; let saved = { ...original }; let ready = false;
 function currentSettings() { return { gentleDepth: Number(gentle.value), choiceDepth: Number(choice.value), ambientMotion: motion.checked, growthAnimationTrigger: document.querySelector('input[name="growth-animation"]:checked')?.value || 'mission-origin', excludedSites: excludedSites.value.split(/\r?\n/).map((site) => site.trim().toLowerCase().replace(/^www\./, '')).filter(Boolean), searchEngine: searchEngine.value, enableRewards: enableRewardsToggle?.checked === true }; }
 let saving = false;
 const reset = document.querySelector('#reset');
