@@ -33,8 +33,8 @@ function garden(count, id = 'garden-one') {
 function stateFor(...sessions) {
   return { ...emptyState(), sessions, activeSessionId: sessions.at(-1)?.id || null };
 }
-async function openDashboard(t, state = stateFor(), viewport = { width: 1440, height: 1000 }) {
-  const context = await browser.newContext({ viewport, reducedMotion: 'reduce' });
+async function openDashboard(t, state = stateFor(), viewport = { width: 1440, height: 1000 }, reducedMotion = 'reduce') {
+  const context = await browser.newContext({ viewport, reducedMotion });
   t.after(() => context.close());
   const page = await context.newPage();
   const errors = [];
@@ -493,6 +493,40 @@ test('keyboard selection highlights the full branch and closing details hides th
   await page.locator('[data-branch-action="close"]').click();
   await page.waitForFunction(() => document.querySelector('#branch-detail').hidden);
   assert.equal(await page.locator('#branch-detail').isVisible(), false);
+});
+
+test('focus-trail dimming survives ambient motion and hover previews outrank it', async t => {
+  // Ambient motion ON: branchPulse (an infinite keyframe animation) runs on
+  // every branch-layer edge, and running animations OUTRANK normal opacity
+  // declarations in the CSS cascade. Every other gate in this suite runs with
+  // reducedMotion:'reduce', which silently disables the pulse — this gate is
+  // the one that would catch a dim/preview rule that forgets `animation:none`.
+  const page = await openDashboard(t, stateFor(garden(6)), { width: 1440, height: 1000 }, 'no-preference');
+  const leaf = page.locator('#tree .node[data-node-id="garden-one-node-2"]');
+  await leaf.focus();
+  await page.keyboard.press('Enter');
+  await page.locator('#branch-detail h3').waitFor();
+  await page.waitForFunction(() => document.querySelector('#tree').dataset.selected === 'true');
+  const edgeOpacity = id => page.locator(`#tree .branch-layer .branch-taper[data-edge-for="garden-one-node-${id}"]`)
+    .evaluate(el => Number(getComputedStyle(el).opacity));
+  const edgeAnim = id => page.locator(`#tree .branch-layer .branch-taper[data-edge-for="garden-one-node-${id}"]`)
+    .evaluate(el => getComputedStyle(el).animationName);
+  // Settle the opacity transition (.3s) before measuring.
+  await page.waitForTimeout(450);
+  // On-trail edges keep their gentle pulse (ancestors of node-2: edges 1 and 2).
+  assert.equal(await edgeAnim(1), 'branchPulse');
+  assert.ok((await edgeOpacity(1)) > 0.4, 'on-trail edge must stay lit through the pulse');
+  // Off-trail edges are dimmed to .12 — pulse stopped by the dim rule itself.
+  assert.equal(await edgeAnim(4), 'none');
+  assert.ok(Math.abs((await edgeOpacity(4)) - 0.12) < 0.01, 'off-trail edge must actually dim while the pulse would otherwise win');
+  // Hovering an off-trail leaf previews its ancestry at .8 — outranking the dim.
+  await page.locator('#tree .node[data-node-id="garden-one-node-4"]').evaluate(el =>
+    el.dispatchEvent(new MouseEvent('mouseover', { bubbles: true })));
+  await page.waitForTimeout(450);
+  assert.equal(await edgeAnim(3), 'none');
+  assert.ok(Math.abs((await edgeOpacity(3)) - 0.8) < 0.01, 'hovered ancestry must stay visible above the dim');
+  // An unrelated off-trail edge stays dimmed while the preview is up.
+  assert.ok(Math.abs((await edgeOpacity(5)) - 0.12) < 0.01, 'non-preview off-trail edges must stay dim');
 });
 
 test('the tree remains visible on a narrow screen', async t => {

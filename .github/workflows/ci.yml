@@ -30,6 +30,8 @@ jobs:
         run: npm run test:dashboard
       - name: Real-extension load tests (manifest, bridge, choice card, sync, rate budget)
         run: npm run test:extension
+      - name: Real-extension feature walk (every user-facing surface end to end)
+        run: npm run test:features
       - name: Stress-test 50 rapid SPA history transitions
         run: npm run test:spa-stress
       - name: Profile New Tab performance and memory

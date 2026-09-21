@@ -121,3 +121,85 @@ body[data-garden-state="resting"] .forest-scene { --crown-base: #94a66f; --crown
 }
 body[data-motion="off"] .forest-scene * { animation: none !important; transition: none !important; }
 body[data-page-visibility="hidden"] .forest-scene * { animation-play-state: paused !important; }
+
+/* ---- Garden upgrade (2026-09-21): focus trail, previews, sprouts, ambient ----
+   Every animation here is transform/opacity only, one-shot or infinitely
+   gentle, and inherits the existing universal kill-switches above:
+   prefers-reduced-motion, body[data-motion="off"], and the hidden-tab
+   animation-play-state pause. */
+
+/* Selection focus mode: the traced path stays lit while the rest of the
+   graph quietly recedes — the eye follows one branch home.
+   animation:none is load-bearing: branchPulse (infinite, animates opacity)
+   runs on every branch-layer edge, and a running animation OUTRANKS normal
+   declarations in the cascade — without stopping it here, the dim below
+   would never paint. On-trail edges keep pulsing. */
+.forest-scene .mark-layer .node { transition: opacity .25s ease; }
+.forest-scene[data-selected="true"] .branch-layer .branch-taper:not(.on-trail):not(.trail-preview) { animation: none; opacity: .12; }
+.forest-scene[data-selected="true"] .mark-layer .node:not(.on-trail):not(.hovered) { opacity: .32; }
+
+/* The selected trail breathes in once, gently. */
+.forest-scene .branch-taper.highlight { animation: trailGlow .9s ease-out both; }
+@keyframes trailGlow {
+  0% { opacity: .25; }
+  60% { opacity: 1; }
+  100% { opacity: .92; }
+}
+
+/* Hover preview: a softer gold thread shows a leaf's ancestry before commit.
+   animation:none for the same cascade reason as the dim rule above — the
+   preview must read as a steady thread, not a pulse. */
+.forest-scene .branch-taper.trail-preview { animation: none; stroke: #ecd9a4; stroke-width: 3.1; opacity: .8; }
+
+/* New leaves sprout into a live-refreshing garden instead of popping in.
+   Opacity lives on the group; the scale pop lives on the leaf/bud PATH (the
+   group's translate attribute is never touched, so positions cannot drift).
+   sproutIn deliberately has NO fill-mode: a retained `both` end-value would
+   outrank the selection dim forever (animations beat normal declarations),
+   keeping one off-trail sprout glowing after its entrance. */
+.forest-scene .node.sprouting { animation: sproutIn .9s ease-out; }
+@keyframes sproutIn { from { opacity: 0; } to { opacity: 1; } }
+.forest-scene .node.sprouting .leaf-shape {
+  transform-box: fill-box; transform-origin: 50% 100%;
+  animation: sproutPop .9s cubic-bezier(.2,.8,.3,1) both;
+}
+@keyframes sproutPop {
+  0% { transform: scale(.35); }
+  70% { transform: scale(1.06); }
+  100% { transform: scale(1); }
+}
+
+/* A slow breeze through a few leaves — never all at once, never the same
+   phase. Excludes sprouting leaves so the one-shot entrance always wins. */
+.forest-scene .mark-layer .node:nth-child(4n+2):not(.sprouting) .leaf-shape {
+  transform-box: fill-box; transform-origin: 50% 100%;
+  animation: leafSwaySoft 7.5s ease-in-out infinite;
+}
+.forest-scene .mark-layer .node:nth-child(4n):not(.sprouting) .leaf-shape {
+  transform-box: fill-box; transform-origin: 50% 100%;
+  animation: leafSwaySoft 9.2s ease-in-out -2.4s infinite;
+}
+@keyframes leafSwaySoft {
+  0%, 100% { transform: rotate(-1.4deg); }
+  50% { transform: rotate(1.6deg); }
+}
+
+/* Pollen motes over mature canopies (canopy/deep stages only). */
+.forest-scene .pollen circle { fill: #f6ecc2; opacity: .45; animation: pollenDrift 24s linear infinite; }
+.forest-scene .pollen circle:nth-child(2) { animation-duration: 30s; animation-delay: -9s; opacity: .34; }
+.forest-scene .pollen circle:nth-child(3) { animation-duration: 37s; animation-delay: -18s; opacity: .26; }
+@keyframes pollenDrift {
+  0%   { transform: translate(0, 0); }
+  25%  { transform: translate(10px, -16px); }
+  50%  { transform: translate(-7px, -26px); }
+  75%  { transform: translate(-13px, -9px); }
+  100% { transform: translate(0, 0); }
+}
+
+/* Stage milestones (seed -> sapling -> canopy -> deep) crossfade once. */
+.forest-scene.stage-shift { animation: stageShift .8s ease both; }
+@keyframes stageShift {
+  0% { opacity: 1; }
+  35% { opacity: .5; }
+  100% { opacity: 1; }
+}

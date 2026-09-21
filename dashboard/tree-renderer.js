@@ -1,7 +1,11 @@
-import { layoutTree, treeStage, labelPlacement } from './tree-layout.js';
+import { layoutTree, treeStage, labelPlacement, variation } from './tree-layout.js';
 import { TREE_LAYOUT } from '../shared/constants.js';
 
 const SVG_NS = 'http://www.w3.org/2000/svg';
+// Leaves first seen within this window get a one-shot sprout entrance when
+// the garden live-refreshes, so a branch visibly "arrives" instead of popping
+// in. Own visualization constant (same discipline as RECENT_NODE_WINDOW_MS).
+const SPROUT_WINDOW_MS = 2600;
 
 // Hand-drawn, softly scalloped silhouettes. Kept as vector paths so the crown
 // stays crisp at every size and doesn't depend on the shape of a browsing graph.
@@ -138,8 +142,12 @@ function drawScene(svg, tree, prefix) {
   else art.append(canopyBack(tree), woodyStructure(tree, prefix), canopyFront(tree));
   svg.append(art);
 }
-function pageMark(node, point, root, count, selected, describeNode, classForNode) {
-  const mark = group(`node ${classForNode(node)}${root ? ' mission-root' : ''}${selected ? ' selected' : ''}`, {
+function pageMark(node, point, root, count, selected, describeNode, classForNode, onTrail = false) {
+  // The sprout entrance is one-shot and class-driven; the CSS animates only
+  // opacity and the leaf path's own transform (never the group's translate
+  // attribute), so positioning cannot be disturbed.
+  const sprouting = !root && Number.isFinite(node.firstSeenAt) && Date.now() - node.firstSeenAt < SPROUT_WINDOW_MS;
+  const mark = group(`node ${classForNode(node)}${root ? ' mission-root' : ''}${selected ? ' selected' : ''}${onTrail ? ' on-trail' : ''}${sprouting ? ' sprouting' : ''}`, {
     tabindex: 0, role: 'button', 'aria-pressed': String(selected), 'aria-label': describeNode(node),
     'data-node-id': node.id, transform: `translate(${point.x.toFixed(2)} ${point.y.toFixed(2)})`
   });
@@ -185,6 +193,26 @@ export function renderGardenTree(svg, session, { selectedNodeId = null, describe
   svg.append(element('title', {}, session ? `The growing tree of ${session.mission}` : 'A little sprout waiting for an intention'),
     element('desc', {}, 'A rounded cartoon tree. Each marked leaf is a browsing page; selecting it traces its path back to the mission root.'));
   drawScene(svg, tree, prefix);
+  // Mature gardens get a few slow pollen motes above the crown — ambient
+  // life, aria-hidden, paused by every motion kill-switch like the rest of
+  // the scene. Garden only: the New Tab illustration stays pristine.
+  if (tree.mode === 'canopy' || tree.mode === 'deep') {
+    const pollen = group('pollen', { 'aria-hidden': 'true' });
+    const { x: cx, y: cy, rx, ry } = tree.crown;
+    [[-.34, -.66], [.42, -.52], [.06, -.9]].forEach(([dx, dy], i) => {
+      const jitter = (variation(`pollen:${tree.mode}:${i}`) - .5) * 16;
+      pollen.append(element('circle', { cx: (cx + rx * dx + jitter).toFixed(1), cy: (cy + ry * dy).toFixed(1), r: (2.3 + i * 0.5).toFixed(1) }));
+    });
+    svg.append(pollen);
+  }
+  // Ancestry of the selection, computed once: it drives the highlight layer
+  // (unchanged contract), the on-trail classes for focus dimming, and stays
+  // consistent with the hover preview in app.js.
+  const trailIds = new Set();
+  if (selected) {
+    let id = selected.id;
+    while (id && !trailIds.has(id)) { trailIds.add(id); id = tree.parentById.get(id); }
+  }
   const branches = group('branch-layer', { 'aria-hidden': 'true' });
   // Apply dynamic classes based on depth and position for organic branching appearance
   tree.edges.forEach(edge => {
@@ -194,13 +222,16 @@ export function renderGardenTree(svg, session, { selectedNodeId = null, describe
     const isRootPath = depth <= 2 && edge.kind === 'primary';
     const kindClass = edge.kind || '';
     const depthClass = isDeep ? ' deep' : (isRootPath ? ' root-path' : '');
-    branches.append(path(`branch-taper ${kindClass}${depthClass}`, edge.path));
+    const trailClass = trailIds.has(edge.nodeId) ? ' on-trail' : '';
+    const edgePath = path(`branch-taper ${kindClass}${depthClass}${trailClass}`, edge.path);
+    // data-edge-for lets the dashboard paint a soft hover preview of a
+    // leaf's ancestry without touching the selection highlight layer.
+    edgePath.dataset.edgeFor = edge.nodeId;
+    branches.append(edgePath);
   });
   svg.append(branches);
   if (selected) {
-    const ancestry = new Set();
-    let id = selected.id;
-    while (id && !ancestry.has(id)) { ancestry.add(id); id = tree.parentById.get(id); }
+    const ancestry = trailIds;
     const highlights = group('highlight-layer', { 'aria-hidden': 'true' });
     for (const edge of tree.edges) {
       if (ancestry.has(edge.nodeId)) highlights.append(path(`branch-taper ${edge.kind} highlight`, edge.path));
@@ -211,7 +242,7 @@ export function renderGardenTree(svg, session, { selectedNodeId = null, describe
   }
   const marks = group('mark-layer');
   tree.nodes.forEach(node => marks.append(pageMark(node, tree.positions.get(node.id), node.id === tree.root.id,
-    tree.nodes.length, node.id === selectedNodeId, describeNode, classForNode)));
+    tree.nodes.length, node.id === selectedNodeId, describeNode, classForNode, trailIds.has(node.id))));
   svg.append(marks);
   if (selected && selected.id !== tree.root.id) {
     const label = labelPlacement(tree.positions.get(selected.id), selected.id);

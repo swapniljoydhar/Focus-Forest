@@ -619,18 +619,29 @@
   const STORAGE_SYNC_KEY = 'focusForestState';
   const STORAGE_SYNC_DEBOUNCE_MS = 200;
   const STORAGE_SYNC_MIN_GAP_MS = 600;
+  const runStorageSync = () => {
+    // Hidden tabs skip the sync entirely: nobody can see the chip, and the
+    // visibilitychange handler already refreshes the moment the tab is shown.
+    // This keeps background tabs out of the worker's message rate budget
+    // when many tabs are open and another one is browsing actively.
+    if (document.hidden) return;
+    const since = Date.now() - lastRefreshAt;
+    if (since < STORAGE_SYNC_MIN_GAP_MS) {
+      // A navigation-driven refresh just ran — but it PREDATES this storage
+      // change. Dropping the sync here would leave the chip stale until the
+      // next navigation (proven in vivo: a fast compost or a settings change
+      // never reached the page). Defer, never discard: re-arm for the moment
+      // the freshness gate expires.
+      window.clearTimeout(storageSyncTimer);
+      storageSyncTimer = window.setTimeout(runStorageSync, STORAGE_SYNC_MIN_GAP_MS - since + 50);
+      return;
+    }
+    safeRefresh(false);
+  };
   chrome.storage?.onChanged?.addListener(wrapWithErrorBoundary((changes, area) => {
     if (area !== 'local' || !changes || !Object.hasOwn(changes, STORAGE_SYNC_KEY)) return;
     window.clearTimeout(storageSyncTimer);
-    storageSyncTimer = window.setTimeout(() => {
-      // Hidden tabs skip the sync entirely: nobody can see the chip, and the
-      // visibilitychange handler already refreshes the moment the tab is shown.
-      // This keeps background tabs out of the worker's message rate budget
-      // when many tabs are open and another one is browsing actively.
-      if (document.hidden) return;
-      if (Date.now() - lastRefreshAt < STORAGE_SYNC_MIN_GAP_MS) return;
-      safeRefresh(false);
-    }, STORAGE_SYNC_DEBOUNCE_MS);
+    storageSyncTimer = window.setTimeout(runStorageSync, STORAGE_SYNC_DEBOUNCE_MS);
   }, { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'storage.onChanged', swallow: true }));
 
   safeLoadSettings();
