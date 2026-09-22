@@ -28,3 +28,4 @@ profile-newtab.json
 # System files
 .DS_Store
 Thumbs.db
+.kilo/

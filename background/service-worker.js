@@ -1143,7 +1143,7 @@ async function importAllData(payload) {
 }
 
 chrome.runtime.onInstalled.addListener((details) => {
-  wrapWithErrorBoundary(async () => {
+  return wrapWithErrorBoundary(async () => {
     const result = await chrome.storage.local.get(STORAGE_KEY);
     if (!result[STORAGE_KEY]) await saveState(emptyState());
     // Check initial storage quota after seeding
@@ -1156,7 +1156,7 @@ chrome.runtime.onInstalled.addListener((details) => {
 });
 
 chrome.runtime.onInstalled.addListener(() => {
-  wrapWithErrorBoundary(async () => {
+  return wrapWithErrorBoundary(async () => {
     if (!chrome.contextMenus?.create) return;
     // MV3 create() returns a promise that rejects on duplicate ids (e.g. when
     // menus survived an update). Fire-and-forget calls turned that into an
@@ -1171,7 +1171,7 @@ chrome.runtime.onInstalled.addListener(() => {
 });
 
 chrome.contextMenus?.onClicked?.addListener((info, tab) => {
-  wrapWithErrorBoundary(async () => {
+  return wrapWithErrorBoundary(async () => {
     if (info.menuItemId === 'focus-forest-start') {
       // Title fallbacks must never adopt an unsafe scheme as mission text:
       // only a valid http(s) tab URL is acceptable, else the neutral label.
@@ -1489,12 +1489,14 @@ chrome.commands?.onCommand?.addListener((command) => {
 // already exist at startup/install are covered by takeOverOpenNewTabs().
 chrome.runtime.onSuspend?.addListener(() => {
   // Best-effort flush: the worker may terminate mid-queue, so attempt to
-  // finish any pending mutation writes before shutdown. onSuspend cannot
-  // guarantee completion, but catches the common idle-termination case.
-  wrapWithErrorBoundary(() => mutationQueue.catch(() => undefined), { category: ERROR_CATEGORIES.STATE_MUTATION, component: 'service-worker', function: 'onSuspend', swallow: true })();
+  // finish any pending mutation writes before shutdown.
+  // NOTE: the `return` below is for symmetry with the sibling listeners only.
+  // Do NOT read it as a keep-alive guarantee — this is the suspension hook
+  // itself, so the flush stays best-effort and may not complete.
+  return wrapWithErrorBoundary(() => mutationQueue.catch(() => undefined), { category: ERROR_CATEGORIES.STATE_MUTATION, component: 'service-worker', function: 'onSuspend', swallow: true })();
 });
 chrome.runtime.onStartup?.addListener(() => {
-  wrapWithErrorBoundary(async () => {
+  return wrapWithErrorBoundary(async () => {
     await takeOverOpenNewTabs();
     // A browser restart ends every previous foreground interval: intervals
     // left open would keep accruing phantom "foreground time" across the
@@ -1545,7 +1547,7 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   }, { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'tabs.onUpdated', swallow: true })(tabId, changeInfo, tab);
 });
 chrome.tabs.onActivated?.addListener((activeInfo) => {
-  wrapWithErrorBoundary(() => recordActiveTab(activeInfo?.tabId, activeInfo?.windowId), { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'tabs.onActivated', swallow: true })();
+  return wrapWithErrorBoundary(() => recordActiveTab(activeInfo?.tabId, activeInfo?.windowId), { category: ERROR_CATEGORIES.NAVIGATION, component: 'service-worker', function: 'tabs.onActivated', swallow: true })();
 });
 chrome.webNavigation?.onCommitted?.addListener((details) => {
   if (details.frameId !== 0 || !Number.isInteger(details.tabId)) return;

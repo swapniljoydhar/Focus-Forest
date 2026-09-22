@@ -94,20 +94,6 @@ class ErrorTrace {
     return { cause: this.rootCause || 'Unknown root cause', fix: this.suggestedFix || 'Investigate stack trace' };
   }
 
-  toJSON() {
-    return {
-      id: this.id,
-      timestamp: this.timestamp,
-      message: this.message,
-      stack: this.stack,
-      category: this.category,
-      severity: this.severity,
-      context: this.context,
-      rootCause: this.rootCause,
-      suggestedFix: this.suggestedFix
-    };
-  }
-
   toLogString() {
     const lines = [
       `=== ERROR TRACE ${this.id} ===`,

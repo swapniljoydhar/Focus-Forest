@@ -333,7 +333,7 @@ function compactNode(node) {
   if (!node || typeof node !== 'object') return null;
   const id = compactText(node.id, 120); const url = safeSessionUrl(node.url); if (!id || !url) return null;
   const parentId = typeof node.parentId === 'string' && node.parentId !== id ? compactText(node.parentId, 120) : null;
-  return { id, tabIds: Array.isArray(node.tabIds) ? node.tabIds.filter(Number.isInteger).slice(-8) : Number.isInteger(node.tabId) ? [node.tabId] : [], url, title: compactText(node.title || url, LIMITS.TITLE), parentId, depth: Math.max(0, Math.min(LIMITS.NODES_PER_SESSION, Number(node.depth) || 0)), firstSeenAt: Number.isFinite(node.firstSeenAt) ? node.firstSeenAt : Date.now(), relationshipConfidence: SAFE_CONFIDENCE.has(node.relationshipConfidence) ? node.relationshipConfidence : 'external', confidence: ['high', 'medium', 'low'].includes(node.confidence) ? node.confidence : (node.relationshipConfidence === 'direct' ? 'high' : node.relationshipConfidence === 'tab-inferred' ? 'medium' : 'low'), navigationKind: SAFE_NAVIGATION_KINDS.has(node.navigationKind) ? node.navigationKind : 'external', state: SAFE_STATES.has(node.state) ? node.state : 'normal', ...(Number.isFinite(node.closedAt) ? { closedAt: node.closedAt } : {}), ...(Number.isFinite(node.prunedAt) ? { prunedAt: node.prunedAt } : {}) };
+  return { id, tabIds: Array.isArray(node.tabIds) ? node.tabIds.filter(Number.isInteger).slice(-8) : Number.isInteger(node.tabId) ? [node.tabId] : [], url, title: compactText(node.title || url, LIMITS.TITLE), parentId, depth: Math.max(0, Math.min(LIMITS.NODES_PER_SESSION, Math.round(Number(node.depth) || 0))), firstSeenAt: Number.isFinite(node.firstSeenAt) ? node.firstSeenAt : Date.now(), relationshipConfidence: SAFE_CONFIDENCE.has(node.relationshipConfidence) ? node.relationshipConfidence : 'external', confidence: ['high', 'medium', 'low'].includes(node.confidence) ? node.confidence : (node.relationshipConfidence === 'direct' ? 'high' : node.relationshipConfidence === 'tab-inferred' ? 'medium' : 'low'), navigationKind: SAFE_NAVIGATION_KINDS.has(node.navigationKind) ? node.navigationKind : 'external', state: SAFE_STATES.has(node.state) ? node.state : 'normal', ...(Number.isFinite(node.closedAt) ? { closedAt: node.closedAt } : {}), ...(Number.isFinite(node.prunedAt) ? { prunedAt: node.prunedAt } : {}) };
 }
 function compactEvent(event) {
   if (!event || typeof event !== 'object') return null;
@@ -409,8 +409,17 @@ export function getNodeDuration(node) {
  */
 export function normalizeSettings(value, fallback = emptyState().settings) {
   const source = value && typeof value === 'object' ? value : {};
-  const gentleDepth = Math.max(2, Math.min(8, Number(source.gentleDepth) || fallback.gentleDepth));
-  const choiceDepth = Math.max(gentleDepth + 1, Math.min(10, Number(source.choiceDepth) || fallback.choiceDepth));
+  // Branch thresholds are branch counts, so they must be whole numbers.
+  // Math.min/max alone preserve a fraction (e.g. gentleDepth: 4.5 arriving in
+  // a hand-edited import via IMPORT_DATA), which settings/app.js's
+  // editableSettings() rejects with 'Invalid settings acknowledgement' --
+  // leaving the Options page permanently unreadable with Save and Reset both
+  // disabled, and CLEAR_DATA the only escape. Rounding keeps every original
+  // fallback and clamp semantic: the `||` still routes 0, '', null, undefined
+  // and NaN to the fallback, and Infinity still clamps at the bound.
+  const whole = (raw, fallbackValue) => Math.round(Number(raw) || fallbackValue);
+  const gentleDepth = Math.max(2, Math.min(8, whole(source.gentleDepth, fallback.gentleDepth)));
+  const choiceDepth = Math.max(gentleDepth + 1, Math.min(10, whole(source.choiceDepth, fallback.choiceDepth)));
   const growthAnimationTrigger = ['mission-origin', 'every-branch', 'none'].includes(source.growthAnimationTrigger) ? source.growthAnimationTrigger : fallback.growthAnimationTrigger;
   const excludedSites = Array.isArray(source.excludedSites) ? source.excludedSites.map((site) => compactText(site, 120).toLowerCase().replace(/^www\./, '')).filter((site, index, list) => site && list.indexOf(site) === index).slice(0, 40) : (Array.isArray(fallback.excludedSites) ? fallback.excludedSites : []);
   const searchEngine = ['default', 'google', 'bing', 'duckduckgo', 'brave', 'startpage'].includes(source.searchEngine) ? source.searchEngine : fallback.searchEngine;
