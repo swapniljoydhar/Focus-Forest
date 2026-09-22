@@ -310,6 +310,18 @@ test('Gate 0: manifest loads, service worker runs, bridge registered MAIN-world'
   assert.equal(manifest.minimum_chrome_version, '111');
   const bridgeEntry = manifest.content_scripts.find((e) => e.js.includes('content/spa-bridge.js'));
   assert.equal(bridgeEntry.world, 'MAIN', 'bridge must be registered for the page world');
+  // Empirical pin for the performance guardian's primary signal: the docs
+  // promise chrome.system.memory to extensions (Chrome 91+, "system.memory"
+  // permission). If a future engine regresses this, the guardian degrades to
+  // device-class + heap signals — but this gate must then be updated, not
+  // silently skipped.
+  const sysmem = await sw.evaluate(async () => {
+    try {
+      const info = await chrome.system?.memory?.getInfo?.();
+      return info && Number(info.capacity) > 0 ? { ok: true, gb: Math.round(info.capacity / 1073741824) } : { ok: false, reason: 'missing' };
+    } catch (error) { return { ok: false, reason: String(error) }; }
+  });
+  assert.ok(sysmem.ok && sysmem.gb >= 1, `chrome.system.memory must be live in Chromium — got ${JSON.stringify(sysmem)}`);
 });
 
 test('Gate 0: a real new tab resolves to the planting page override', async () => {

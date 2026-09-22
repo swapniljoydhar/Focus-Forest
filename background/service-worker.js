@@ -124,6 +124,29 @@ async function clearChipPosForTab(tabId) {
   }).catch(() => {});
 }
 
+// --- System memory sample (performance-guardian signal 1) ---
+// chrome.system.memory.getInfo() is the real free-RAM signal (extensions
+// API, Chrome 91+). It is cached and refreshed at most once per 30 s from
+// paths that already run (the active-view request and the 5-minute
+// maintenance alarm) — no new timers, no polling loops. Null on engines
+// without the API: consumers fall back to the device-class and heap signals.
+const SYSTEM_MEMORY_TTL_MS = 30000;
+let systemMemorySample = null;
+let systemMemoryAt = 0;
+async function refreshSystemMemory() {
+  if (!chrome.system?.memory?.getInfo) return;
+  if (systemMemoryAt && Date.now() - systemMemoryAt < SYSTEM_MEMORY_TTL_MS) return;
+  try {
+    const info = await chrome.system.memory.getInfo();
+    const capacity = Number(info?.capacity);
+    const available = Number(info?.availableCapacity);
+    if (Number.isFinite(capacity) && capacity > 0 && Number.isFinite(available)) {
+      systemMemorySample = { freeRatio: Math.max(0, Math.min(1, available / capacity)) };
+      systemMemoryAt = Date.now();
+    }
+  } catch { /* absent or failed: keep the previous sample; consumers degrade */ }
+}
+
 function clearRuntimeTracking() {
   pendingBranches.clear();
   trackedNavMarks.clear();
@@ -326,6 +349,7 @@ if (chrome.alarms) {
   chrome.alarms.create('storageQuotaCheck', { periodInMinutes: 5 });
   chrome.alarms.onAlarm.addListener((alarm) => {
     if (alarm.name !== 'storageQuotaCheck') return;
+    refreshSystemMemory().catch(() => {}); // piggyback the existing 5-minute maintenance wake; never a new timer
     const run = mutationQueue.then(() => compactStateIfNeeded());
     mutationQueue = run.catch((error) => {
       clearStateCache();
@@ -521,7 +545,7 @@ function activeView(state, tabId) {
   // quiet line. hasNote tells strict copy that a private "why" exists WITHOUT
   // sending the note itself into a page context (the note never leaves the
   // worker's state).
-  if (!session || !node) return { session: null, thresholds, settings, sitePaused, drift: null, hasNote: false };
+  if (!session || !node) return { session: null, thresholds, settings, sitePaused, drift: null, hasNote: false, systemMemory: systemMemorySample };
   return {
     session: {
       id: session.id,
@@ -534,6 +558,7 @@ function activeView(state, tabId) {
     sitePaused,
     drift: driftStats(session, thresholds),
     hasNote: Boolean(session.note),
+    systemMemory: systemMemorySample,
     interventionEligible: !session.interventionPaused && !sitePaused && node.depth >= thresholds.INTERRUPT && node.confidence !== 'low'
   };
 }
@@ -1377,7 +1402,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   (async () => {
     switch (message.type) {
       case 'GET_SNAPSHOT': return isExtensionPageSender(sender) ? getSnapshot(safeId(message.sessionId) || null, Boolean(message.includeHistory)) : null;
-      case 'GET_ACTIVE_VIEW': return activeView(await loadState(), tab?.id);
+      case 'GET_ACTIVE_VIEW': { await refreshSystemMemory(); return activeView(await loadState(), tab?.id); }
       case 'GET_CHIP_POS': return getChipPos(tab);
       case 'SET_CHIP_POS': return setChipPos(tab, message.x, message.y);
       case 'START_MISSION': {

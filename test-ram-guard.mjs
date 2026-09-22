@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { resolvePerfMode, sampleMemoryPressure, applyPerfMode } from './shared/ram-guard.js';
+import { resolvePerfMode, nextPerfMode, sampleMemoryPressure, sampleSystemMemory, applyPerfMode } from './shared/ram-guard.js';
 
 const base = { ramGuard: true, ramGuardLevel: 3 };
 
@@ -40,5 +40,25 @@ assert.equal('heapRatio' in sample, true);
 // applyPerfMode survives the absence of a DOM.
 applyPerfMode('reduced');
 applyPerfMode('normal');
+
+// --- Signal 1: real system memory (chrome.system.memory, worker-relayed) ---
+assert.equal(resolvePerfMode(base, { freeRatio: 0.05 }), 'reduced', 'low free system RAM engages at level 3');
+assert.equal(resolvePerfMode(base, { freeRatio: 0.5 }), 'normal');
+assert.equal(resolvePerfMode({ ramGuard: true, ramGuardLevel: 5 }, { freeRatio: 0.15 }), 'reduced', 'level 5 engages earlier');
+assert.equal(resolvePerfMode({ ramGuard: true, ramGuardLevel: 1 }, { freeRatio: 0.05 }), 'normal', 'level 1 only engages near exhaustion');
+
+// --- Release hysteresis: engage instantly, release only when clearly calm ---
+assert.equal(nextPerfMode('normal', base, { heapRatio: 0.72 }), 'reduced');
+assert.equal(nextPerfMode('reduced', base, { heapRatio: 0.68 }), 'reduced', 'inside the release band: hold (no flapping)');
+assert.equal(nextPerfMode('reduced', base, { heapRatio: 0.6 }), 'normal', 'clearly below the ceiling: release');
+assert.equal(nextPerfMode('reduced', base, { freeRatio: 0.10 }), 'reduced', 'inside the system release band: hold');
+assert.equal(nextPerfMode('reduced', base, { freeRatio: 0.4 }), 'normal');
+assert.equal(nextPerfMode('reduced', base, {}), 'normal', 'losing all signals releases');
+assert.equal(nextPerfMode('reduced', { ramGuard: false, ramGuardLevel: 3 }, { heapRatio: 0.99 }), 'normal', 'opt-out releases immediately');
+assert.equal(nextPerfMode('reduced', base, {}, true), 'reduced', 'reduced-motion holds');
+assert.equal(nextPerfMode(undefined, base, {}), 'normal');
+
+// The system-memory sampler never throws where the API is absent (Node).
+assert.equal(await sampleSystemMemory(), null);
 
 console.log('ram-guard tests passed');

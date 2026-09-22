@@ -75,6 +75,7 @@ English
 | `webNavigation` | permissions | Required to observe in-page client-side navigations (`onHistoryStateUpdated`) on ordinary HTTP(S) sites so SPA route depth is accurate. |
 | `alarms` | permissions | Required to schedule periodic storage quota checks to keep local extension data bounded and healthy. |
 | `contextMenus` | permissions | Required to provide right-click shortcuts for "Save Page for Later" and "End Current Focus Mission" directly from any webpage. |
+| `system.memory` | permissions | Used only by the local Performance guardian: reads free system memory to calm decorations automatically under pressure. The value is never stored, never transmitted, and the guardian degrades to device-class and own-heap signals where the API is absent. |
 | `http://*/*`, `https://*/*` | host_permissions | Required to inject the isolated content script that renders the non-blocking companion chip and observes link clicks during active sessions. |
 
 ## Privacy & Data Use

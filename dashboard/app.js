@@ -2,7 +2,7 @@ import { renderGardenTree } from './tree-renderer.js';
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
 import { gardenHealth, getNodeDuration, rewardHistoryView, STORAGE_KEY } from '../shared/state.js';
 import { applyStoredTheme, toggleTheme, clearStoredTheme } from '../shared/theme.js';
-import { applyPerfMode, resolvePerfMode, sampleMemoryPressure } from '../shared/ram-guard.js';
+import { applyPerfMode, nextPerfMode, sampleMemoryPressure, sampleSystemMemory } from '../shared/ram-guard.js';
 
 let lastSettings = null;
 
@@ -273,7 +273,7 @@ async function render() {
   const snap = (await message('GET_SNAPSHOT', { sessionId: selectedSessionId, includeHistory: true })) || { state: {}, settings: {}, session: null, thresholds: null, activeSessionId: null };
   document.body.dataset.motion = snap.settings?.ambientMotion === false ? 'off' : 'on';
   lastSettings = snap.settings || null;
-  applyPerfMode(resolvePerfMode(snap.settings, sampleMemoryPressure(), window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true));
+  applyPerfMode(nextPerfMode(document.body.dataset.perf, snap.settings, { ...sampleMemoryPressure(), ...(await sampleSystemMemory()) }, window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true));
   thresholds = snap.thresholds || { DESATURATE: Number(snap.settings?.gentleDepth) || 4, INTERRUPT: Number(snap.settings?.choiceDepth) || 5 };
   selectedSessionId = snap.session?.id || null;
   renderSessions(snap.state.sessions || [], snap.activeSessionId, selectedSessionId);

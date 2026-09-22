@@ -1,7 +1,7 @@
 import { renderTreeIllustration } from '../dashboard/tree-renderer.js';
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
 import { applyStoredTheme } from '../shared/theme.js';
-import { applyPerfMode, resolvePerfMode, sampleMemoryPressure } from '../shared/ram-guard.js';
+import { applyPerfMode, nextPerfMode, sampleMemoryPressure, sampleSystemMemory } from '../shared/ram-guard.js';
 
 applyStoredTheme();
 
@@ -54,7 +54,7 @@ async function init() {
     // and night wake the fireflies.
     const hour = new Date().getHours();
     document.body.dataset.tod = hour >= 5 && hour < 8 ? 'dawn' : hour >= 8 && hour < 17 ? 'day' : hour >= 17 && hour < 20 ? 'dusk' : 'night';
-    applyPerfMode(resolvePerfMode(snap?.settings, sampleMemoryPressure(), window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true));
+    applyPerfMode(nextPerfMode(document.body.dataset.perf, snap?.settings, { ...sampleMemoryPressure(), ...(await sampleSystemMemory()) }, window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true));
     if (snap && snap.session) {
       resumeBtn.hidden = false;
       resumeBtn.querySelector('.action-text').textContent = `Continue Session · "${snap.session.mission}"`;

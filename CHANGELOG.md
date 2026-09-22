@@ -4,6 +4,13 @@ All notable Focus Forest changes are documented here.
 
 ## [Unreleased]
 
+### Improved (performance guardian v2 — real system memory, 2026-09-22)
+
+- **Correction + upgrade:** an earlier claim that "Chromium has no free-RAM API for extensions" was wrong — `chrome.system.memory.getInfo()` is documented for extensions (Chrome 91+, `system.memory` permission) and is now empirically pinned by Gate 0 in real Chromium. The guardian prefers that real free-RAM signal (worker-cached with a ≤30 s TTL, refreshed from the active-view path and the existing 5-minute maintenance alarm — zero new timers), relays it to the companion via the active view (`systemMemory.freeRatio`), and falls back to the device-memory class and the context's own JS heap where the API is absent.
+- **Release hysteresis (`nextPerfMode`):** pressure engages instantly; release requires signals clearly below thresholds (heap band 0.05, system band 0.03) so noisy near-threshold samples cannot flap decorations between refreshes.
+- **Settings transparency:** a live-signals readout (free system GB, device class, own heap %) shows the exact numbers the guardian uses — rendered locally, never stored or sent.
+- **Deliberately not adopted** from per-tab memory monitors (MemoryStats pattern, owner-provided for study): `scripting`-based per-tab `performance.memory` injection — it needs a new permission and wakes every frozen renderer (RAM/CPU-counterproductive; our content script already reads the same renderer heap for free because the companion lives in the page) — and `chrome.debugger` CDP probing (infobar + trust cost). Only `system.memory` was added; no identity/account APIs.
+
 ### Added (accountability & performance guardian — R2/R3, 2026-09-22)
 
 - **Drift accounting (R2):** the choice card now states one more fact — how many pages and minutes you are from your mission — computed from existing local branch data (nodes at or beyond the quiet line, live duration). The worker sends only `{pages, seconds}` plus a `hasNote` boolean; the private note text itself never reaches a page context (unit-pinned).

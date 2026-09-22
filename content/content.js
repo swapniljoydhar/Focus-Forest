@@ -437,26 +437,38 @@
   }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'drag.keydown', swallow: true }));
 
   // --- Performance guardian (inline mirror of shared/ram-guard.js; content
-  // scripts are classic non-module scripts and cannot import). Chromium
-  // exposes no system-RAM API; the honest signals are the device memory
-  // class and this context's own JS heap. Decorations calm when evidence
-  // says so; tracking, the chip, and the choice card always keep working.
+  // scripts are classic non-module scripts and cannot import). Signal 1 is
+  // the worker-relayed real free-RAM ratio (chrome.system.memory, cached and
+  // refreshed on paths that already run); signals 2/3 are this renderer's
+  // device-memory class and own JS heap — the same per-tab heap value that
+  // memory-monitor extensions obtain via script injection, read here for
+  // free because the companion already lives in the page's renderer.
+  // Decorations calm on evidence; tracking, the chip, and the choice card
+  // always keep working. Release uses a hysteresis band so noisy samples
+  // near a threshold cannot flap the mode between refreshes.
   const PERF_GUARD_LEVELS = [
-    { heapCeiling: 0.9, deviceFloorGb: 0.25 },
-    { heapCeiling: 0.8, deviceFloorGb: 0.5 },
-    { heapCeiling: 0.7, deviceFloorGb: 1 },
-    { heapCeiling: 0.6, deviceFloorGb: 2 },
-    { heapCeiling: 0.5, deviceFloorGb: 4 }
+    { heapCeiling: 0.9, deviceFloorGb: 0.25, systemFloor: 0.03 },
+    { heapCeiling: 0.8, deviceFloorGb: 0.5, systemFloor: 0.05 },
+    { heapCeiling: 0.7, deviceFloorGb: 1, systemFloor: 0.08 },
+    { heapCeiling: 0.6, deviceFloorGb: 2, systemFloor: 0.12 },
+    { heapCeiling: 0.5, deviceFloorGb: 4, systemFloor: 0.18 }
   ];
-  function computePerfReduced(settings) {
-    if (!settings || settings.ramGuard === false) return false;
-    if (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) return true;
+  let perfReducedSticky = false;
+  function computePerfReduced(settings, systemMemory) {
+    if (!settings || settings.ramGuard === false) { perfReducedSticky = false; return false; }
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) { perfReducedSticky = true; return true; }
     const level = PERF_GUARD_LEVELS[Math.max(1, Math.min(5, Number(settings.ramGuardLevel) || 3)) - 1];
+    const freeRatio = Number.isFinite(systemMemory?.freeRatio) ? systemMemory.freeRatio : null;
     const deviceGb = Number.isFinite(navigator.deviceMemory) ? navigator.deviceMemory : null;
-    if (deviceGb !== null && deviceGb <= level.deviceFloorGb) return true;
     const mem = performance.memory;
     const heapRatio = mem && Number.isFinite(mem.jsHeapSizeLimit) && mem.jsHeapSizeLimit > 0 && Number.isFinite(mem.usedJSHeapSize) ? mem.usedJSHeapSize / mem.jsHeapSizeLimit : null;
-    return heapRatio !== null && heapRatio >= level.heapCeiling;
+    if (freeRatio !== null && freeRatio <= level.systemFloor) { perfReducedSticky = true; return true; }
+    if (deviceGb !== null && deviceGb <= level.deviceFloorGb) { perfReducedSticky = true; return true; }
+    if (heapRatio !== null && heapRatio >= level.heapCeiling) { perfReducedSticky = true; return true; }
+    if (perfReducedSticky && heapRatio !== null && heapRatio >= level.heapCeiling - 0.05) return true;
+    if (perfReducedSticky && freeRatio !== null && freeRatio <= level.systemFloor + 0.03) return true;
+    perfReducedSticky = false;
+    return false;
   }
 
   async function loadSettings() {
@@ -466,7 +478,7 @@
       growthAnimationTrigger = snap.settings?.growthAnimationTrigger || 'mission-origin';
       ambientMotion = snap.settings?.ambientMotion !== false;
       rootEl.classList.toggle('motion-off', !ambientMotion);
-      rootEl.classList.toggle('perf-reduced', computePerfReduced(snap?.settings));
+      rootEl.classList.toggle('perf-reduced', computePerfReduced(snap?.settings, snap?.systemMemory));
     } catch (error) {
       logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'loadSettings' });
       growthAnimationTrigger = 'mission-origin';
@@ -526,7 +538,7 @@
     viewHasNote = Boolean(view?.hasNote);
     viewStrict = Boolean(view?.settings?.strictMode);
     rootEl.classList.toggle('strict', viewStrict);
-    perfReduced = computePerfReduced(view?.settings);
+    perfReduced = computePerfReduced(view?.settings, view?.systemMemory);
     rootEl.classList.toggle('perf-reduced', perfReduced);
     const { stateKind, state } = depthState(depth, paused, thresholds, viewStrict);
     const enteredNewBranch = !paused && previous?.node?.id && previous.node.id !== current.node.id && depth > (previous.node.depth || 0);
