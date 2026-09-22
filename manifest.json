@@ -41,6 +41,12 @@
         "default": "Alt+F"
       },
       "description": "Start or end a focus mission"
+    },
+    "return-to-mission": {
+      "suggested_key": {
+        "default": "Alt+M"
+      },
+      "description": "Return to the mission origin"
     }
   },
   "chrome_url_overrides": {

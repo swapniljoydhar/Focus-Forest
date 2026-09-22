@@ -4,7 +4,7 @@ import { logError, logWarning, logCritical, ERROR_CATEGORIES } from './error-tra
 export const STORAGE_KEY = 'focusForestState';
 export const SCHEMA_VERSION = 4; // Incremented for reward system
 export const LIMITS = { SESSIONS: 12, NODES_PER_SESSION: 96, EVENTS_PER_SESSION: 72, COMPOST: 80, TITLE: 120, MISSION_NOTE: 280, URL: 1024 };
-export const DEFAULT_SETTINGS = { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false };
+export const DEFAULT_SETTINGS = { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false, strictMode: false, ramGuard: true, ramGuardLevel: 3 };
 export const STORAGE_QUOTA_WARNING_THRESHOLD = 4 * 1024 * 1024; // 4MB warning threshold
 export const STORAGE_QUOTA_CRITICAL_THRESHOLD = 7 * 1024 * 1024; // 7MB critical threshold (Chrome's limit is ~8MB)
 
@@ -42,7 +42,9 @@ export const REWARD_CATALOG = {
     { id: 'disc_1', text: 'A visiting bird left a feather.', icon: '🐦' },
     { id: 'disc_2', text: 'Morning dew catches the light.', icon: '💧' },
     { id: 'disc_3', text: 'A mushroom appears after rain.', icon: '🍄' },
-    { id: 'disc_4', text: 'Seasonal berries ripen quietly.', icon: '🫐' }
+    { id: 'disc_4', text: 'Seasonal berries ripen quietly.', icon: '🫐' },
+    { id: 'disc_5', text: 'Sunlight reaches the forest floor.', icon: '☀️' },
+    { id: 'disc_6', text: 'A quiet season settles in the canopy.', icon: '🌼' }
   ]
 };
 
@@ -63,7 +65,8 @@ const REWARD_TRIGGER_NOTES = {
   return_to_root: 'You came back to the intention you set.',
   compost_choice: 'You chose to keep this for later instead of following it now.',
   session_end: 'You set the garden down deliberately.',
-  mission_changed: 'You noticed a new direction and let this garden rest.'
+  mission_changed: 'You noticed a new direction and let this garden rest.',
+  low_drift_completion: 'You kept this path close to your intention.'
 };
 
 /**
@@ -402,6 +405,47 @@ export function getNodeDuration(node) {
 }
 
 /**
+ * Drift accounting: how many pages sit at or beyond the quiet line
+ * (gentleDepth) and how many seconds were spent on them. An open node keeps
+ * accruing live (getNodeDuration falls back to Date.now()), so the companion
+ * can truthfully say "away from your mission" as of this moment. Bounded by
+ * the node cap; the day cap guards against hand-edited imports.
+ * @param {object|null} session - Active or completed session.
+ * @param {{gentleDepth?: number, DESATURATE?: number}} thresholds
+ * @returns {{pages: number, seconds: number}}
+ */
+export function driftStats(session, thresholds) {
+  const gentle = Number(thresholds?.gentleDepth ?? thresholds?.DESATURATE ?? DEFAULT_SETTINGS.gentleDepth);
+  const nodes = Array.isArray(session?.nodes) ? session.nodes : [];
+  let pages = 0;
+  let seconds = 0;
+  for (const node of nodes) {
+    if ((Number(node?.depth) || 0) >= gentle) { pages += 1; seconds += getNodeDuration(node); }
+  }
+  return { pages, seconds: Math.max(0, Math.min(seconds, 24 * 60 * 60)) };
+}
+
+/**
+ * Garden health: a three-step visual verdict (lush / steady / sparse) derived
+ * only from existing local branch data — never a score, never shown as a
+ * number. Young gardens (two pages or fewer) are always 'steady': one page
+ * of journey cannot say anything true about a path.
+ * @param {object|null} session
+ * @param {object} settings - Raw or normalized settings.
+ * @returns {'lush'|'steady'|'sparse'}
+ */
+export function gardenHealth(session, settings) {
+  const nodes = Array.isArray(session?.nodes) ? session.nodes : [];
+  if (nodes.length <= 2) return 'steady';
+  const { gentleDepth } = normalizeSettings(settings);
+  const { pages } = driftStats(session, { gentleDepth });
+  const ratio = pages / nodes.length;
+  if (ratio <= 0.2) return 'lush';
+  if (ratio >= 0.5) return 'sparse';
+  return 'steady';
+}
+
+/**
  * Normalizes user-provided settings against defaults and clamps values.
  * @param {object} value - Raw settings object.
  * @param {object} [fallback=emptyState().settings] - Default settings.
@@ -424,7 +468,13 @@ export function normalizeSettings(value, fallback = emptyState().settings) {
   const excludedSites = Array.isArray(source.excludedSites) ? source.excludedSites.map((site) => compactText(site, 120).toLowerCase().replace(/^www\./, '')).filter((site, index, list) => site && list.indexOf(site) === index).slice(0, 40) : (Array.isArray(fallback.excludedSites) ? fallback.excludedSites : []);
   const searchEngine = ['default', 'google', 'bing', 'duckduckgo', 'brave', 'startpage'].includes(source.searchEngine) ? source.searchEngine : fallback.searchEngine;
   const enableRewards = source.enableRewards === true;
-  return { gentleDepth, choiceDepth, ambientMotion: source.ambientMotion !== false, growthAnimationTrigger, excludedSites, searchEngine, enableRewards };
+  // Strict mode opts into firmer, still-factual intention reminders; the
+  // performance guardian is on by default and only ever calms decorations —
+  // core tracking is never gated by it.
+  const strictMode = source.strictMode === true;
+  const ramGuard = source.ramGuard !== false;
+  const ramGuardLevel = Math.max(1, Math.min(5, whole(source.ramGuardLevel, fallback.ramGuardLevel)));
+  return { gentleDepth, choiceDepth, ambientMotion: source.ambientMotion !== false, growthAnimationTrigger, excludedSites, searchEngine, enableRewards, strictMode, ramGuard, ramGuardLevel };
 }
 
 let stateCache = null;

@@ -122,7 +122,7 @@ For single-page applications, Focus Forest observes `history.pushState`, `histor
 
 ## Accessibility and agency
 
-The mission chip, choice sheet, and garden-care dialog use semantic controls, visible focus states, keyboard navigation, Escape handling, focus restoration when an overlay closes, readable text alternatives, and reduced-motion support. The choice sheet is deliberately **non-modal** (`aria-modal="false"`) and shown as a corner card, so it never traps focus or hides page content; whenever it or the chip is hidden, focus is returned to the page control the user was on rather than being stranded on `<body>`. The companion is deliberately compact, habitat-themed, and positioned at the upper-right so it avoids common site branding and navigation areas; it adapts to narrow viewports without becoming a page overlay. When a deeper branch is first observed, a tiny trunk-and-leaf mark grows inside the unchanged chip, flickers briefly, and then settles into the ordinary notification copy. This bounded ritual is skipped under reduced-motion preferences and never blocks the page. Its mission, branch state, and Pause/Resume action have separate hierarchy, deterministic state styling, and an accessible group label. The garden uses a shape-and-text legend rather than color alone, and destructive-looking actions use a calm local dialog instead of a browser-native prompt. Dashboard controls are separated into garden selection and local-data care groups. The extension does not close unrelated tabs. Recovery actions are phrased as choices, not warnings or punishments.
+The mission chip, choice sheet, and garden-care dialog use semantic controls, visible focus states, keyboard navigation, Escape handling, focus restoration when an overlay closes, readable text alternatives, and reduced-motion support. The companion follows the browser's light/dark preference automatically (`prefers-color-scheme`) so the chip never glares on a dark page. The choice sheet is deliberately **non-modal** (`aria-modal="false"`) and shown as a corner card, so it never traps focus or hides page content; whenever it or the chip is hidden, focus is returned to the page control the user was on rather than being stranded on `<body>`. The companion is deliberately compact, habitat-themed, and positioned at the upper-right so it avoids common site branding and navigation areas; it adapts to narrow viewports without becoming a page overlay. When a deeper branch is first observed, a tiny trunk-and-leaf mark grows inside the unchanged chip, flickers briefly, and then settles into the ordinary notification copy. This bounded ritual is skipped under reduced-motion preferences and never blocks the page. Its mission, branch state, and Pause/Resume action have separate hierarchy, deterministic state styling, and an accessible group label. The garden uses a shape-and-text legend rather than color alone, and destructive-looking actions use a calm local dialog instead of a browser-native prompt. Dashboard controls are separated into garden selection and local-data care groups. The extension does not close unrelated tabs. Recovery actions are phrased as choices, not warnings or punishments.
 
 ## Living garden and branch care
 
@@ -131,6 +131,8 @@ The garden dashboard uses a **storybook-style cartoon tree** with a rounded, lay
 The foliage is decorative; **each outlined leaf marker represents a real browsing page**, and the knot in the trunk represents the mission root. Select a leaf to illuminate its actual ancestor chain, or use **Explore a page** to reach small or crowded markers. Page titles appear on selection rather than covering the canopy. The selected-path panel still provides depth, relationship confidence, parent context, and care actions. **Prune this path** and **Return to compost** preserve the historical trail. Leaf positions fill the illustrated crown; their height is not a depth or productivity score.
 
 The illustration uses native SVG DOM construction, local CSS, and deterministic geometry—no images, Canvas, rendering library, or animation loop. Parent validation and cycle repair affect only the visual topology and never rewrite stored history. The New Tab shares the decorative tree artwork without inventing browsing nodes, and the small companion uses a matching inline cartoon icon built without an HTML sink. Keyboard selection, visible focus states, and reduced-motion preferences are preserved.
+
+**Garden health** is a three-step visual verdict — *lush*, *steady*, or *sparse* — derived only from existing local branch data (how much of the path stayed near the intention). It is a treatment on the same deterministic geometry (saturation, glints, leaf opacity), never a number, never a layout change, and young gardens of two pages or fewer are never judged. Faithful missions also earn rarer seasonal **Forest Finds** at completion, and the dashboard's tending streak (consecutive active days, already local) carries positive-only milestone lines at 3/7/14/30 days — a broken streak simply shows nothing. In Strict mode, the saved list additionally states how many curiosities have been resting for over a week; the extension never claims to know whether you revisited a page.
 
 ## History and tab behavior
 
@@ -142,13 +144,17 @@ The garden dashboard provides **Forget this garden** for removing one selected l
 
 Open **Tend the forest** from the popup or your browser's extension details to choose when the page grows quieter and when the choice sheet appears. The extension enforces a one-branch gap between those moments. Ambient motion can be turned off, and every setting stays local.
 
+**Hold me to my word (Strict mode)** is an opt-in tone: the chip and the choice card state the same facts more firmly — pages and minutes away from your intention, and, when you wrote one, a reminder that you recorded *why this mattered today* (the note itself is never sent to the page). The four choices, including **Keep exploring**, never change; Strict mode raises accountability, never removes agency, and nothing is ever blocked. **Alt+F** starts or ends a mission; **Alt+M** returns you to the mission origin through the same validated flow as the card's *Return to my mission*.
+
+The **Performance guardian** (on by default, opt-out in Settings) calms every decoration — ambient layers, fireflies, growth rituals, discovery reveals, living-garden animation — when memory pressure is high, while tracking, the companion, and your data always keep working. Chromium cannot report free system RAM, so the guardian honestly uses two signals: the browser's device-memory class and the extension context's own JS-heap use. The sensitivity bar (1–5) sets how early decorations rest.
+
 Ending a mission opens a small reflection moment with only deterministic facts: pages grown, deepest branch, and saved curiosities. The user can let the garden rest, keep tending, or return to the garden view. No session is graded.
 
 Redirect-like URLs are treated as structural transport when they immediately lead to a final destination. They do not add an extra branch level. Search pages reached directly remain neutral; links clicked from them are ordinary branches.
 
 ## Low-memory design
 
-The runtime is dependency-free and uses native HTML, CSS, and SVG. Page scripts receive only a compact active-view object rather than the full garden history. The service worker caches normalized state in memory to reduce storage round-trips, avoids storage writes for no-op observations, caps sessions, branches, events, compost, aliases, and pending relationship records, canonicalizes URLs, and injects only once into top-level HTTP(S) documents. Ambient visuals are CSS/SVG layers rather than images, video, Canvas loops, or external fonts.
+The runtime is dependency-free and uses native HTML, CSS, and SVG. Page scripts receive only a compact active-view object rather than the full garden history. The service worker caches normalized state in memory to reduce storage round-trips, avoids storage writes for no-op observations, caps sessions, branches, events, compost, aliases, and pending relationship records, canonicalizes URLs, and injects only once into top-level HTTP(S) documents. Ambient visuals are CSS/SVG layers rather than images, video, Canvas loops, or external fonts: the planting scene's time-of-day tint is computed once per load (static, zero animation cost), the six dusk/night fireflies are transform/opacity-only, and title-only SPA mutations are coalesced to at most one message pair per five seconds so video-progress titles cannot spend a tab's rate budget. The Performance guardian (see Tending controls) drops every decoration under memory pressure while core tracking continues.
 
 ## Security and reliability
 
@@ -156,7 +162,7 @@ The service worker validates sender identity, treats runtime messages and conten
 
 For the original security review, see [`SECURITY_REVIEW_2026-08-15.md`](SECURITY_REVIEW_2026-08-15.md) and [`SECURITY.md`](SECURITY.md). For the modified-fork audit and repair record, see [`AUDIT_REPORT_2026-08-16.md`](AUDIT_REPORT_2026-08-16.md).
 
-Automated checks cover ES-module syntax validation, error-boundary rejection contracts, runtime and message contracts, state normalization and storage-failure behaviour, deterministic tree geometry, sender-boundary and prototype-message checks, service-worker behaviour, bounded stress, repository-integrity and local-asset checks, no-loop/no-network runtime boundaries, no-continuous-animation CSS checks, and no-AI references. The test harnesses are [`test-error-tracing.mjs`](test-error-tracing.mjs), [`test-runtime-contracts.mjs`](test-runtime-contracts.mjs), [`test-state.mjs`](test-state.mjs), [`test-tree-layout.mjs`](test-tree-layout.mjs), [`test-security.mjs`](test-security.mjs), [`test-service-worker.mjs`](test-service-worker.mjs), [`stress-service-worker.mjs`](stress-service-worker.mjs), [`test-repository-integrity.mjs`](test-repository-integrity.mjs), [`test-preview.mjs`](test-preview.mjs), [`test-regression-fixes.mjs`](test-regression-fixes.mjs), [`test-audit-fixes.mjs`](test-audit-fixes.mjs), [`test-worker-inputs.mjs`](test-worker-inputs.mjs), [`test-dashboard-browser.mjs`](test-dashboard-browser.mjs) (`npm run test:dashboard`), [`test-extension-load.mjs`](test-extension-load.mjs) (`npm run test:extension`), and [`test-features-e2e.mjs`](test-features-e2e.mjs) (`npm run test:features`). Real-browser testing is still required for page-specific rendering, restricted origins, redirects, SPA behaviour, multiple windows, keyboard focus, popup sizing, and browser/profile differences.
+Automated checks cover ES-module syntax validation, error-boundary rejection contracts, runtime and message contracts, state normalization and storage-failure behaviour, deterministic tree geometry, sender-boundary and prototype-message checks, service-worker behaviour, bounded stress, repository-integrity and local-asset checks, no-loop/no-network runtime boundaries, no-continuous-animation CSS checks, and no-AI references. The test harnesses are [`test-error-tracing.mjs`](test-error-tracing.mjs), [`test-runtime-contracts.mjs`](test-runtime-contracts.mjs), [`test-state.mjs`](test-state.mjs), [`test-tree-layout.mjs`](test-tree-layout.mjs), [`test-security.mjs`](test-security.mjs), [`test-service-worker.mjs`](test-service-worker.mjs), [`stress-service-worker.mjs`](stress-service-worker.mjs), [`test-repository-integrity.mjs`](test-repository-integrity.mjs), [`test-preview.mjs`](test-preview.mjs), [`test-regression-fixes.mjs`](test-regression-fixes.mjs), [`test-audit-fixes.mjs`](test-audit-fixes.mjs), [`test-worker-inputs.mjs`](test-worker-inputs.mjs), [`test-ram-guard.mjs`](test-ram-guard.mjs), [`test-dashboard-browser.mjs`](test-dashboard-browser.mjs) (`npm run test:dashboard`), [`test-extension-load.mjs`](test-extension-load.mjs) (`npm run test:extension`), and [`test-features-e2e.mjs`](test-features-e2e.mjs) (`npm run test:features`). Real-browser testing is still required for page-specific rendering, restricted origins, redirects, SPA behaviour, multiple windows, keyboard focus, popup sizing, and browser/profile differences.
 
 ## Roadmap
 
@@ -164,11 +170,11 @@ Committed next (owner-confirmed direction — see [`PROJECT_CONTEXT.md`](PROJECT
 
 | # | Item | Status |
 | --- | --- | --- |
-| 1 | Per-fork manual QA pass (Brave, Edge, Opera, Vivaldi) driven by a generated checklist script — required before store submission | Planned |
-| 2 | Throttle title-only SPA updates (coalesce same-URL title changes to at most one message pair per 5 s) to protect the message budget on title-mutating sites | Planned |
-| 3 | Automated coverage for the untested branches of the chip-position system: `pagehide` flush, rate-limit retry, clear-data theme guard | Planned — rate-limit branch covered as of 2026-09-22 |
-| 4 | Popup error state distinct from the empty state; settings rewards copy re-synced when streaks ship | Planned |
-| 5 | Dark-mode companion chip (`prefers-color-scheme`) and a `return-to-mission` keyboard command | Under Consideration |
+| 1 | Per-fork manual QA pass (Brave, Edge, Opera, Vivaldi) driven by a generated checklist script — required before store submission | Planned (owner) |
+| 2 | Throttle title-only SPA updates (coalesce same-URL title changes to at most one message pair per 5 s) to protect the message budget on title-mutating sites | **Shipped 2026-09-22** — pinned by Gate 7 in real Chromium |
+| 3 | Automated coverage for the untested branches of the chip-position system: `pagehide` flush, rate-limit retry, clear-data theme guard | Planned — rate-limit branch covered; flush + theme guard remain manual-checklist items |
+| 4 | Popup error state distinct from the empty state; settings rewards copy re-synced when streaks ship | **Shipped 2026-09-22** — retry affordance in the popup; rewards copy now truthful about streaks |
+| 5 | Dark-mode companion chip (`prefers-color-scheme`) and a `return-to-mission` keyboard command | **Shipped 2026-09-22** — Alt+M returns to the mission origin |
 
 ## Development and validation
 
@@ -178,10 +184,10 @@ The source intentionally remains dependency-light and loadable without a build s
 
 ```bash
 npm ci                    # install the dev-only toolchain (Playwright)
-npm test                  # 12 unit/contract suites, no browser required
+npm test                  # 13 unit/contract suites, no browser required
 npx playwright install chromium
 npm run test:dashboard    # dashboard UI in real Chromium (39 assertions)
-npm run test:extension    # loads the real manifest (10 gates)
+npm run test:extension    # loads the real manifest (11 gates)
 npm run test:features     # end-to-end walk of every user surface (13 steps)
 npm run test:spa-stress   # 50 rapid history.pushState transitions
 npm run profile:performance   # memory/perf gate for the New Tab page

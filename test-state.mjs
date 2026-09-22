@@ -54,6 +54,8 @@ const {
   returnRewardTier,
   rewardHistoryView,
   rewardNote,
+  driftStats,
+  gardenHealth,
   REWARD_CATALOG,
   loadState,
   saveState,
@@ -111,12 +113,18 @@ describe('shared/state.js core functions', () => {
   });
 
   it('normalizeSettings clamps and defaults', () => {
-    const base = { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false };
+    const base = { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false, strictMode: false, ramGuard: true, ramGuardLevel: 3 };
     assert.deepStrictEqual(normalizeSettings(base), { ...base });
-    assert.deepStrictEqual(normalizeSettings({}), { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false });
-    assert.deepStrictEqual(normalizeSettings({ gentleDepth: 1, choiceDepth: 1 }), { gentleDepth: 2, choiceDepth: 3, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false });
-    assert.deepStrictEqual(normalizeSettings({ growthAnimationTrigger: 'invalid' }), { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false });
+    assert.deepStrictEqual(normalizeSettings({}), { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false, strictMode: false, ramGuard: true, ramGuardLevel: 3 });
+    assert.deepStrictEqual(normalizeSettings({ gentleDepth: 1, choiceDepth: 1 }), { gentleDepth: 2, choiceDepth: 3, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false, strictMode: false, ramGuard: true, ramGuardLevel: 3 });
+    assert.deepStrictEqual(normalizeSettings({ growthAnimationTrigger: 'invalid' }), { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false, strictMode: false, ramGuard: true, ramGuardLevel: 3 });
     assert.equal(normalizeSettings({ searchEngine: 'brave' }).searchEngine, 'brave');
+    assert.equal(normalizeSettings({ strictMode: true }).strictMode, true);
+    assert.equal(normalizeSettings({ strictMode: 'yes' }).strictMode, false, 'strict mode requires an explicit true');
+    assert.equal(normalizeSettings({ ramGuard: false }).ramGuard, false, 'the guardian opt-out must survive normalization');
+    assert.equal(normalizeSettings({ ramGuard: 'no' }).ramGuard, true, 'only an explicit false opts out');
+    assert.equal(normalizeSettings({ ramGuardLevel: 99 }).ramGuardLevel, 5, 'sensitivity clamps high');
+    assert.equal(normalizeSettings({ ramGuardLevel: -3 }).ramGuardLevel, 1, 'sensitivity clamps low');
     // interventionsPaused was removed: it was written but never read anywhere.
     assert.equal(Object.hasOwn(normalizeSettings({ interventionsPaused: true }), 'interventionsPaused'), false);
     assert.equal(Object.hasOwn(emptyState().settings, 'interventionsPaused'), false);
@@ -487,5 +495,44 @@ describe('storage cache and invalidation', () => {
     storage[STORAGE_KEY] = sessionFixture('s8');
     fireStorageChange(storage[STORAGE_KEY], sessionFixture('s7'));
     assert.strictEqual((await loadState()).sessions[0].id, 's8', 'failed writes must release the cache guard');
+  });
+});
+
+describe('drift accounting and garden health (R2/R3 foundation)', () => {
+  const node = (depth, secondsAgo = 0, closedAfter = null) => ({
+    id: `n${depth}-${secondsAgo}`, depth, firstSeenAt: Date.now() - secondsAgo * 1000,
+    ...(closedAfter == null ? {} : { closedAt: Date.now() - closedAfter * 1000 })
+  });
+
+  it('driftStats counts pages at or beyond the quiet line and their seconds', () => {
+    const session = { nodes: [node(0), node(2), node(4, 120, 60), node(5, 30)] };
+    const stats = driftStats(session, { gentleDepth: 4 });
+    assert.equal(stats.pages, 2);
+    assert.ok(stats.seconds >= 85 && stats.seconds <= 95, `closed node contributes its fixed span (got ${stats.seconds})`);
+  });
+
+  it('driftStats is empty-safe and honors the DESATURATE alias', () => {
+    assert.deepStrictEqual(driftStats(null, { gentleDepth: 4 }), { pages: 0, seconds: 0 });
+    assert.deepStrictEqual(driftStats({ nodes: [] }, { DESATURATE: 4 }), { pages: 0, seconds: 0 });
+  });
+
+  it('gardenHealth never judges young gardens', () => {
+    assert.equal(gardenHealth({ nodes: [node(9), node(9)] }, {}), 'steady');
+    assert.equal(gardenHealth(null, {}), 'steady');
+  });
+
+  it('gardenHealth maps the drift ratio to lush / steady / sparse', () => {
+    const lush = { nodes: [node(0), node(1), node(2), node(3), node(4), node(1), node(2), node(0), node(1), node(2)] };
+    assert.equal(gardenHealth(lush, { gentleDepth: 4 }), 'lush', '1 of 10 pages beyond the quiet line');
+    const mixed = { nodes: [node(0), node(1), node(4), node(5), node(2)] };
+    assert.equal(gardenHealth(mixed, { gentleDepth: 4 }), 'steady', '2 of 5 pages beyond the quiet line');
+    const sparse = { nodes: [node(0), node(4), node(4), node(5)] };
+    assert.equal(gardenHealth(sparse, { gentleDepth: 4 }), 'sparse', '3 of 4 pages beyond the quiet line');
+  });
+
+  it('reward catalog keeps unique ids and explains the low-drift trigger', () => {
+    const ids = Object.values(REWARD_CATALOG).flat().map((item) => item.id);
+    assert.equal(new Set(ids).size, ids.length, 'catalog ids must stay unique');
+    assert.match(rewardNote('low_drift_completion'), /close to your intention/);
   });
 });

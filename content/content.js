@@ -66,9 +66,16 @@
   const componentCssText = `
 :host{all:initial}
 #ff-root{position:fixed;z-index:2147483646;inset:0;pointer-events:none}
+#ff-root{--ff-surface-a:rgba(252,251,245,.97);--ff-surface-b:rgba(243,248,239,.95);--ff-text:#29432d;--ff-muted:#6c8c68;--ff-border:rgba(74,104,71,.22);--ff-card:rgba(252,251,245,.98);--ff-btn:rgba(74,104,71,.1);--ff-btn-text:#29432d;--ff-find-bg:rgba(255,251,235,.98);--ff-find-text:#5d563d;--ff-find-border:rgba(198,165,98,.42)}
+@media (prefers-color-scheme:dark){#ff-root{--ff-surface-a:rgba(28,34,28,.94);--ff-surface-b:rgba(23,29,23,.92);--ff-text:#dce8dc;--ff-muted:#9db89a;--ff-border:rgba(140,170,138,.3);--ff-card:rgba(26,32,26,.96);--ff-btn:rgba(140,170,138,.16);--ff-btn-text:#dce8dc;--ff-find-bg:rgba(38,34,24,.96);--ff-find-text:#e6dcbd;--ff-find-border:rgba(198,165,98,.35)}}
+#ff-root.perf-reduced .chip,#ff-root.perf-reduced .choice-card,#ff-root.perf-reduced .forest-find,#ff-root.perf-reduced .chip-seed svg{animation:none!important;transition:none!important}
+#ff-root.strict .chip[data-state="drift"]{border-color:rgba(198,140,80,.75)}
+#ff-root.strict .chip[data-state="interrupt"]{border-color:rgba(196,110,90,.8)}
+#ff-root.strict .choice-card{border-color:rgba(196,110,90,.42)}
+.choice-drift{display:block;margin-top:7px;font-size:12px;color:var(--ff-muted)}
 #ff-root.motion-off *,#ff-root.motion-off *::before,#ff-root.motion-off *::after{animation:none!important;transition:none!important}
 #ff-root *{box-sizing:border-box}
-.chip{position:fixed;top:16px;right:18px;display:flex;align-items:center;gap:9px;max-width:min(380px,calc(100vw - 32px));padding:8px 8px 8px 12px;border:1px solid rgba(74,104,71,.22);border-radius:999px;background:linear-gradient(120deg,rgba(252,251,245,.97),rgba(243,248,239,.95));box-shadow:0 8px 28px rgba(42,65,41,.16),0 1px 0 rgba(255,255,255,.6) inset;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);font:13px/1.25 ui-sans-serif,system-ui,-apple-system,sans-serif;color:#29432d;pointer-events:auto;cursor:default;transition:transform .18s ease,box-shadow .18s ease,opacity .2s ease;animation:ff-slide-in .28s cubic-bezier(.2,.8,.3,1) both}
+.chip{position:fixed;top:16px;right:18px;display:flex;align-items:center;gap:9px;max-width:min(380px,calc(100vw - 32px));padding:8px 8px 8px 12px;border:1px solid var(--ff-border);border-radius:999px;background:linear-gradient(120deg,var(--ff-surface-a),var(--ff-surface-b));box-shadow:0 8px 28px rgba(42,65,41,.16),0 1px 0 rgba(255,255,255,.6) inset;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);font:13px/1.25 ui-sans-serif,system-ui,-apple-system,sans-serif;color:var(--ff-text);pointer-events:auto;cursor:default;transition:transform .18s ease,box-shadow .18s ease,opacity .2s ease;animation:ff-slide-in .28s cubic-bezier(.2,.8,.3,1) both}
 .chip:hover{box-shadow:0 10px 32px rgba(42,65,41,.22),0 1px 0 rgba(255,255,255,.6) inset}
 .chip[hidden]{display:none}
 .chip.dragging{transition:none;box-shadow:0 14px 40px rgba(42,65,41,.3)}
@@ -81,11 +88,11 @@
 .chip-growth-ritual .chip-seed-tree{animation:ff-tree-grow 1.2s cubic-bezier(.25,.8,.25,1) both}
 .chip-growth-flash .chip-seed-tree{animation:ff-tree-flicker .18s ease-in-out 3 both}
 .chip-copy{display:flex;flex-direction:column;gap:1px;flex:1;min-width:0;overflow:hidden}
-.chip-kicker{font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:#6c8c68;white-space:nowrap}
+.chip-kicker{font-size:9px;letter-spacing:.06em;text-transform:uppercase;color:var(--ff-muted);white-space:nowrap}
 .chip-mission{font-size:13px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.chip-state{font-size:11px;color:#6c8c68;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.chip-state{font-size:11px;color:var(--ff-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .chip-actions{display:flex;gap:4px;flex:none}
-.chip-btn{appearance:none;border:0;border-radius:999px;background:rgba(74,104,71,.1);color:#29432d;font:inherit;font-size:11px;padding:5px 10px;cursor:pointer;transition:background .15s,transform .1s;white-space:nowrap}
+.chip-btn{appearance:none;border:0;border-radius:999px;background:var(--ff-btn);color:var(--ff-btn-text);font:inherit;font-size:11px;padding:5px 10px;cursor:pointer;transition:background .15s,transform .1s;white-space:nowrap}
 .chip-btn:hover{background:rgba(74,104,71,.2)}
 .chip-btn:active{transform:scale(.94)}
 .chip-btn.minimize{padding:5px 7px;font-size:13px;line-height:1}
@@ -98,17 +105,17 @@
 @keyframes ff-tree-flicker{0%,100%{opacity:1;filter:brightness(1)}
 50%{opacity:.5;filter:brightness(1.4)}}
 @keyframes ff-slide-in{from{opacity:0;transform:translateY(-8px) scale(.96)} to{opacity:1;transform:translateY(0) scale(1)}}
-.choice-card{position:fixed;bottom:24px;right:24px;z-index:2147483647;max-width:min(420px,calc(100vw - 32px));padding:20px 20px 18px;border:1px solid rgba(74,104,71,.2);border-radius:24px;background:rgba(252,251,245,.98);box-shadow:0 12px 36px rgba(42,65,41,.24);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);pointer-events:auto;animation:ff-slide-up .3s cubic-bezier(.2,.8,.3,1) both}
+.choice-card{position:fixed;bottom:24px;right:24px;z-index:2147483647;max-width:min(420px,calc(100vw - 32px));padding:20px 20px 18px;border:1px solid var(--ff-border);border-radius:24px;background:var(--ff-card);box-shadow:0 12px 36px rgba(42,65,41,.24);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);pointer-events:auto;animation:ff-slide-up .3s cubic-bezier(.2,.8,.3,1) both}
 .choice-card[hidden]{display:none !important}
-.choice-card .close{position:absolute;top:12px;right:12px;border:0;background:rgba(74,104,71,.1);border-radius:999px;width:28px;height:28px;font-size:16px;line-height:1;color:#3d5239;cursor:pointer;display:flex;align-items:center;justify-content:center}
+.choice-card .close{position:absolute;top:12px;right:12px;border:0;background:var(--ff-btn);border-radius:999px;width:28px;height:28px;font-size:16px;line-height:1;color:var(--ff-text);cursor:pointer;display:flex;align-items:center;justify-content:center}
 .choice-card .close:hover{background:rgba(74,104,71,.2)}
-.forest-find{position:fixed;right:24px;bottom:24px;display:grid;grid-template-columns:auto 1fr;column-gap:10px;row-gap:1px;align-items:center;max-width:min(340px,calc(100vw - 32px));padding:11px 15px 12px;border:1px solid rgba(198,165,98,.42);border-radius:16px;background:rgba(255,251,235,.98);box-shadow:0 10px 28px rgba(82,70,39,.18);color:#5d563d;font:13px/1.4 ui-sans-serif,system-ui,sans-serif;pointer-events:auto}
+.forest-find{position:fixed;right:24px;bottom:24px;display:grid;grid-template-columns:auto 1fr;column-gap:10px;row-gap:1px;align-items:center;max-width:min(340px,calc(100vw - 32px));padding:11px 15px 12px;border:1px solid var(--ff-find-border);border-radius:16px;background:var(--ff-find-bg);box-shadow:0 10px 28px rgba(82,70,39,.18);color:var(--ff-find-text);font:13px/1.4 ui-sans-serif,system-ui,sans-serif;pointer-events:auto}
 .forest-find[hidden]{display:none}
 .forest-find.is-new{animation:ff-find-reveal .45s cubic-bezier(.2,.8,.3,1) both}
 .forest-find[data-tier="blooms"]{border-color:rgba(187,119,123,.5);box-shadow:0 10px 30px rgba(120,75,78,.2)}
 .forest-find[data-tier="discoveries"]{border-color:rgba(116,151,173,.46)}
 .forest-find-icon{grid-row:span 2;font-size:20px;line-height:1}
-.forest-find-label{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:#7b704f}
+.forest-find-label{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ff-find-text)}
 .forest-find-text{font-size:13px}
 .choice-eyebrow{font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:#4a7c59;margin:0 0 6px}
 .choice-card h2{font:600 17px/1.3 ui-sans-serif,system-ui,sans-serif;color:#29432d;margin:0 0 8px}
@@ -230,8 +237,10 @@
     textEl.textContent = reward.text;
     forestFindEl.replaceChildren(iconEl, labelEl, textEl);
     forestFindEl.classList.remove('is-new');
-    void forestFindEl.offsetWidth;
-    forestFindEl.classList.add('is-new');
+    if (!rootEl.classList.contains('perf-reduced')) {
+      void forestFindEl.offsetWidth;
+      forestFindEl.classList.add('is-new');
+    }
     forestFindEl.hidden = false;
     window.clearTimeout(forestFindTimer);
     forestFindTimer = window.setTimeout(() => { forestFindEl.hidden = true; }, 5200);
@@ -255,18 +264,35 @@
   const originalReplaceState = history.replaceState;
   let spaUpdateChain = Promise.resolve();
   
+  // Title-only mutations (playback progress in <title>, timers, live
+  // dashboards) used to fire two worker messages per change with no time
+  // bound — a video page could spend the tab's whole rate budget and keep the
+  // worker writing title updates all day. URL changes stay immediate; a
+  // title-only change is coalesced to at most one send per TITLE_THROTTLE_MS,
+  // trailing edge included, so the final title always lands.
+  const TITLE_THROTTLE_MS = 5000;
+  let titleThrottleTimer = 0;
+  let lastSpaSendAt = 0;
+  function queueSpaUpdate(nextUrl, nextTitle) {
+    lastSpaSendAt = Date.now();
+    spaUpdateChain = spaUpdateChain.then(async () => {
+      await send('SPA_NAVIGATION', { url: nextUrl, title: nextTitle });
+      await safeUpdate(await send('GET_ACTIVE_VIEW'));
+    }).catch((error) => {
+      logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'spaNavigation' });
+    });
+  }
   const notifyUrlChange = wrapWithErrorBoundary((nextUrl = location.href, nextTitle = document.title) => {
-    // Debounce rapid changes
-    if (lastUrl !== nextUrl || lastTitle !== nextTitle) {
-      lastUrl = nextUrl;
-      lastTitle = nextTitle;
-      spaUpdateChain = spaUpdateChain.then(async () => {
-        await send('SPA_NAVIGATION', { url: nextUrl, title: nextTitle });
-        await safeUpdate(await send('GET_ACTIVE_VIEW'));
-      }).catch((error) => {
-        logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'spaNavigation' });
-      });
-    }
+    if (lastUrl === nextUrl && lastTitle === nextTitle) return;
+    const urlChanged = lastUrl !== nextUrl;
+    lastUrl = nextUrl;
+    lastTitle = nextTitle;
+    if (titleThrottleTimer) { window.clearTimeout(titleThrottleTimer); titleThrottleTimer = 0; }
+    if (urlChanged || Date.now() - lastSpaSendAt >= TITLE_THROTTLE_MS) { queueSpaUpdate(nextUrl, nextTitle); return; }
+    titleThrottleTimer = window.setTimeout(() => {
+      titleThrottleTimer = 0;
+      if (location.href === nextUrl) queueSpaUpdate(location.href, document.title);
+    }, TITLE_THROTTLE_MS - (Date.now() - lastSpaSendAt));
   }, { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'notifyUrlChange', swallow: true });
 
   history.pushState = function(...args) {
@@ -410,6 +436,29 @@
     saveChipPos(x, y);
   }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'drag.keydown', swallow: true }));
 
+  // --- Performance guardian (inline mirror of shared/ram-guard.js; content
+  // scripts are classic non-module scripts and cannot import). Chromium
+  // exposes no system-RAM API; the honest signals are the device memory
+  // class and this context's own JS heap. Decorations calm when evidence
+  // says so; tracking, the chip, and the choice card always keep working.
+  const PERF_GUARD_LEVELS = [
+    { heapCeiling: 0.9, deviceFloorGb: 0.25 },
+    { heapCeiling: 0.8, deviceFloorGb: 0.5 },
+    { heapCeiling: 0.7, deviceFloorGb: 1 },
+    { heapCeiling: 0.6, deviceFloorGb: 2 },
+    { heapCeiling: 0.5, deviceFloorGb: 4 }
+  ];
+  function computePerfReduced(settings) {
+    if (!settings || settings.ramGuard === false) return false;
+    if (window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches) return true;
+    const level = PERF_GUARD_LEVELS[Math.max(1, Math.min(5, Number(settings.ramGuardLevel) || 3)) - 1];
+    const deviceGb = Number.isFinite(navigator.deviceMemory) ? navigator.deviceMemory : null;
+    if (deviceGb !== null && deviceGb <= level.deviceFloorGb) return true;
+    const mem = performance.memory;
+    const heapRatio = mem && Number.isFinite(mem.jsHeapSizeLimit) && mem.jsHeapSizeLimit > 0 && Number.isFinite(mem.usedJSHeapSize) ? mem.usedJSHeapSize / mem.jsHeapSizeLimit : null;
+    return heapRatio !== null && heapRatio >= level.heapCeiling;
+  }
+
   async function loadSettings() {
     try {
       const snap = await send('GET_ACTIVE_VIEW');
@@ -417,6 +466,7 @@
       growthAnimationTrigger = snap.settings?.growthAnimationTrigger || 'mission-origin';
       ambientMotion = snap.settings?.ambientMotion !== false;
       rootEl.classList.toggle('motion-off', !ambientMotion);
+      rootEl.classList.toggle('perf-reduced', computePerfReduced(snap?.settings));
     } catch (error) {
       logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'loadSettings' });
       growthAnimationTrigger = 'mission-origin';
@@ -455,6 +505,10 @@
     return true;
   }
 
+  let viewDrift = null;
+  let viewHasNote = false;
+  let viewStrict = false;
+  let perfReduced = false;
   const safeUpdate = wrapWithErrorBoundary(update, { category: ERROR_CATEGORIES.UI_RENDER, function: 'update' });
   async function update(view) {
     // A rate-limited GET_ACTIVE_VIEW answers { rateLimited: true }; keep the
@@ -468,12 +522,19 @@
     const depth = current.node.depth || 0;
     const paused = current.interventionPaused;
     const thresholds = view?.thresholds || { DESATURATE: 4, INTERRUPT: 5 };
-    const { stateKind, state } = depthState(depth, paused, thresholds);
+    viewDrift = view?.drift || null;
+    viewHasNote = Boolean(view?.hasNote);
+    viewStrict = Boolean(view?.settings?.strictMode);
+    rootEl.classList.toggle('strict', viewStrict);
+    perfReduced = computePerfReduced(view?.settings);
+    rootEl.classList.toggle('perf-reduced', perfReduced);
+    const { stateKind, state } = depthState(depth, paused, thresholds, viewStrict);
     const enteredNewBranch = !paused && previous?.node?.id && previous.node.id !== current.node.id && depth > (previous.node.depth || 0);
     const isOriginLoad = !paused && !previous?.node?.id && depth === 0;
     applyChipCopy(current, enteredNewBranch ? 'growing' : stateKind, state, paused);
     // Ritual parks "A branch is growing" in stateEl; the final write restores it.
-    if (isOriginLoad) await safeShowGrowthRitual(true); else if (enteredNewBranch) await safeShowGrowthRitual(false); else cancelGrowthRitual();
+    if (perfReduced) cancelGrowthRitual();
+    else if (isOriginLoad) await safeShowGrowthRitual(true); else if (enteredNewBranch) await safeShowGrowthRitual(false); else cancelGrowthRitual();
     // A newer update() ran during the ritual await; it owns the UI now.
     if (generation !== updateGeneration) return;
     const interventionEligible = !paused && Boolean(view.interventionEligible);
@@ -510,6 +571,12 @@
       document.createTextNode(`. This is a ${confidence}-confidence branch. Nothing is wrong — choose whether to keep exploring, return to your intention, or pause the forest. `),
       promptEl
     );
+    if (viewDrift && viewDrift.pages > 0) {
+      const driftEl = document.createElement('span');
+      driftEl.className = 'choice-drift';
+      driftEl.textContent = driftSentence(viewDrift.pages, Math.round(viewDrift.seconds / 60));
+      choiceCopy.append(driftEl);
+    }
     choiceCard.hidden = false;
     shadow.querySelector('[data-action="dismiss"]').focus();
   }
@@ -541,13 +608,24 @@
    * on every refresh.
    * @returns {{stateKind: string, state: string}}
    */
-  function depthState(depth, paused, thresholds) {
+  function depthState(depth, paused, thresholds, strict = false) {
     if (paused) return { stateKind: 'resting', state: 'Forest resting' };
-    if (depth >= thresholds.INTERRUPT) return { stateKind: 'interrupt', state: 'You may be wandering' };
-    if (depth >= thresholds.DESATURATE) return { stateKind: 'drift', state: 'This branch is getting long' };
+    // Strict mode changes only the wording at and beyond the quiet line; the
+    // gentle strings are pinned byte-for-byte by the e2e suite (F4).
+    if (depth >= thresholds.INTERRUPT) return { stateKind: 'interrupt', state: strict ? 'The mission is still waiting' : 'You may be wandering' };
+    if (depth >= thresholds.DESATURATE) return { stateKind: 'drift', state: strict ? 'You keep going deeper' : 'This branch is getting long' };
     return depth > 0
       ? { stateKind: 'branch', state: `${depth} ${depth === 1 ? 'branch' : 'branches'} deep` }
       : { stateKind: 'root', state: 'Growing from this mission' };
+  }
+
+  // Drift accounting copy: the same facts in both modes — strict swaps the
+  // reassurance for accountability and, when a private note exists, quotes
+  // the user's own "why" back to them (the note text itself never arrives).
+  function driftSentence(pages, minutes) {
+    const facts = `${pages} ${pages === 1 ? 'page' : 'pages'} and ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} from your mission.`;
+    if (!viewStrict) return `You are ${facts}`;
+    return viewHasNote ? `You wrote down why this mattered. ${facts} It is still waiting.` : `${facts} Your mission is still waiting.`;
   }
 
   /** Re-arms the origin growth ritual when the view moves to a different garden. */

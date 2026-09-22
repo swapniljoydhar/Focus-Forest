@@ -682,6 +682,43 @@ await send({ type: 'CLEAR_DATA' });
 await send({ type: 'START_MISSION', mission: 'Do not guess a parent', tab: { id: 70, url: 'https://root.example/', title: 'Root' } });
 await send({ type: 'LINK_CLICK', url: 'https://orphan.example/', title: 'Orphan' }, { id: 71 });
 assert.equal(session().nodes.length, 1, 'an unmapped tab must not attach a link to the most recent unrelated node');
+// --- R2/R3: drift accounting, note privacy, lush-completion rewards, aged compost, streak milestones ---
+{
+  const nowTs = Date.now();
+  const mkNode = (id, depth, url) => ({ id, url, title: id, parentId: null, depth, firstSeenAt: nowTs - 60000, closedAt: nowTs - 30000, relationshipConfidence: 'direct', confidence: 'high', navigationKind: 'link' });
+  const mkSession = (id, nodes) => ({ id, mission: `${id} probe`, note: '', status: 'active', startedAt: nowTs - 120000, endedAt: null, origin: { url: nodes[0].url, title: 'Root', tabId: null, windowId: null }, nodes, events: [], activeIntervals: [], pendingRedirects: [], interventionPaused: false });
+  await send({ type: 'CLEAR_DATA' });
+  await send({ type: 'UPDATE_SETTINGS', settings: { enableRewards: true, gentleDepth: 4 } });
+  await send({ type: 'START_MISSION', mission: 'Drift probe', missionNote: 'a private why', tab: { id: 860, url: 'https://drift.example/root', title: 'Root' } });
+  const view = await send({ type: 'GET_ACTIVE_VIEW' }, { id: 860, url: 'https://drift.example/root' });
+  assert.equal(view.hasNote, true, 'the view reports that a private note exists');
+  assert.ok(!JSON.stringify(view).includes('a private why'), 'the note text itself must never reach a page context');
+  assert.deepEqual(view.drift, { pages: 0, seconds: 0 }, 'a fresh root reports zero drift');
+
+  // A lush garden: 10 pages, only one at or beyond the quiet line (ratio 0.1).
+  const lushNodes = Array.from({ length: 9 }, (_, i) => mkNode(`lush-${i}`, i === 0 ? 0 : 1, `https://lush.example/p${i}`));
+  lushNodes.push(mkNode('lush-deep', 5, 'https://lush.example/deep'));
+  await send({ type: 'IMPORT_DATA', payload: { data: { sessions: [mkSession('lush-session', lushNodes)], activeSessionId: 'lush-session', settings: { enableRewards: true, gentleDepth: 4 } } } });
+  const lushEnd = await send({ type: 'END_MISSION', reason: 'user_ended' });
+  assert.equal(lushEnd?.reward?.tier, 'discoveries', 'a lush completion earns a rare seasonal discovery');
+  assert.equal(lushEnd?.reward?.trigger, 'low_drift_completion');
+  assert.match(lushEnd?.reward?.note || '', /close to your intention/, 'the reward explains itself');
+
+  // A sparse garden keeps the ordinary bloom.
+  const sparseNodes = [mkNode('sp-0', 0, 'https://sparse.example/p0'), mkNode('sp-1', 4, 'https://sparse.example/p1'), mkNode('sp-2', 5, 'https://sparse.example/p2'), mkNode('sp-3', 6, 'https://sparse.example/p3')];
+  await send({ type: 'CLEAR_DATA' });
+  await send({ type: 'IMPORT_DATA', payload: { data: { sessions: [mkSession('sparse-session', sparseNodes)], activeSessionId: 'sparse-session', settings: { enableRewards: true, gentleDepth: 4 } } } });
+  const sparseEnd = await send({ type: 'END_MISSION', reason: 'user_ended' });
+  assert.equal(sparseEnd?.reward?.tier, 'blooms', 'a drifted completion keeps the ordinary bloom');
+
+  // Aged compost + streak milestone surface as data, never as copy.
+  await send({ type: 'IMPORT_DATA', payload: { data: { compostItems: [{ id: 'aged-1', url: 'https://aged.example/', title: 'Aged curiosity', mission: 'old mission', savedAt: nowTs - 8 * 24 * 60 * 60 * 1000 }, { id: 'fresh-1', url: 'https://fresh.example/', title: 'Fresh', mission: 'now', savedAt: nowTs - 1000 }] } } });
+  const stats = await send({ type: 'GET_DASHBOARD_STATS' });
+  assert.equal(stats.agedSavedCount, 1, 'exactly the week-old curiosity counts as aged');
+  assert.ok(stats.streakMilestone === null || typeof stats.streakMilestone === 'string', 'the milestone is a key the dashboard words, never copy from the worker');
+  await send({ type: 'CLEAR_DATA' });
+}
+
 // --- Companion chip position: extension-private session storage (Phase-1 audit F2 fix) ---
 {
   const tabA = { id: 810, url: 'https://chip-a.example/article' };

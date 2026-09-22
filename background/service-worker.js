@@ -1,4 +1,4 @@
-import { LIMITS, SCHEMA_VERSION, STORAGE_KEY, DEFAULT_NEW_TAB_URL, activeSession, clearStateCache, compactText, emptyState, getDepthState, isBrowserNewTabUrl, isExtensionNewTabUrl, isPlaceholderOriginUrl, isSearchUrl, loadState, loadStateForWrite, makeId, normalizeSettings, safeHttpUrl, safeSessionUrl, saveState, checkStorageQuota, compactStateIfNeeded, normalizeState, earnReward, returnRewardTier } from '../shared/state.js';
+import { LIMITS, SCHEMA_VERSION, STORAGE_KEY, DEFAULT_NEW_TAB_URL, activeSession, clearStateCache, compactText, driftStats, emptyState, gardenHealth, getDepthState, isBrowserNewTabUrl, isExtensionNewTabUrl, isPlaceholderOriginUrl, isSearchUrl, loadState, loadStateForWrite, makeId, normalizeSettings, safeHttpUrl, safeSessionUrl, saveState, checkStorageQuota, compactStateIfNeeded, normalizeState, earnReward, returnRewardTier } from '../shared/state.js';
 import { logError, logWarning, ERROR_CATEGORIES, wrapMutationWithErrorBoundary, wrapWithErrorBoundary } from '../shared/error-tracing.js';
 import { DAY_MS, SERVICE_WORKER, MEMORY_LIMITS, VALIDATION } from '../shared/constants.js';
 
@@ -516,7 +516,12 @@ function activeView(state, tabId) {
   const settings = normalizeSettings(state.settings);
   let sitePaused = false;
   try { const host = new URL(node?.url || '').hostname.toLowerCase().replace(/^www\./, ''); sitePaused = settings.excludedSites.includes(host); } catch {}
-  if (!session || !node) return { session: null, thresholds: effectiveThresholds(settings), settings, sitePaused };
+  const thresholds = effectiveThresholds(settings);
+  // Drift accounting for the companion: factual pages/seconds at or beyond the
+  // quiet line. hasNote tells strict copy that a private "why" exists WITHOUT
+  // sending the note itself into a page context (the note never leaves the
+  // worker's state).
+  if (!session || !node) return { session: null, thresholds, settings, sitePaused, drift: null, hasNote: false };
   return {
     session: {
       id: session.id,
@@ -524,11 +529,61 @@ function activeView(state, tabId) {
       interventionPaused: Boolean(session.interventionPaused),
       node: { id: node.id, depth: node.depth, state: node.state, url: node.url, confidence: node.confidence || 'low', navigationKind: node.navigationKind || 'external' }
     },
-    thresholds: effectiveThresholds(settings),
+    thresholds,
     settings,
     sitePaused,
-    interventionEligible: !session.interventionPaused && !sitePaused && node.depth >= effectiveThresholds(settings).INTERRUPT && node.confidence !== 'low'
+    drift: driftStats(session, thresholds),
+    hasNote: Boolean(session.note),
+    interventionEligible: !session.interventionPaused && !sitePaused && node.depth >= thresholds.INTERRUPT && node.confidence !== 'low'
   };
+}
+
+// Validated "go home" target: an HTTP(S) origin only, integer-checked tab id.
+// Shared by the GO_HOME message and the return-to-mission command so both
+// paths carry identical validation.
+function validatedReturnTarget(origin) {
+  const originTabId = Number.isInteger(origin?.tabId) ? origin.tabId : null;
+  const returnUrl = safeNavigationUrl(origin?.url);
+  // Extension pages and internal browser URLs are not useful "go home" targets.
+  const hasRealOrigin = Boolean(returnUrl) && /^https?:\/\//i.test(returnUrl);
+  return { originTabId, returnUrl, hasRealOrigin };
+}
+
+async function activateValidatedOrigin(origin, originTabId) {
+  try {
+    const liveTab = await chrome.tabs.get(originTabId);
+    // Ensure the tab still belongs to the same window session: this prevents
+    // navigating wrong tabs after browser restart when tab IDs may be reassigned.
+    const tabBelongsToSession = !origin.windowId || liveTab.windowId === origin.windowId;
+    if (!tabBelongsToSession || !sameOriginUrl(liveTab?.url, origin.url)) return { returned: false, reward: null };
+    if (chrome.windows?.update && Number.isInteger(liveTab.windowId)) await chrome.windows.update(liveTab.windowId, { focused: true });
+    // sameOriginUrl already proves the tab is on the origin page (canonical
+    // URLs match), so passing `url` here would re-navigate the tab to the page
+    // it already shows — a full reload that discards scroll position, form
+    // state and SPA state. Activate the tab instead; the caller opens a safe
+    // new origin tab only when this tab is gone or drifted.
+    await chrome.tabs.update(originTabId, { active: true });
+    const rewardResult = await mutate((state) => ({ reward: earnReward(state, returnRewardTier(state), 'return_to_root') }));
+    return { returned: true, reward: rewardResult?.reward || null };
+  } catch { return { returned: false, reward: null }; }
+}
+
+// One "return to the mission origin" flow for both the GO_HOME message and
+// the return-to-mission keyboard command. The result keeps a single object
+// shape throughout; a boolean that later morphs into an object makes every
+// downstream read a type guessing game.
+async function goHome() {
+  const snapshot = await getSnapshot();
+  const origin = snapshot.session?.origin;
+  const target = validatedReturnTarget(origin);
+  let returnResult = { returned: false, reward: null };
+  if (target.originTabId && target.hasRealOrigin) returnResult = await activateValidatedOrigin(origin, target.originTabId);
+  const { returned: didReturn, reward } = returnResult;
+  if (!didReturn && target.hasRealOrigin) await chrome.tabs.create({ url: target.returnUrl, active: true });
+  // Consumers (New Tab "Continue session") need the destination to report a
+  // truthful outcome; activeView deliberately omits origin, so without this
+  // field they could never tell a real return from a placeholder.
+  return { ...activeView(await loadState(), didReturn ? target.originTabId : null), reward, origin: target.hasRealOrigin ? { url: target.returnUrl, tabId: target.originTabId } : null, returned: didReturn };
 }
 
 async function recordActiveTab(tabId, windowId) {
@@ -599,7 +654,11 @@ async function endSession(reason = 'user_ended') {
     for (const interval of session.activeIntervals || []) if (!interval.endedAt) interval.endedAt = session.endedAt;
     activeTabs.clear();
     addEvent(session, reason === 'mission_changed' ? 'mission_changed' : 'mission_ended', { reason });
-    const reward = earnReward(state, 'blooms', `session_end_${reason}`);
+    // A lush (low-drift) completion earns a rarer seasonal discovery; every
+    // other ending keeps the existing bloom. Same cooldowns and caps — the
+    // reward path stays bounded, offline, and opt-in via enableRewards.
+    const lush = reason !== 'mission_changed' && gardenHealth(session, state.settings) === 'lush';
+    const reward = earnReward(state, lush ? 'discoveries' : 'blooms', lush ? 'low_drift_completion' : `session_end_${reason}`);
     state.activeSessionId = null;
     return { session, reward };
   });
@@ -982,6 +1041,14 @@ async function getDashboardStats() {
     savedAt: item.savedAt
   }));
 
+  // Strict-mode compost honesty: how many saved curiosities have rested for
+  // over a week. Age-based only — revisit tracking would need a schema field,
+  // so no revisit claim is made.
+  const agedSavedCount = state.compostItems.filter((item) => Number.isFinite(item.savedAt) && now - item.savedAt >= 7 * DAY_MS).length;
+  // Milestone KEYS, not copy: the dashboard owns the wording. Positive-only —
+  // a broken streak maps to null and is never surfaced as a punishment.
+  const streakMilestone = currentStreak >= 30 ? 'season' : currentStreak >= 14 ? 'grove' : currentStreak >= 7 ? 'week' : currentStreak >= 3 ? 'roots' : null;
+
   return {
     totalSessions,
     totalFocusTime: Math.floor(totalFocusTime),
@@ -991,6 +1058,8 @@ async function getDashboardStats() {
     interruptionsDismissed,
     averageBranchDepth: totalSessions ? Number((branchDepthTotal / totalSessions).toFixed(2)) : 0,
     currentStreak,
+    streakMilestone,
+    agedSavedCount,
     weeklyData,
     domainData,
     history,
@@ -1411,41 +1480,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       case 'EXPORT_DATA': return isExtensionPageSender(sender) ? exportAllData() : null;
       case 'IMPORT_DATA': return isExtensionPageSender(sender) && isRecord(message.payload) ? importAllData(message.payload) : null;
       case 'COMPLETE_ONBOARDING': return isExtensionPageSender(sender) ? mutate((state) => { state.onboardingCompleted = true; return state; }) : null;
-      case 'GO_HOME': {
-        const snapshot = await getSnapshot(); const origin = snapshot.session?.origin; const originTabId = Number.isInteger(origin?.tabId) ? origin.tabId : null; const returnUrl = safeNavigationUrl(origin?.url);
-        // Only treat HTTP(S) origins as real navigation targets.
-        // Extension pages and internal browser URLs are not useful "go home" destinations.
-        const hasRealOrigin = Boolean(returnUrl) && /^https?:\/\//i.test(returnUrl);
-        // Keep the result a single object shape throughout; a boolean that later
-        // morphs into an object makes every downstream read a type guessing game.
-        let returnResult = { returned: false, reward: null };
-        if (originTabId && hasRealOrigin) {
-          try {
-            const liveTab = await chrome.tabs.get(originTabId);
-            // Additional validation: ensure tab still belongs to the same window session
-            // This prevents navigating wrong tabs after browser restart when tab IDs may be reassigned
-            const tabBelongsToSession = !origin.windowId || liveTab.windowId === origin.windowId;
-            if (tabBelongsToSession && sameOriginUrl(liveTab?.url, origin.url)) {
-              if (chrome.windows?.update && Number.isInteger(liveTab.windowId)) await chrome.windows.update(liveTab.windowId, { focused: true });
-              // sameOriginUrl already proves the tab is on the origin page
-              // (canonical URLs match), so passing `url` here would re-navigate
-              // the tab to the page it already shows — a full reload that
-              // discards scroll position, form state and SPA state. Activate
-              // the tab instead; the new-tab path below still navigates when
-              // the origin tab is gone or drifted.
-              await chrome.tabs.update(originTabId, { active: true });
-              const rewardResult = await mutate((state) => ({ reward: earnReward(state, returnRewardTier(state), 'return_to_root') }));
-              returnResult = { returned: true, reward: rewardResult?.reward || null };
-            }
-          } catch { returnResult = { returned: false, reward: null }; }
-        }
-        const { returned: didReturn, reward } = returnResult;
-        if (!didReturn && hasRealOrigin) await chrome.tabs.create({ url: returnUrl, active: true });
-        // Consumers (New Tab "Continue session") need the destination to report
-        // a truthful outcome; activeView deliberately omits origin, so without
-        // this field they could never tell a real return from a placeholder.
-        return { ...activeView(await loadState(), didReturn ? originTabId : null), reward, origin: hasRealOrigin ? { url: returnUrl, tabId: originTabId } : null, returned: didReturn };
-      }
+      case 'GO_HOME': return goHome();
       case 'OPEN_PLANTING_PAGE': {
         // Web pages cannot navigate to chrome-extension:// URLs that are not
         // web_accessible_resources (and this extension deliberately keeps that
@@ -1548,6 +1583,7 @@ chrome.webNavigation?.onHistoryStateUpdated?.addListener((details) => {
 
 chrome.commands?.onCommand?.addListener((command) => {
   return wrapWithErrorBoundary(async () => {
+    if (command === 'return-to-mission') { await goHome(); return; }
     if (command !== 'toggle-mission') return;
     const state = await loadState();
     const session = activeSession(state);

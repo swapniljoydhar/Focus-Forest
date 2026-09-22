@@ -47,3 +47,6 @@ body[data-motion="off"] .tab-content.active{animation:none}
 /* Weekly chart: today's bar wears a quiet outline. */
 .today-bar{stroke:#527154;stroke-width:1.5}
 [data-theme="dark"] .today-bar{stroke:#8ca086}
+
+.stat-milestone { font-size: .78rem; color: var(--color-text-secondary, #6c8c68); margin-top: 2px; min-height: 1.2em; }
+.saved-aged-note { font-size: .85rem; color: var(--color-text-secondary, #8a7a4f); margin: 0 0 10px; }

@@ -1,5 +1,6 @@
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
 import { applyStoredTheme } from '../shared/theme.js';
+import { driftStats } from '../shared/state.js';
 
 applyStoredTheme();
 
@@ -49,6 +50,8 @@ const completeBtn = document.querySelector('#complete');
 const completionCopyEl = document.querySelector('#completion-copy');
 const completionTitleEl = document.querySelector('#completion-title');
 const endBtn = document.querySelector('#end');
+const workerErrorEl = document.querySelector('#worker-error');
+const retryBtn = document.querySelector('#retry-render');
 
 const clamp = (n, min, max) => Math.min(max, Math.max(min, n));
 
@@ -68,9 +71,12 @@ function reflectionFor(session) {
   const branchLine = branches ? `The path grew through ${branches} ${branches === 1 ? 'branch' : 'branches'}.` : 'The path stayed close to its root.';
   const neutralLine = neutral ? `You also crossed ${neutral} unlinked ${neutral === 1 ? 'path' : 'paths'} without needing to call them a mistake.` : 'The path stayed close to the links you chose.';
   const savedLine = saved ? `${saved} ${saved === 1 ? 'curiosity is' : 'curiosities are'} resting in the compost pile.` : 'Nothing needed to be set aside for later.';
+  const drift = driftStats(session, { gentleDepth: Number(thresholds?.gentleDepth) || Number(thresholds?.DESATURATE) || 4 });
+  const driftMinutes = Math.round(drift.seconds / 60);
+  const driftLine = drift.pages > 0 ? ` Beyond the quiet line: ${drift.pages} ${drift.pages === 1 ? 'page' : 'pages'}, ${driftMinutes} ${driftMinutes === 1 ? 'minute' : 'minutes'}.` : '';
   return {
     deepest,
-    copy: `You began with \u201c${session.mission}\u201d. ${branchLine} You grew through ${pages}, reached a deepest branch of ${deepest}, and ${savedLine} ${neutralLine}`
+    copy: `You began with \u201c${session.mission}\u201d. ${branchLine} You grew through ${pages}, reached a deepest branch of ${deepest}, and ${savedLine} ${neutralLine}${driftLine}`
   };
 }
 
@@ -96,6 +102,8 @@ async function render() {
   // null throws on snap.session and flips the whole popup into the error state.
   const snap = (await message('GET_SNAPSHOT')) || { session: null, state: { compostItems: [] }, settings: null, thresholds: null };
   document.body.dataset.motion = snap.settings?.ambientMotion === false ? 'off' : 'on';
+  if (workerErrorEl) workerErrorEl.hidden = true;
+  if (retryBtn) retryBtn.hidden = true;
   latest = snap.session;
   const session = snap.session;
   empty.hidden = Boolean(session);
@@ -139,8 +147,14 @@ function renderSafely() {
     completion.hidden = true;
     footer.hidden = true;
     empty.hidden = false;
+    // Truthful failure state: an unreachable worker must not masquerade as a
+    // calm "no mission" popup (Phase 4 recommendation 1.1).
+    if (workerErrorEl) workerErrorEl.hidden = false;
+    if (retryBtn) retryBtn.hidden = false;
   });
 }
+
+if (retryBtn) retryBtn.addEventListener('click', wrapWithErrorBoundary(() => renderSafely(), { category: ERROR_CATEGORIES.UI_RENDER, function: 'retry.click', swallow: true }));
 
 document.querySelector('#plant-form').addEventListener('submit', wrapWithErrorBoundary(async (event) => {
   event.preventDefault();
