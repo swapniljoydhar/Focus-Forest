@@ -202,3 +202,17 @@ body[data-page-visibility="hidden"] .forest-scene * { animation-play-state: paus
   35% { opacity: .5; }
   100% { opacity: 1; }
 }
+
+/* ── Garden health (R3): lush / steady / sparse are visual treatments on the
+   same deterministic geometry — never a number, never a layout change. ── */
+.forest-scene[data-health="lush"] { filter: saturate(1.07); }
+.forest-scene[data-health="lush"] .canopy-glints { opacity: 1; }
+.forest-scene[data-health="sparse"] { filter: saturate(.55); }
+.forest-scene[data-health="sparse"] .canopy-glints { opacity: 0; }
+.forest-scene[data-health="sparse"] .node { opacity: .78; }
+
+/* Performance guardian: the living garden rests under memory pressure
+   (see shared/ram-guard.js); data comes from body[data-perf]. */
+body[data-perf="reduced"] .forest-scene *,
+body[data-perf="reduced"] .forest-scene *::before,
+body[data-perf="reduced"] .forest-scene *::after { animation: none !important; transition: none !important; }

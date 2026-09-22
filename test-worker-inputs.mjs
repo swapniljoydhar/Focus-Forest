@@ -186,4 +186,22 @@ await test('chip-position surface rejects hostile payloads and never trusts send
   assert.equal(await send({ type: 'GET_CHIP_POS' }, tab), null, 'closing the tab must clear its chip position even in fallback mode');
 });
 
+await test('return-to-mission command reuses the validated go-home flow', async () => {
+  await send({ type: 'CLEAR_DATA' });
+  tabInfo.set(55, { id: 55, url: 'https://origin.example/start', title: 'Start', windowId: 1 });
+  await send({ type: 'START_MISSION', mission: 'Command return probe', tab: { id: 55, url: 'https://origin.example/start', title: 'Start' } });
+  await listeners.command[0]('return-to-mission');
+  await settle();
+  const activated = tabActions.filter((entry) => entry[0] === 'update' && entry[1] === 55);
+  assert.ok(activated.length >= 1, 'the command must activate the validated origin tab');
+});
+
+await test('new settings keys survive hostile UPDATE_SETTINGS payloads', async () => {
+  await send({ type: 'UPDATE_SETTINGS', settings: { strictMode: 'yes', ramGuard: 0, ramGuardLevel: 'many', gentleDepth: 4, choiceDepth: 5 } });
+  const snap = await send({ type: 'GET_SNAPSHOT' });
+  assert.equal(snap.settings.strictMode, false, 'strict mode requires an explicit true');
+  assert.equal(snap.settings.ramGuard, true, 'only an explicit false opts out of the guardian');
+  assert.equal(snap.settings.ramGuardLevel, 3, 'a non-numeric sensitivity falls back to the default');
+});
+
 console.log('test-worker-inputs.mjs: command + context-menu surfaces passed');

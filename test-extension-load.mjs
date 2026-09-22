@@ -56,6 +56,10 @@ const server = http.createServer((req, res) => {
     res.end(pageHtml(`Page ${n}`, [[`/p/${n + 1}`, `next${n + 1}`], [`/p/${n}`, `self${n}`]]));
     return;
   }
+  if (url.pathname === '/churn') {
+    res.end('<!doctype html><html><head><title>Churn 0</title></head><body><h1>Title churn probe</h1><script>let i = 0; const t = setInterval(() => { i++; if (i >= 8) { clearInterval(t); document.title = "Churn final"; } else { document.title = "Churn " + i; } }, 200);</script></body></html>');
+    return;
+  }
   if (/^\/r\/\d+$/.test(url.pathname)) { res.end(pageHtml(`Rapid ${url.pathname}`, [])); return; }
   res.end(pageHtml('Root', [['/p/1', 'p1']]));
 });
@@ -540,6 +544,21 @@ test('Gate 6: chip drag position persists across reload through extension-privat
   } finally {
     await cdp.detach().catch(() => {});
   }
+});
+
+test('Gate 7: title-only churn is time-throttled — one node, final title lands, no message flood', async () => {
+  // The production breaker from the Phase 4 QA review, pinned in vivo: a page
+  // mutating <title> every 200ms used to fire two worker messages per change.
+  // With the 5s title throttle the node stays single, the trailing send
+  // delivers the final title, and churn cannot spend the tab's rate budget.
+  await resetState();
+  const page = await plantMission('Title churn probe', extPage, httpPage);
+  await page.goto(`${baseUrl}/churn`);
+  await page.waitForTimeout(7000); // 1.6s of churn + the 5s trailing throttle window
+  const state = await readState();
+  const churnNodes = (activeSessionOf(state)?.nodes ?? []).filter((n) => n.url === `${baseUrl}/churn`);
+  assert.equal(churnNodes.length, 1, 'title churn must never create duplicate nodes');
+  assert.equal(churnNodes[0].title, 'Churn final', 'the trailing throttled send must deliver the final title');
 });
 
 test('no uncaught errors surfaced anywhere during the real-extension run', async () => {

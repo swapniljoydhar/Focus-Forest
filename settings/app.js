@@ -22,6 +22,7 @@ async function message(type, payload = {}) {
   }
 }
 const gentle = document.querySelector('#gentle'); const choice = document.querySelector('#choice'); const motion = document.querySelector('#motion'); const searchEngine = document.querySelector('#search-engine'); const excludedSites = document.querySelector('#excluded-sites'); const status = document.querySelector('#status'); const save = document.querySelector('#save'); const enableRewardsToggle = document.querySelector('#enable-rewards');
+const strictToggle = document.querySelector('#strict-mode'); const ramGuardToggle = document.querySelector('#ram-guard'); const ramLevel = document.querySelector('#ram-level'); const ramLevelValue = document.querySelector('#ram-level-value');
 const gentleValue = document.querySelector('#gentle-value'); const choiceValue = document.querySelector('#choice-value');
 const gentlePreviewLabel = document.querySelector('#gentle-preview-label'); const choicePreviewLabel = document.querySelector('#choice-preview-label');
 const previewGentle = document.querySelector('#preview-gentle'); const previewChoice = document.querySelector('#preview-choice');
@@ -30,7 +31,7 @@ const previewCopy = document.querySelector('#preview-copy');
 // literal: if defaults ever change, reset must restore the true defaults
 // (the old copy would have silently restored a stale rhythm).
 const original = { ...DEFAULT_SETTINGS, excludedSites: [...DEFAULT_SETTINGS.excludedSites] }; let saved = { ...original }; let ready = false;
-function currentSettings() { return { gentleDepth: Number(gentle.value), choiceDepth: Number(choice.value), ambientMotion: motion.checked, growthAnimationTrigger: document.querySelector('input[name="growth-animation"]:checked')?.value || 'mission-origin', excludedSites: excludedSites.value.split(/\r?\n/).map((site) => site.trim().toLowerCase().replace(/^www\./, '')).filter(Boolean), searchEngine: searchEngine.value, enableRewards: enableRewardsToggle?.checked === true }; }
+function currentSettings() { return { gentleDepth: Number(gentle.value), choiceDepth: Number(choice.value), ambientMotion: motion.checked, growthAnimationTrigger: document.querySelector('input[name="growth-animation"]:checked')?.value || 'mission-origin', excludedSites: excludedSites.value.split(/\r?\n/).map((site) => site.trim().toLowerCase().replace(/^www\./, '')).filter(Boolean), searchEngine: searchEngine.value, enableRewards: enableRewardsToggle?.checked === true, strictMode: strictToggle?.checked === true, ramGuard: ramGuardToggle?.checked !== false, ramGuardLevel: Number(ramLevel?.value) || 3 }; }
 let saving = false;
 const reset = document.querySelector('#reset');
 function sameSettings(left, right) { return JSON.stringify(left) === JSON.stringify(right); }
@@ -41,6 +42,7 @@ function editableSettings(settings) {
   if (!settings || typeof settings !== 'object' || Array.isArray(settings)
     || !Number.isInteger(settings.gentleDepth) || !Number.isInteger(settings.choiceDepth)
     || typeof settings.ambientMotion !== 'boolean' || typeof settings.enableRewards !== 'boolean'
+    || typeof settings.strictMode !== 'boolean' || typeof settings.ramGuard !== 'boolean' || !Number.isInteger(settings.ramGuardLevel)
     || !Array.isArray(settings.excludedSites) || !settings.excludedSites.every(site => typeof site === 'string')) {
     throw new Error('Invalid settings acknowledgement');
   }
@@ -58,6 +60,9 @@ function applySettings(settings) {
   gentle.value = settings.gentleDepth;
   choice.value = settings.choiceDepth;
   motion.checked = settings.ambientMotion;
+  if (strictToggle) strictToggle.checked = settings.strictMode === true;
+  if (ramGuardToggle) ramGuardToggle.checked = settings.ramGuard !== false;
+  if (ramLevel) { ramLevel.value = String(settings.ramGuardLevel); if (ramLevelValue) ramLevelValue.textContent = String(settings.ramGuardLevel); }
   searchEngine.value = settings.searchEngine;
   excludedSites.value = settings.excludedSites.join('\n');
   document.querySelector(`input[name="growth-animation"][value="${settings.growthAnimationTrigger}"]`).checked = true;
@@ -101,6 +106,9 @@ async function load() {
 gentle.addEventListener('input', wrapWithErrorBoundary(sync, { category: ERROR_CATEGORIES.UI_RENDER, function: 'gentle.input', swallow: true }));
 choice.addEventListener('input', wrapWithErrorBoundary(sync, { category: ERROR_CATEGORIES.UI_RENDER, function: 'choice.input', swallow: true }));
 motion.addEventListener('change', wrapWithErrorBoundary(markDirty, { category: ERROR_CATEGORIES.UI_RENDER, function: 'motion.change', swallow: true }));
+if (strictToggle) strictToggle.addEventListener('change', wrapWithErrorBoundary(markDirty, { category: ERROR_CATEGORIES.UI_RENDER, function: 'strict-mode.change', swallow: true }));
+if (ramGuardToggle) ramGuardToggle.addEventListener('change', wrapWithErrorBoundary(markDirty, { category: ERROR_CATEGORIES.UI_RENDER, function: 'ram-guard.change', swallow: true }));
+if (ramLevel) ramLevel.addEventListener('input', wrapWithErrorBoundary(() => { if (ramLevelValue) ramLevelValue.textContent = ramLevel.value; markDirty(); }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'ram-level.input', swallow: true }));
 searchEngine.addEventListener('change', wrapWithErrorBoundary(markDirty, { category: ERROR_CATEGORIES.UI_RENDER, function: 'search-engine.change', swallow: true }));
 excludedSites.addEventListener('input', wrapWithErrorBoundary(markDirty, { category: ERROR_CATEGORIES.UI_RENDER, function: 'excluded-sites.input', swallow: true }));
 document.querySelectorAll('input[name="growth-animation"]').forEach((radio) => radio.addEventListener('change', wrapWithErrorBoundary(markDirty, { category: ERROR_CATEGORIES.UI_RENDER, function: 'growth-animation.change', swallow: true })));

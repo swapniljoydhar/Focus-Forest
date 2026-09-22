@@ -1,7 +1,10 @@
 import { renderGardenTree } from './tree-renderer.js';
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
-import { getNodeDuration, rewardHistoryView, STORAGE_KEY } from '../shared/state.js';
+import { gardenHealth, getNodeDuration, rewardHistoryView, STORAGE_KEY } from '../shared/state.js';
 import { applyStoredTheme, toggleTheme, clearStoredTheme } from '../shared/theme.js';
+import { applyPerfMode, resolvePerfMode, sampleMemoryPressure } from '../shared/ram-guard.js';
+
+let lastSettings = null;
 
 async function message(type, payload = {}) { return chrome.runtime.sendMessage({ type, ...payload }); }
 const svg = document.querySelector('#tree');
@@ -40,6 +43,10 @@ function renderTree(session) {
   });
   lastTree = tree;
   delete svg.dataset.preview; // the DOM was rebuilt; no stale hover preview
+  // Garden health (R3): a visual verdict on the same deterministic geometry —
+  // lush / steady / sparse, never a number.
+  if (session) svg.dataset.health = gardenHealth(session, lastSettings || {});
+  else delete svg.dataset.health;
   // A stage change (seed -> sapling -> canopy -> deep) is a milestone: give
   // the whole scene one gentle crossfade. One-shot timer, no loops.
   if (lastTreeMode && lastTreeMode !== tree.mode) {
@@ -265,6 +272,8 @@ async function render() {
   // transient condition; normalize it to an empty-but-valid shape instead.
   const snap = (await message('GET_SNAPSHOT', { sessionId: selectedSessionId, includeHistory: true })) || { state: {}, settings: {}, session: null, thresholds: null, activeSessionId: null };
   document.body.dataset.motion = snap.settings?.ambientMotion === false ? 'off' : 'on';
+  lastSettings = snap.settings || null;
+  applyPerfMode(resolvePerfMode(snap.settings, sampleMemoryPressure(), window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches === true));
   thresholds = snap.thresholds || { DESATURATE: Number(snap.settings?.gentleDepth) || 4, INTERRUPT: Number(snap.settings?.choiceDepth) || 5 };
   selectedSessionId = snap.session?.id || null;
   renderSessions(snap.state.sessions || [], snap.activeSessionId, selectedSessionId);
@@ -580,10 +589,18 @@ function renderHistoryTable(history) {
   });
 }
 
-function renderSavedItems(items) {
+function renderSavedItems(items, agedCount = 0) {
   const container = document.getElementById('savedList');
   if (!container) return;
   container.replaceChildren();
+  if (agedCount > 0) {
+    // Strict-mode compost honesty: age-based facts only — the extension never
+    // claims to know whether a saved page was revisited.
+    const note = document.createElement('p');
+    note.className = 'saved-aged-note';
+    note.textContent = `${agedCount} saved ${agedCount === 1 ? 'curiosity has' : 'curiosities have'} been resting for over a week.`;
+    container.appendChild(note);
+  }
   if (!items || items.length === 0) {
     const empty = document.createElement('div');
     empty.className = 'empty-state';
@@ -647,6 +664,10 @@ async function loadStatsTab() {
     if (totalSessionsEl) totalSessionsEl.textContent = totalSessions;
     if (totalFocusTimeEl) totalFocusTimeEl.textContent = formatDuration(totalFocusTime);
     if (currentStreakEl) currentStreakEl.textContent = currentStreak;
+    const milestoneEl = document.getElementById('streakMilestone');
+    // Milestone copy lives here, not in the worker; positive-only wording —
+    // a broken streak shows nothing and is never framed as a loss.
+    if (milestoneEl) milestoneEl.textContent = { roots: 'Three days — roots are holding.', week: 'A week of tending.', grove: 'The grove knows your rhythm.', season: 'A whole season of tending.' }[response.streakMilestone] || '';
     if (savedCountEl) savedCountEl.textContent = savedItems.length;
     if (activeTabTimeEl) activeTabTimeEl.textContent = formatDuration(totalActiveTabTime);
     if (intentionalBranchesEl) intentionalBranchesEl.textContent = intentionalBranches;
@@ -656,7 +677,7 @@ async function loadStatsTab() {
     renderWeeklyChart(weeklyData);
     renderDomainChart(domainData);
     renderHistoryTable(history);
-    renderSavedItems(savedItems);
+    renderSavedItems(savedItems, lastSettings?.strictMode === true ? Number(response.agedSavedCount) || 0 : 0);
   } catch (error) {
     logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'loadStatsTab' });
   }

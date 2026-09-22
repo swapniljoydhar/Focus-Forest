@@ -43,6 +43,10 @@ assert.match(newtab, /function: 'form\.submit', swallow: true/, 'New Tab submit 
 assert.match(dashboard, /function: 'detail\.click', swallow: true/, 'dashboard detail listener must swallow async failures');
 assert.match(settings, /function: 'save\.click', swallow: true/, 'settings save listener must swallow async failures');
 assert.match(content, /function: 'shadow\.click', swallow: true/, 'content Shadow DOM listener must swallow async failures');
+assert.match(content, /TITLE_THROTTLE_MS = 5000/, 'title-only SPA updates must stay time-throttled (rate-budget and battery protection)');
+assert.match(content, /function computePerfReduced\(/, 'the performance-guardian mirror must stay present in the companion');
+assert.match(content, /makeChoice\('dismiss'/, 'the "Keep exploring" choice must exist in every mode — user agency is non-negotiable, including Strict mode');
+assert.match(content, /driftSentence\(/, 'drift-accounting copy must live in one reviewable function');
 assert.match(content, /function: 'drag\.pointerdown', swallow: true/, 'content drag pointerdown listener must swallow async failures');
 assert.match(content, /function: 'drag\.pointermove', swallow: true/, 'content drag pointermove listener must swallow async failures');
 assert.match(content, /function: 'drag\.pointerup', swallow: true/, 'content drag pointerup listener must swallow async failures');
