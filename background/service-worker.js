@@ -604,7 +604,13 @@ async function goHome() {
   let returnResult = { returned: false, reward: null };
   if (target.originTabId && target.hasRealOrigin) returnResult = await activateValidatedOrigin(origin, target.originTabId);
   const { returned: didReturn, reward } = returnResult;
-  if (!didReturn && target.hasRealOrigin) await chrome.tabs.create({ url: target.returnUrl, active: true });
+  if (!didReturn && target.hasRealOrigin) {
+    // Same windowless-context guard as the install path: resolve a real
+    // window when the API can name one; never let a missing window turn a
+    // graceful "could not return" into an INTERNAL_ERROR envelope.
+    const win = chrome.windows?.getLastFocused ? await chrome.windows.getLastFocused().catch(() => null) : null;
+    await chrome.tabs.create({ url: target.returnUrl, active: true, ...(win && Number.isInteger(win.id) ? { windowId: win.id } : {}) }).catch(() => {});
+  }
   // Consumers (New Tab "Continue session") need the destination to report a
   // truthful outcome; activeView deliberately omits origin, so without this
   // field they could never tell a real return from a placeholder.
@@ -1324,7 +1330,18 @@ chrome.runtime.onInstalled.addListener((details) => {
     await checkStorageQuota();
     await takeOverOpenNewTabs();
     if (details?.reason === 'install') {
-      await chrome.tabs.create({ url: plantingPageUrl(), active: true });
+      // Windowless installs (headless-CI startup races) used to reject here
+      // with "No current window" — tabs.create without a windowId needs a
+      // last-focused window, which may not exist yet at install time. Probe
+      // for one: a definitive "none" means there is nowhere to open a
+      // welcome tab, so skip quietly (the new-tab override greets the user
+      // anyway); a resolved window is targeted explicitly. Engines without
+      // the windows API keep the legacy best-effort create.
+      const hasWindowApi = Boolean(chrome.windows?.getLastFocused);
+      const win = hasWindowApi ? await chrome.windows.getLastFocused().catch(() => null) : null;
+      if (!hasWindowApi || (win && Number.isInteger(win.id))) {
+        await chrome.tabs.create({ url: plantingPageUrl(), active: true, ...(win && Number.isInteger(win.id) ? { windowId: win.id } : {}) }).catch(() => {});
+      }
     }
   }, { category: ERROR_CATEGORIES.STORAGE, component: 'service-worker', function: 'onInstalled', swallow: true })();
 });
