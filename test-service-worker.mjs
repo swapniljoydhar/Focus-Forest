@@ -778,4 +778,21 @@ assert.equal(session().nodes.length, 1, 'an unmapped tab must not attach a link 
   await listeners.removed[0](880);
 }
 
+// --- Windowless-install race (the CI "No current window" F13 trace) ---
+{
+  const creates = () => tabActions.filter((entry) => entry[0] === 'create').length;
+  chrome.windows.getLastFocused = async () => { throw new Error('No current window'); };
+  const before = creates();
+  await listeners.installed[0]({ reason: 'install' });
+  assert.equal(creates(), before, 'a windowless install must skip the welcome tab quietly, not throw');
+  chrome.windows.getLastFocused = async () => ({ id: 42 });
+  await listeners.installed[0]({ reason: 'install' });
+  const welcomes = tabActions.filter((entry) => entry[0] === 'create').slice(before);
+  assert.equal(welcomes.length, 1, 'an install with a resolvable window opens exactly one welcome tab');
+  assert.equal(welcomes[0][1].windowId, 42, 'the welcome tab targets the resolved window explicitly');
+  assert.match(String(welcomes[0][1].url), /newtab\/index\.html$/, 'the welcome tab is the planting page');
+  delete chrome.windows.getLastFocused;
+  await send({ type: 'CLEAR_DATA' });
+}
+
 console.log('service-worker behavioral tests passed');

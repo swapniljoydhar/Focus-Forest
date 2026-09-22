@@ -4,6 +4,10 @@ All notable Focus Forest changes are documented here.
 
 ## [Unreleased]
 
+### Fixed (windowless-install race — the CI F13 "No current window" trace)
+
+- **Fresh installs could log an error trace on headless/windowless startup:** `onInstalled` opened a welcome tab with an unguarded `chrome.tabs.create` lacking a `windowId`; when the install event beat the browser's first window (the GitHub Actions startup race), Chromium rejected with "No current window" and the swallow boundary's storage-category trace tripped the feature suite's zero-error gate (F13). The handler now probes `windows.getLastFocused()` (no permission required): a resolved window is targeted explicitly, a definitive "none" skips the welcome tab quietly — the new-tab override greets the user anyway — and engines without the API keep the legacy best-effort create. `goHome()`'s fallback `tabs.create` received the same guard so a windowless "return" can never morph into an `INTERNAL_ERROR` envelope. Both branches regression-tested in units; F13 green in vivo.
+
 ### Improved (performance guardian v2 — real system memory, 2026-09-22)
 
 - **Correction + upgrade:** an earlier claim that "Chromium has no free-RAM API for extensions" was wrong — `chrome.system.memory.getInfo()` is documented for extensions (Chrome 91+, `system.memory` permission) and is now empirically pinned by Gate 0 in real Chromium. The guardian prefers that real free-RAM signal (worker-cached with a ≤30 s TTL, refreshed from the active-view path and the existing 5-minute maintenance alarm — zero new timers), relays it to the companion via the active view (`systemMemory.freeRatio`), and falls back to the device-memory class and the context's own JS heap where the API is absent.
