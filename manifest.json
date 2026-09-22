@@ -16,7 +16,8 @@
     "tabs",
     "webNavigation",
     "alarms",
-    "contextMenus"
+    "contextMenus",
+    "system.memory"
   ],
   "host_permissions": [
     "http://*/*",

@@ -1,6 +1,7 @@
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
 import { normalizeSettings, DEFAULT_SETTINGS } from '../shared/state.js';
 import { applyStoredTheme } from '../shared/theme.js';
+import { sampleMemoryPressure, sampleSystemMemory } from '../shared/ram-guard.js';
 
 applyStoredTheme();
 
@@ -23,6 +24,19 @@ async function message(type, payload = {}) {
 }
 const gentle = document.querySelector('#gentle'); const choice = document.querySelector('#choice'); const motion = document.querySelector('#motion'); const searchEngine = document.querySelector('#search-engine'); const excludedSites = document.querySelector('#excluded-sites'); const status = document.querySelector('#status'); const save = document.querySelector('#save'); const enableRewardsToggle = document.querySelector('#enable-rewards');
 const strictToggle = document.querySelector('#strict-mode'); const ramGuardToggle = document.querySelector('#ram-guard'); const ramLevel = document.querySelector('#ram-level'); const ramLevelValue = document.querySelector('#ram-level-value');
+const ramSignalsEl = document.querySelector('#ram-signals');
+// Live guardian-signal readout: the same honest numbers the decision uses,
+// rendered locally; nothing here is stored or transmitted.
+async function renderRamSignals() {
+  if (!ramSignalsEl) return;
+  const sys = await sampleSystemMemory();
+  const ctx = sampleMemoryPressure();
+  const systemPart = sys ? `free system memory: ${sys.freeGb} of ${sys.totalGb} GB` : 'free system memory: not exposed by this browser';
+  const devicePart = ctx.deviceGb === null ? 'device class: not reported' : `device class: ~${ctx.deviceGb} GB`;
+  const heapPart = ctx.heapRatio === null ? 'this page heap: not reported' : `this page heap: ${Math.round(ctx.heapRatio * 100)}% of limit`;
+  ramSignalsEl.textContent = `Live signals — ${systemPart} · ${devicePart} · ${heapPart}.`;
+}
+renderRamSignals();
 const gentleValue = document.querySelector('#gentle-value'); const choiceValue = document.querySelector('#choice-value');
 const gentlePreviewLabel = document.querySelector('#gentle-preview-label'); const choicePreviewLabel = document.querySelector('#choice-preview-label');
 const previewGentle = document.querySelector('#preview-gentle'); const previewChoice = document.querySelector('#preview-choice');

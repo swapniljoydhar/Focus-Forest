@@ -765,4 +765,17 @@ assert.equal(session().nodes.length, 1, 'an unmapped tab must not attach a link 
   await listeners.removed[0](850);
 }
 
+// --- Guardian signal 1 relay: the system.memory sample rides the active view ---
+{
+  await send({ type: 'CLEAR_DATA' });
+  await send({ type: 'START_MISSION', mission: 'Sysmem relay probe', tab: { id: 880, url: 'https://sysmem.example/', title: 'S' } });
+  let memView = await send({ type: 'GET_ACTIVE_VIEW' }, { id: 880, url: 'https://sysmem.example/' });
+  assert.equal(memView.systemMemory, null, 'with the API absent the relayed sample must be null so fallback signals take over');
+  chrome.system = { memory: { getInfo: async () => ({ capacity: 8 * 1073741824, availableCapacity: 536870912 }) } };
+  memView = await send({ type: 'GET_ACTIVE_VIEW' }, { id: 880, url: 'https://sysmem.example/' });
+  assert.ok(memView.systemMemory && Math.abs(memView.systemMemory.freeRatio - 0.0625) < 0.001, 'a live sample must relay the free ratio');
+  delete chrome.system;
+  await listeners.removed[0](880);
+}
+
 console.log('service-worker behavioral tests passed');
