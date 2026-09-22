@@ -67,9 +67,11 @@ focus-forest/
 │   ├── theme.js               Dark/light preference for extension pages
 │   └── chromium-api.js        browser.* -> chrome.* alias shim
 ├── dashboard/
+│   ├── index.html             Garden dashboard page
 │   ├── app.js                 Garden map + insights tab
 │   ├── tree-layout.js         Sunflower packing, golden-angle placement
 │   ├── tree-renderer.js       SVG storybook tree renderer
+│   ├── style.css              Dashboard page styles
 │   └── tree.css               Botanical layer styles
 ├── newtab/                    Planting page (chrome_url_overrides.newtab)
 ├── popup/                     Toolbar popup (depth meter, completion ritual)
@@ -102,7 +104,7 @@ Focus Forest targets desktop Chromium browsers: **Chrome, Brave, Edge, Opera, an
   - **Brave** — Brave shows its own new-tab page and may require an explicit confirmation before the override takes effect. Shields can stay on and should not be disabled as an install step. `chrome.search.query` availability is feature-detected and falls back to a DuckDuckGo results URL.
   - **Microsoft Edge** — may require confirming the new-tab override. Edge can expose `browser.*` alongside `chrome.*`; [`shared/chromium-api.js`](shared/chromium-api.js) aliases one to the other.
   - **Opera** — ships Speed Dial as its start page (`opera://startpage`) and may require confirming the override.
-  - **Vivaldi** — start page is `chrome://vivaldi-webui/startpage`, which is recognised separately in [`shared/state.js`](shared/state.js); the override may require confirming.
+  - **Vivaldi** — start page is `chrome://vivaldi-webui/startpage`, which is recognized separately in [`shared/state.js`](shared/state.js); the override may require confirming.
   - **All forks** — `minimum_chrome_version: 111` is enforced by Chrome/Chromium only. The `world: "MAIN"` content script ([`content/spa-bridge.js`](content/spa-bridge.js)) needs Chromium 111+, and on a fork shipping an older engine that entry may be dropped silently. The extension degrades gracefully (the service worker's `webNavigation` listener plus a visibility-gated poll still track SPA routes), at the cost of slightly slower companion updates.
   - **All forks** — automated coverage runs in Chromium only. A manual installed-extension walkthrough on each fork is still required before store submission; this project does not claim per-fork certification.
 
@@ -150,11 +152,23 @@ The runtime is dependency-free and uses native HTML, CSS, and SVG. Page scripts 
 
 ## Security and reliability
 
-The service worker validates sender identity, treats runtime messages and content-script payloads as untrusted inputs, and rejects malformed message shapes. It validates sender-tab metadata and HTTP(S) URLs, ignores synthetic page-dispatched clicks, serializes storage mutations, bounds pending relationships and SPA deduplication, clears redirect state when tabs are removed, keys target-blank relationships by source tab plus destination, detaches all tab aliases when a path is composted, excludes pruned/composted paths from active reuse, and revalidates the stored origin tab before Go Home. If the tab ID was reused or the origin moved to another window, it focuses only the validated origin window; otherwise it opens a safe new origin tab without closing anything. The companion renders inside a closed `ShadowRoot` and uses DOM-safe construction for all companion markup and dynamic content; no companion stylesheet is exposed as a web-accessible resource. Content scripts receive only the compact active view, while full garden snapshots, settings writes, session deletion, pruning, compost deletion, and clear-data operations require an extension-page sender. The companion host element uses `pointer-events: none` so the page behind it (text, links, scroll) stays fully interactive; only the chip and the choice card opt back in with `pointer-events: auto`. The chip is draggable via a pointer-events handle. Its position is remembered for the current site only: the value is held in the page's own `sessionStorage`, so it is scoped per origin and per tab, it resets when you move to a different site, and it is technically readable by the host page. Moving it to extension-private storage is a tracked limitation. The choice prompt appears as a non-blocking corner card rather than a full-screen modal, so it never hides page content. Dashboard data-bearing lists and detail controls use DOM construction, while popup, New Tab, and dashboard startup failures show local recovery copy instead of remaining blank.
+The service worker validates sender identity, treats runtime messages and content-script payloads as untrusted inputs, and rejects malformed message shapes. It validates sender-tab metadata and HTTP(S) URLs, ignores synthetic page-dispatched clicks, serializes storage mutations, bounds pending relationships and SPA deduplication, clears redirect state when tabs are removed, keys target-blank relationships by source tab plus destination, detaches all tab aliases when a path is composted, excludes pruned/composted paths from active reuse, and revalidates the stored origin tab before Go Home. If the tab ID was reused or the origin moved to another window, it focuses only the validated origin window; otherwise it opens a safe new origin tab without closing anything. The companion renders inside a closed `ShadowRoot` and uses DOM-safe construction for all companion markup and dynamic content; no companion stylesheet is exposed as a web-accessible resource. Content scripts receive only the compact active view, while full garden snapshots, settings writes, session deletion, pruning, compost deletion, and clear-data operations require an extension-page sender. The companion host element uses `pointer-events: none` so the page behind it (text, links, scroll) stays fully interactive; only the chip and the choice card opt back in with `pointer-events: auto`. The chip is draggable via a pointer-events handle. Its position is remembered for the current site only: the value is held in extension-private session storage (`chrome.storage.session`) managed by the service worker, keyed by the validated sender tab and origin, so it resets when you move to a different site, is cleared when the tab or the browser session ends, and is never readable by the host page. Saves are validated, serialized, and bounded; keyboard auto-repeat rides a short trailing debounce so position saves never crowd the message budget. On forks without `storage.session` the position degrades to worker memory rather than falling back to page storage. The choice prompt appears as a non-blocking corner card rather than a full-screen modal, so it never hides page content. Dashboard data-bearing lists and detail controls use DOM construction, while popup, New Tab, and dashboard startup failures show local recovery copy instead of remaining blank.
 
 For the original security review, see [`SECURITY_REVIEW_2026-08-15.md`](SECURITY_REVIEW_2026-08-15.md) and [`SECURITY.md`](SECURITY.md). For the modified-fork audit and repair record, see [`AUDIT_REPORT_2026-08-16.md`](AUDIT_REPORT_2026-08-16.md).
 
 Automated checks cover ES-module syntax validation, error-boundary rejection contracts, runtime and message contracts, state normalization and storage-failure behaviour, deterministic tree geometry, sender-boundary and prototype-message checks, service-worker behaviour, bounded stress, repository-integrity and local-asset checks, no-loop/no-network runtime boundaries, no-continuous-animation CSS checks, and no-AI references. The test harnesses are [`test-error-tracing.mjs`](test-error-tracing.mjs), [`test-runtime-contracts.mjs`](test-runtime-contracts.mjs), [`test-state.mjs`](test-state.mjs), [`test-tree-layout.mjs`](test-tree-layout.mjs), [`test-security.mjs`](test-security.mjs), [`test-service-worker.mjs`](test-service-worker.mjs), [`stress-service-worker.mjs`](stress-service-worker.mjs), [`test-repository-integrity.mjs`](test-repository-integrity.mjs), [`test-preview.mjs`](test-preview.mjs), [`test-regression-fixes.mjs`](test-regression-fixes.mjs), [`test-audit-fixes.mjs`](test-audit-fixes.mjs), [`test-worker-inputs.mjs`](test-worker-inputs.mjs), [`test-dashboard-browser.mjs`](test-dashboard-browser.mjs) (`npm run test:dashboard`), [`test-extension-load.mjs`](test-extension-load.mjs) (`npm run test:extension`), and [`test-features-e2e.mjs`](test-features-e2e.mjs) (`npm run test:features`). Real-browser testing is still required for page-specific rendering, restricted origins, redirects, SPA behaviour, multiple windows, keyboard focus, popup sizing, and browser/profile differences.
+
+## Roadmap
+
+Committed next (owner-confirmed direction — see [`PROJECT_CONTEXT.md`](PROJECT_CONTEXT.md)): the accountability layer — gentle drift accounting with an optional **Strict mode** — and the **garden health** reward system (lush versus sparse gardens, extended Forest Finds, local streaks and milestones). The QA-derived improvements below are ranked by impact from the 2026-09-22 audit.
+
+| # | Item | Status |
+| --- | --- | --- |
+| 1 | Per-fork manual QA pass (Brave, Edge, Opera, Vivaldi) driven by a generated checklist script — required before store submission | Planned |
+| 2 | Throttle title-only SPA updates (coalesce same-URL title changes to at most one message pair per 5 s) to protect the message budget on title-mutating sites | Planned |
+| 3 | Automated coverage for the untested branches of the chip-position system: `pagehide` flush, rate-limit retry, clear-data theme guard | Planned — rate-limit branch covered as of 2026-09-22 |
+| 4 | Popup error state distinct from the empty state; settings rewards copy re-synced when streaks ship | Planned |
+| 5 | Dark-mode companion chip (`prefers-color-scheme`) and a `return-to-mission` keyboard command | Under Consideration |
 
 ## Development and validation
 
@@ -167,7 +181,7 @@ npm ci                    # install the dev-only toolchain (Playwright)
 npm test                  # 12 unit/contract suites, no browser required
 npx playwright install chromium
 npm run test:dashboard    # dashboard UI in real Chromium (39 assertions)
-npm run test:extension    # loads the real manifest (9 gates)
+npm run test:extension    # loads the real manifest (10 gates)
 npm run test:features     # end-to-end walk of every user surface (13 steps)
 npm run test:spa-stress   # 50 rapid history.pushState transitions
 npm run profile:performance   # memory/perf gate for the New Tab page

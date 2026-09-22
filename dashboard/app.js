@@ -1,7 +1,7 @@
 import { renderGardenTree } from './tree-renderer.js';
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
 import { getNodeDuration, rewardHistoryView, STORAGE_KEY } from '../shared/state.js';
-import { applyStoredTheme, toggleTheme } from '../shared/theme.js';
+import { applyStoredTheme, toggleTheme, clearStoredTheme } from '../shared/theme.js';
 
 async function message(type, payload = {}) { return chrome.runtime.sendMessage({ type, ...payload }); }
 const svg = document.querySelector('#tree');
@@ -317,7 +317,7 @@ async function renderSafely() {
 function closeCareDialog() { careDialog.hidden = true; const returnFocus = careReturnFocus; careAction = null; careReturnFocus = null; if (returnFocus && document.contains(returnFocus)) returnFocus.focus(); }
 function openCareDialog(action, trigger) { careAction = action; careReturnFocus = trigger; const deletingAll = action === 'clear'; careTitle.textContent = deletingAll ? 'Clear every garden?' : 'Forget this garden?'; careCopy.textContent = deletingAll ? 'This removes all local gardens, trail notes, and saved curiosities from this device. Nothing is sent anywhere.' : 'This removes the selected garden from this device. Its saved curiosities remain in the compost pile unless you remove them separately.'; careConfirm.textContent = deletingAll ? 'Clear local data' : 'Forget garden'; careDialog.hidden = false; careConfirm.focus(); }
 const safeConfirmCareAction = wrapWithErrorBoundary(confirmCareAction, { category: ERROR_CATEGORIES.MESSAGING, function: 'confirmCareAction', swallow: true });
-async function confirmCareAction() { const action = careAction; const sessionId = selectedSessionId; closeCareDialog(); if (action === 'forget' && sessionId) { await message('DELETE_SESSION', { sessionId }); selectedSessionId = null; selectedNodeId = null; await renderSafely(); } else if (action === 'clear') { await message('CLEAR_DATA'); selectedSessionId = null; selectedNodeId = null; await renderSafely(); } }
+async function confirmCareAction() { const action = careAction; const sessionId = selectedSessionId; closeCareDialog(); if (action === 'forget' && sessionId) { await message('DELETE_SESSION', { sessionId }); selectedSessionId = null; selectedNodeId = null; await renderSafely(); } else if (action === 'clear') { const cleared = await message('CLEAR_DATA'); if (!cleared?.error) clearStoredTheme(); selectedSessionId = null; selectedNodeId = null; await renderSafely(); } }
 careCancel.addEventListener('click', wrapWithErrorBoundary(closeCareDialog, { category: ERROR_CATEGORIES.UI_RENDER, function: 'careCancel.click', swallow: true }));
 careConfirm.addEventListener('click', safeConfirmCareAction);
 careDialog.addEventListener('click', wrapWithErrorBoundary(event => { if (event.target === careDialog) closeCareDialog(); }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'careDialog.click', swallow: true }));

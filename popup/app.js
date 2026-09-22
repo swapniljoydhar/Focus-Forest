@@ -11,7 +11,9 @@ applyStoredTheme();
  */
 async function message(type, payload = {}) {
   try {
-    return await chrome.runtime.sendMessage({ type, ...payload });
+    const response = await chrome.runtime.sendMessage({ type, ...payload });
+    if (response?.error) throw new Error(response.error);
+    return response;
   } catch (error) {
     // Service worker may be unavailable during startup or after crash
     logError(error, { category: ERROR_CATEGORIES.MESSAGING, operation: 'sendMessage', messageType: type });

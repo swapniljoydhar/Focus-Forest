@@ -16,8 +16,7 @@
     "tabs",
     "webNavigation",
     "alarms",
-    "contextMenus",
-    "windows"
+    "contextMenus"
   ],
   "host_permissions": [
     "http://*/*",

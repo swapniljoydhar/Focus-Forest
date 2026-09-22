@@ -1,8 +1,9 @@
 import assert from 'node:assert/strict';
-import { SERVICE_WORKER } from './shared/constants.js';
+import { MEMORY_LIMITS, SERVICE_WORKER } from './shared/constants.js';
 import { test } from 'node:test';
 
 const store = {};
+const sessionStore = {};
 const messages = [];
 const tabActions = [];
 const searchActions = [];
@@ -17,6 +18,10 @@ globalThis.chrome = {
     local: {
       async get(key) { return key in store ? { [key]: structuredClone(store[key]) } : {}; },
       async set(value) { Object.assign(store, structuredClone(value)); }
+    },
+    session: {
+      async get(key) { return key in sessionStore ? { [key]: structuredClone(sessionStore[key]) } : {}; },
+      async set(value) { Object.assign(sessionStore, structuredClone(value)); }
     },
     sync: { async set(value) { syncWrites.push(structuredClone(value)); } }
   },
@@ -677,4 +682,50 @@ await send({ type: 'CLEAR_DATA' });
 await send({ type: 'START_MISSION', mission: 'Do not guess a parent', tab: { id: 70, url: 'https://root.example/', title: 'Root' } });
 await send({ type: 'LINK_CLICK', url: 'https://orphan.example/', title: 'Orphan' }, { id: 71 });
 assert.equal(session().nodes.length, 1, 'an unmapped tab must not attach a link to the most recent unrelated node');
+// --- Companion chip position: extension-private session storage (Phase-1 audit F2 fix) ---
+{
+  const tabA = { id: 810, url: 'https://chip-a.example/article' };
+  const tabB = { id: 811, url: 'https://chip-a.example/article' };
+  const tabAOtherOrigin = { id: 810, url: 'https://chip-b.example/other' };
+  assert.equal(await send({ type: 'GET_CHIP_POS' }, tabA), null, 'an unset tab must report no saved chip position');
+  assert.deepEqual(await send({ type: 'SET_CHIP_POS', x: 123.4, y: 567.8 }, tabA), { saved: true }, 'a validated content sender must save the chip position');
+  assert.deepEqual(await send({ type: 'GET_CHIP_POS' }, tabA), { x: 123.4, y: 567.8 }, 'the chip position must round-trip exactly');
+  assert.equal(await send({ type: 'GET_CHIP_POS' }, tabB), null, 'chip positions must not leak across tabs');
+  assert.equal(await send({ type: 'GET_CHIP_POS' }, tabAOtherOrigin), null, 'chip positions must not leak across origins within one tab');
+  assert.equal(await send({ type: 'GET_CHIP_POS' }), null, 'extension-page senders (no tab) must not read chip positions');
+  assert.deepEqual(Object.keys(sessionStore.chipPositions || {}), ['810:https://chip-a.example'], 'positions must live in chrome.storage.session keyed by tab and origin');
+  assert.equal(store.chipPositions, undefined, 'chip positions must never touch persistent local storage');
+  await listeners.removed[0](810);
+  assert.equal(await send({ type: 'GET_CHIP_POS' }, tabA), null, 'closing a tab must clear its chip positions');
+  for (let index = 0; index < MEMORY_LIMITS.LRU_CACHE_SIZE + 5; index++) {
+    await send({ type: 'SET_CHIP_POS', x: 10, y: 10 }, { id: 5000 + index, url: 'https://cap.example/' });
+  }
+  assert.ok(Object.keys(sessionStore.chipPositions).length <= MEMORY_LIMITS.LRU_CACHE_SIZE, 'the chip-position store must stay bounded');
+  // Forks without storage.session degrade to worker memory, never to page storage.
+  const sessionApi = chrome.storage.session;
+  delete chrome.storage.session;
+  assert.deepEqual(await send({ type: 'SET_CHIP_POS', x: 42, y: 24 }, { id: 812, url: 'https://fallback.example/' }), { saved: true }, 'the fallback must accept saves without storage.session');
+  assert.deepEqual(await send({ type: 'GET_CHIP_POS' }, { id: 812, url: 'https://fallback.example/' }), { x: 42, y: 24 }, 'the fallback must round-trip in worker memory');
+  chrome.storage.session = sessionApi;
+}
+
+// --- Chip-position reads must respect the content-sender rate budget and recover in a fresh window ---
+{
+  const budgetTab = { id: 850, url: 'https://budget.example/page' };
+  const budgetSender = { id: 'test', tab: budgetTab, url: 'https://budget.example/page' };
+  for (let i = 0; i < SERVICE_WORKER.RATE_LIMIT_MAX_REQUESTS; i++) await rawSend({ type: 'GET_CHIP_POS' }, budgetSender);
+  assert.deepEqual(await rawSend({ type: 'GET_CHIP_POS' }, budgetSender), { rateLimited: true },
+    'chip-position reads past the budget must return the distinguishable throttle signal');
+  const realNow = Date.now;
+  try {
+    const base = realNow();
+    Date.now = () => base + SERVICE_WORKER.RATE_LIMIT_WINDOW_MS + 1000;
+    assert.equal(await rawSend({ type: 'GET_CHIP_POS' }, budgetSender), null,
+      'a fresh rate window must restore chip-position reads — the content-side retry relies on this');
+  } finally {
+    Date.now = realNow;
+  }
+  await listeners.removed[0](850);
+}
+
 console.log('service-worker behavioral tests passed');

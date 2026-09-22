@@ -44,6 +44,86 @@ const MAX_MESSAGES_PER_MINUTE = SERVICE_WORKER.RATE_LIMIT_MAX_REQUESTS;
 const RATE_LIMIT_WINDOW_MS = SERVICE_WORKER.RATE_LIMIT_WINDOW_MS;
 const RATE_LIMIT_INITIAL_WINDOW = 0; // First message creates a fresh window at arrival time
 
+// --- Companion chip position (extension-private; Phase-1 audit finding F2) ---
+// The draggable chip remembers where the user placed it per tab and origin
+// for the current browser session only. The value lives in
+// chrome.storage.session — extension-private, survives service-worker idle
+// restarts, cleared on browser exit — instead of the host page's own
+// sessionStorage, so no website can read it. Identity (tab id + origin) comes
+// from the validated sender tab, never from the message payload. Forks
+// without storage.session degrade to worker memory; they never fall back to
+// page storage. Writes are serialized and the store is bounded like every
+// other per-tab record.
+const CHIP_POS_STORAGE_KEY = 'chipPositions';
+const CHIP_POS_MAX_ENTRIES = MEMORY_LIMITS.LRU_CACHE_SIZE;
+const CHIP_POS_COORD_MAX = 32767; // generous screen bound; pages re-clamp to their own viewport
+const chipPosFallback = new Map();
+let chipPosQueue = Promise.resolve();
+
+function chipPosSessionStore() {
+  return chrome.storage?.session?.get && chrome.storage?.session?.set ? chrome.storage.session : null;
+}
+async function readChipPositions() {
+  const sessionStore = chipPosSessionStore();
+  if (sessionStore) {
+    const result = await sessionStore.get(CHIP_POS_STORAGE_KEY);
+    return isRecord(result?.[CHIP_POS_STORAGE_KEY]) ? result[CHIP_POS_STORAGE_KEY] : {};
+  }
+  return Object.fromEntries(chipPosFallback);
+}
+async function writeChipPositions(entries) {
+  const sessionStore = chipPosSessionStore();
+  if (sessionStore) { await sessionStore.set({ [CHIP_POS_STORAGE_KEY]: entries }); return; }
+  chipPosFallback.clear();
+  for (const [key, value] of Object.entries(entries)) chipPosFallback.set(key, value);
+}
+function enqueueChipPosTask(task) {
+  const run = chipPosQueue.then(task, task);
+  chipPosQueue = run.catch(() => {}); // a failed position write must never poison the queue
+  return run;
+}
+function chipPosIdentity(tab) {
+  if (!Number.isInteger(tab?.id) || tab.id < 0) return null;
+  const url = safeHttpUrl(tab?.url);
+  if (!url) return null;
+  try { return `${tab.id}:${new URL(url).origin}`; } catch { return null; }
+}
+function clampChipPosCoord(value) { return Math.min(Math.max(value, 0), CHIP_POS_COORD_MAX); }
+async function getChipPos(tab) {
+  const key = chipPosIdentity(tab);
+  if (!key) return null;
+  const stored = (await readChipPositions())[key];
+  return isRecord(stored) && Number.isFinite(stored.x) && Number.isFinite(stored.y) ? { x: stored.x, y: stored.y } : null;
+}
+async function setChipPos(tab, x, y) {
+  const key = chipPosIdentity(tab);
+  if (!key) return null;
+  const point = { x: clampChipPosCoord(x), y: clampChipPosCoord(y) };
+  await enqueueChipPosTask(async () => {
+    const entries = await readChipPositions();
+    entries[key] = { ...point, ts: Date.now() };
+    const keys = Object.keys(entries);
+    if (keys.length > CHIP_POS_MAX_ENTRIES) {
+      keys.sort((a, b) => (Number(entries[a]?.ts) || 0) - (Number(entries[b]?.ts) || 0));
+      for (const stale of keys.slice(0, keys.length - CHIP_POS_MAX_ENTRIES)) delete entries[stale];
+    }
+    await writeChipPositions(entries);
+  }).catch(() => {}); // best-effort, like the sessionStorage write it replaces
+  return { saved: true };
+}
+async function clearChipPosForTab(tabId) {
+  if (!Number.isInteger(tabId)) return;
+  await enqueueChipPosTask(async () => {
+    const entries = await readChipPositions();
+    const prefix = `${tabId}:`;
+    let changed = false;
+    for (const storedKey of Object.keys(entries)) {
+      if (storedKey.startsWith(prefix)) { delete entries[storedKey]; changed = true; }
+    }
+    if (changed) await writeChipPositions(entries);
+  }).catch(() => {});
+}
+
 function clearRuntimeTracking() {
   pendingBranches.clear();
   trackedNavMarks.clear();
@@ -1229,6 +1309,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
     switch (message.type) {
       case 'GET_SNAPSHOT': return isExtensionPageSender(sender) ? getSnapshot(safeId(message.sessionId) || null, Boolean(message.includeHistory)) : null;
       case 'GET_ACTIVE_VIEW': return activeView(await loadState(), tab?.id);
+      case 'GET_CHIP_POS': return getChipPos(tab);
+      case 'SET_CHIP_POS': return setChipPos(tab, message.x, message.y);
       case 'START_MISSION': {
         if (typeof message.mission !== 'string') return null;
         const activeTab = message.openSearch
@@ -1402,6 +1484,8 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 const SCHEMAS = {
   GET_SNAPSHOT: { sessionId: 'string?', includeHistory: 'boolean?' },
   GET_ACTIVE_VIEW: {},
+  GET_CHIP_POS: {},
+  SET_CHIP_POS: { x: 'number', y: 'number' },
   START_MISSION: { mission: 'string', missionNote: 'string?', tab: 'object?', openSearch: 'boolean?' },
   END_MISSION: { reason: 'string?' },
   LINK_CLICK: { url: 'string', title: 'string?', targetBlank: 'boolean?' },
@@ -1428,6 +1512,7 @@ const SCHEMAS = {
 const TYPE_CHECKS = {
   string: (v) => typeof v === 'string',
   boolean: (v) => typeof v === 'boolean',
+  number: (v) => typeof v === 'number' && Number.isFinite(v),
   object: (v) => v && typeof v === 'object' && !Array.isArray(v)
 };
 function validateMessage(message) {
@@ -1571,6 +1656,7 @@ chrome.tabs.onRemoved.addListener((tabId) => {
     trackedNavMarks.delete(tabId);
     commitMemos.delete(tabId);
     committedNavs.delete(tabId);
+    clearChipPosForTab(tabId); // fire-and-forget: the FIFO chip-position queue orders this before any later read, and a stalled position write must never delay the session-state cleanup below
     for (const key of spaDedup.keys()) { if (key.startsWith(`${tabId}::`)) spaDedup.delete(key); }
     for (const [key, entry] of pendingBranches) { if (entry.sourceTabId === tabId) pendingBranches.delete(key); }
     await mutate((state) => {

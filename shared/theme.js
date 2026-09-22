@@ -26,3 +26,10 @@ export function toggleTheme() {
   try { localStorage.setItem(THEME_STORAGE_KEY, next); } catch { /* storage may be unavailable */ }
   return next;
 }
+
+/** Remove the stored theme choice; used by the dashboard's clear-all-data
+ *  flow so no preference outlives an explicit local data wipe. */
+export function clearStoredTheme() {
+  try { localStorage.removeItem(THEME_STORAGE_KEY); } catch { /* storage may be unavailable */ }
+  document.documentElement.removeAttribute('data-theme');
+}
