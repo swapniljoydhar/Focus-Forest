@@ -307,17 +307,62 @@
   // It does not auto-hide on scroll. Users can manually minimize via the minimize button.
 
   // --- Drag-to-move the chip (Pointer Events + setPointerCapture) ---
-  let chipPos = null;
-  try { const saved = sessionStorage.getItem('ff-chip-pos'); if (saved) chipPos = JSON.parse(saved); } catch { /* ignore */ }
-  if (chipPos && Number.isFinite(chipPos.x) && Number.isFinite(chipPos.y)) {
-    // sessionStorage is shared by every page loaded in this tab, so a saved
-    // position may have been recorded at a very different viewport size.
-    // Clamp it back inside the current window before applying.
-    const clampedX = Math.max(8, Math.min(Math.max(8, window.innerWidth - 48), chipPos.x));
-    const clampedY = Math.max(8, Math.min(Math.max(8, window.innerHeight - 48), chipPos.y));
-    applyChipPos(clampedX, clampedY);
-  }
+  // The remembered position lives in extension-private session storage held
+  // by the service worker (per tab, per origin, cleared with the browser
+  // session) — never in the page's own storage, so a host site cannot read
+  // it. Restoration is async; the reply lands inside the slide-in animation.
+  restoreChipPos();
   function applyChipPos(x, y) { chip.style.left = `${x}px`; chip.style.top = `${y}px`; chip.style.right = 'auto'; }
+  async function restoreChipPos(retried = false) {
+    try {
+      const saved = await send('GET_CHIP_POS');
+      if (saved?.rateLimited) {
+        // A busy tab can defer the restore; retry once so the remembered
+        // corner still comes back after the message budget frees up.
+        if (!retried) window.setTimeout(() => restoreChipPos(true), 1200);
+        return;
+      }
+      if (!saved || !Number.isFinite(saved.x) || !Number.isFinite(saved.y)) return;
+      if (pendingChipPos || savedChipPos) return; // the user already moved the chip during this page load
+      // The position may have been recorded at a very different viewport
+      // size, so clamp it back inside the current window before applying.
+      const clampedX = Math.max(8, Math.min(Math.max(8, window.innerWidth - 48), saved.x));
+      const clampedY = Math.max(8, Math.min(Math.max(8, window.innerHeight - 48), saved.y));
+      applyChipPos(clampedX, clampedY);
+    } catch { /* best effort; the chip simply keeps its default corner */ }
+  }
+  let chipPosSaveTimer = 0;
+  let pendingChipPos = null; // latest position awaiting persistence
+  let savedChipPos = null;   // last position the worker acknowledged
+  function saveChipPos(x, y, { immediate = false } = {}) {
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return;
+    pendingChipPos = { x, y };
+    if (chipPosSaveTimer) { window.clearTimeout(chipPosSaveTimer); chipPosSaveTimer = 0; }
+    // Keyboard auto-repeat must not flood the worker's per-tab message
+    // budget: keyboard saves ride a short trailing debounce, while a
+    // finished drag (one-shot) persists immediately, matching the timing of
+    // the synchronous sessionStorage write this replaces.
+    if (immediate) { flushChipPos(); return; }
+    chipPosSaveTimer = window.setTimeout(flushChipPos, 250);
+  }
+  async function flushChipPos(isRetry = false) {
+    chipPosSaveTimer = 0;
+    const target = pendingChipPos;
+    if (!target) return;
+    if (savedChipPos && savedChipPos.x === target.x && savedChipPos.y === target.y) { pendingChipPos = null; return; } // skip no-op writes
+    try {
+      const response = await send('SET_CHIP_POS', target);
+      if (response?.rateLimited) {
+        // Keep the position pending and retry once; the budget frees within
+        // seconds, and a newer move simply replaces the pending target, so a
+        // retry can never overwrite a fresher position with a stale one.
+        if (!isRetry) window.setTimeout(() => flushChipPos(true), 1200);
+        return;
+      }
+      savedChipPos = target;
+      pendingChipPos = null;
+    } catch { pendingChipPos = null; /* best effort; an extension reload must not disturb the page */ }
+  }
   const dragHandle = shadow.querySelector('[data-drag-handle]');
   let dragging = false;
   dragHandle.addEventListener('pointerdown', wrapWithErrorBoundary((e) => {
@@ -342,7 +387,7 @@
       // (e.g. pointercancel); the cleanup must still run in that case.
       try { dragHandle.releasePointerCapture(ev?.pointerId ?? e.pointerId); } catch { /* pointer already released */ }
       const finalRect = chip.getBoundingClientRect();
-      try { sessionStorage.setItem('ff-chip-pos', JSON.stringify({ x: finalRect.left, y: finalRect.top })); } catch { /* ignore */ }
+      saveChipPos(finalRect.left, finalRect.top, { immediate: true });
       dragHandle.removeEventListener('pointermove', onMove);
       dragHandle.removeEventListener('pointerup', onUp);
       dragHandle.removeEventListener('pointercancel', onCancel);
@@ -362,7 +407,7 @@
     const x = Math.max(8, Math.min(window.innerWidth - rect.width - 8, rect.left + (event.key === 'ArrowRight' ? step : event.key === 'ArrowLeft' ? -step : 0)));
     const y = Math.max(8, Math.min(window.innerHeight - rect.height - 8, rect.top + (event.key === 'ArrowDown' ? step : event.key === 'ArrowUp' ? -step : 0)));
     applyChipPos(x, y);
-    try { sessionStorage.setItem('ff-chip-pos', JSON.stringify({ x, y })); } catch { /* ignore */ }
+    saveChipPos(x, y);
   }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'drag.keydown', swallow: true }));
 
   async function loadSettings() {
@@ -635,6 +680,15 @@
   // removes one redundant message per navigation from the tab's rate budget.
   window.addEventListener('pageshow', wrapWithErrorBoundary((event) => { if (event?.persisted) safeRefresh(false); }, { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'pageshow', swallow: true }), { passive: true });
   document.addEventListener('visibilitychange', wrapWithErrorBoundary(() => { if (document.hidden) window.clearTimeout(watchTimer); else { safeRefresh(false); scheduleWatch(); } }, { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'visibilitychange', swallow: true }));
+
+  // Persist a pending position when the document goes away (navigation or
+  // bfcache freeze): best-effort fire-and-forget, mirroring the synchronous
+  // durability of the sessionStorage write this system replaced. The SW
+  // receives the message at dispatch time even if the response never lands.
+  window.addEventListener('pagehide', wrapWithErrorBoundary(() => {
+    if (chipPosSaveTimer) { window.clearTimeout(chipPosSaveTimer); chipPosSaveTimer = 0; }
+    if (pendingChipPos) send('SET_CHIP_POS', pendingChipPos).catch(() => {});
+  }, { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'pagehide.chipPos', swallow: true }));
 
   const safeLoadSettings = wrapWithErrorBoundary(loadSettings, { category: ERROR_CATEGORIES.MESSAGING, function: 'loadSettings', swallow: true });
   const safeScheduleWatch = wrapWithErrorBoundary(scheduleWatch, { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'scheduleWatch', swallow: true });

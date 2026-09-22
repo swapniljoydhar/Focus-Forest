@@ -166,4 +166,24 @@ await test('context menu: unknown items are ignored; unsafe page URLs are saniti
   assert.ok(!JSON.stringify(store.focusForestState).includes('javascript:'), 'no unsafe scheme may be persisted anywhere');
 });
 
+await test('chip-position surface rejects hostile payloads and never trusts sender-provided identity', async () => {
+  const tab = { id: 77, url: 'https://host.example/page' };
+  assert.equal(await send({ type: 'SET_CHIP_POS', x: '12', y: 3 }, tab), null, 'string coordinates must fail schema validation');
+  assert.equal(await send({ type: 'SET_CHIP_POS', x: NaN, y: 3 }, tab), null, 'NaN must fail validation');
+  assert.equal(await send({ type: 'SET_CHIP_POS', x: Infinity, y: 3 }, tab), null, 'Infinity must fail validation');
+  assert.equal(await send({ type: 'SET_CHIP_POS', x: 3 }, tab), null, 'a missing coordinate must fail validation');
+  assert.equal(await send({ type: 'SET_CHIP_POS', x: { valueOf: () => 5 }, y: 3 }, tab), null, 'object coordinates must fail validation');
+  assert.equal(await send({ type: 'SET_CHIP_POS', x: [4, 5], y: 3 }, tab), null, 'array coordinates must fail validation');
+  assert.equal(await send({ type: 'GET_CHIP_POS' }, { id: 77, url: 'chrome://settings/' }), null, 'non-http sender tabs must be refused');
+  assert.equal(await send({ type: 'GET_CHIP_POS' }), null, 'extension-page senders without a tab must be refused');
+  assert.equal(await send({ type: 'SET_CHIP_POS', x: 5, y: 5 }), null, 'saves without a sender tab must be refused');
+  const hostile = { type: 'SET_CHIP_POS', x: 1e9, y: -1e9 };
+  Object.defineProperty(hostile, '__proto__', { value: { polluted: true }, enumerable: false });
+  assert.deepEqual(await send(hostile, tab), { saved: true }, 'extreme finite coordinates must be accepted and clamped');
+  assert.deepEqual(await send({ type: 'GET_CHIP_POS' }, tab), { x: 32767, y: 0 }, 'stored coordinates must be clamped into screen bounds');
+  assert.equal({}.polluted, undefined, 'chip-position handling must not pollute prototypes');
+  await listeners.removed[0](77);
+  assert.equal(await send({ type: 'GET_CHIP_POS' }, tab), null, 'closing the tab must clear its chip position even in fallback mode');
+});
+
 console.log('test-worker-inputs.mjs: command + context-menu surfaces passed');

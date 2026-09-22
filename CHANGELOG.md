@@ -4,6 +4,16 @@ All notable Focus Forest changes are documented here.
 
 ## [Unreleased]
 
+### Hardened (companion privacy — Phase-1 audit finding F2)
+
+- **Chip position left the page's storage:** the draggable companion's remembered position moved from the host page's `sessionStorage` — readable by any script on the site — to service-worker-held `chrome.storage.session`, keyed by the validated sender tab and origin (never by payload-supplied identity), serialized, bounded (`LRU_CACHE_SIZE`, oldest evicted), and cleared on tab close and browser exit. Drag and keyboard-move behavior is unchanged; keyboard auto-repeat now rides a 250 ms trailing debounce so saves never crowd the per-tab message budget, and a best-effort `pagehide` flush covers navigating away inside that debounce window. Forks without `storage.session` degrade to worker memory, never to page storage. Covered by worker unit assertions (round-trip, tab/origin isolation, tab-close cleanup, bound, fallback), adversarial-input tests, and a new real-Chromium gate that drags the chip, reloads, verifies the restored position, and asserts `sessionStorage.getItem('ff-chip-pos') === null` throughout.
+
+### Fixed (Phase 1/2 structural audit — 2026-09-22)
+
+- **Invalid `"windows"` manifest permission removed:** the `chrome.windows` API requires no permission (official API reference); the unrecognized entry only invited a load warning in `chrome://extensions` and store-review noise. `windows.update` (Go Home) is unchanged in behavior — re-proven by the unit mocks and the real-Chromium lanes.
+- **"Clear local data" now clears everything:** the dashboard's theme preference lived in extension-origin `localStorage` and survived `CLEAR_DATA` while every other setting reset. A new `clearStoredTheme()` (in `shared/theme.js`) runs as part of the clear-data confirmation — only after the wipe itself succeeds — so no preference outlives an explicit local data wipe.
+- **Popup and New Tab surface worker errors instead of masking them:** both pages' `message()` helpers now inspect the service worker's `{error}` envelope (matching the settings page). A failed `END_MISSION` no longer closes the completion ritual as if it had succeeded, a failed planting no longer clears the user's typed input or announces "Intention planted!", and internal errors are logged locally instead of silently rendering empty or success states.
+
 ### Improved (garden upgrade — the dashboard, whole tree to whole branch)
 
 - **Focus-trail mode:** selecting a leaf now dims every branch and leaf off the traced path while the ancestry stays lit — the eye follows one path home through the crown instead of scanning the whole tree. Hovering any leaf previews its ancestry as a softer gold thread *before* you commit to selecting it (pure class toggling on edge data, never touching the selection layer).

@@ -191,6 +191,15 @@ async function clickShadow(page, cdp, pred) {
   await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
   await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
 }
+async function chipBox(page, cdp) {
+  const chips = await shadowAll(page, cdp, (n) => classOf(n).includes('chip'));
+  if (!chips.length) return null;
+  try {
+    const { model } = await cdp.send('DOM.getBoxModel', { backendNodeId: chips[0].backendNodeId });
+    const [x1, y1, x2, y2] = model.content;
+    return { x: x1, y: y1, width: x2 - x1, height: y2 - y1 };
+  } catch { return null; }
+}
 
 before(async () => {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -469,6 +478,68 @@ test('Gate 5: sustained research pace (40 rapid navigations) loses no observatio
   }
   assert.ok(chipVisible, 'chip must survive a sustained research pace');
   console.log(`    Gate 5: 40 navigations in ${elapsed}s — ${rapidNodes}/40 tracked, chip alive`);
+});
+
+test('Gate 6: chip drag position persists across reload through extension-private storage, never page sessionStorage', async () => {
+  // Audit F2 fix, in vivo: the remembered position must survive a reload via
+  // the service worker's chrome.storage.session, and the host page's own
+  // sessionStorage must never see it at any point.
+  await resetState();
+  await patchSettings({});
+  // Roles from tests 7-8 persist: extPage sends (extension origin), the
+  // http-native httpPage is the tracked tab. No extra renderer is spawned -
+  // surplus tabs crash this sandbox after the rapid-navigation gate.
+  const page = await plantMission('Chip position probe', extPage, httpPage);
+  const cdp = await context.newCDPSession(page);
+  try {
+    let chipVisible = false;
+    for (let i = 0; i < 40 && !chipVisible; i++) {
+      const info = await chipInfo(page, cdp);
+      chipVisible = info.present && !info.hidden;
+      if (!chipVisible) await new Promise((r) => setTimeout(r, 250));
+    }
+    assert.ok(chipVisible, 'chip must be visible on the tracked page while the mission is active');
+    await new Promise((r) => setTimeout(r, 400)); // let slide-in and the origin ritual settle for stable box measurements
+    const chipBefore = await chipBox(page, cdp);
+    assert.ok(chipBefore, 'the chip box must be measurable before the drag');
+    const seeds = await shadowAll(page, cdp, (n) => classOf(n).includes('chip-seed'));
+    assert.ok(seeds.length >= 1, 'the drag handle must exist inside the closed shadow root');
+    const { model } = await cdp.send('DOM.getBoxModel', { backendNodeId: seeds[0].backendNodeId });
+    const [hx1, hy1, hx2, hy2] = model.content;
+    const startX = (hx1 + hx2) / 2;
+    const startY = (hy1 + hy2) / 2;
+    const targetX = Math.max(60, startX - 220);
+    const targetY = startY + 140;
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: startX, y: startY, button: 'left', clickCount: 1 });
+    for (let step = 1; step <= 6; step++) {
+      await cdp.send('Input.dispatchMouseEvent', { type: 'mouseMoved', x: startX + ((targetX - startX) * step) / 6, y: startY + ((targetY - startY) * step) / 6, button: 'left', buttons: 1 });
+    }
+    await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: targetX, y: targetY, button: 'left', clickCount: 1 });
+    await new Promise((r) => setTimeout(r, 250));
+    const chipAfter = await chipBox(page, cdp);
+    assert.ok(chipAfter, 'the chip box must be measurable after the drag');
+    assert.ok(
+      Math.abs(chipAfter.x - chipBefore.x) > 100 || Math.abs(chipAfter.y - chipBefore.y) > 100,
+      `the drag must move the chip (before=${JSON.stringify(chipBefore)}, after=${JSON.stringify(chipAfter)})`
+    );
+    assert.equal(await page.evaluate(() => sessionStorage.getItem('ff-chip-pos')), null, 'the host page sessionStorage must never hold the chip position');
+    await new Promise((r) => setTimeout(r, 400)); // let the immediate SET_CHIP_POS reach chrome.storage.session
+    await page.reload();
+    await page.waitForSelector('#focus-forest-root', { state: 'attached', timeout: 15000 });
+    let restored = null;
+    for (let attempt = 0; attempt < 40; attempt++) {
+      restored = await chipBox(page, cdp);
+      if (restored && Math.abs(restored.x - chipAfter.x) <= 4 && Math.abs(restored.y - chipAfter.y) <= 4) break;
+      await new Promise((r) => setTimeout(r, 150));
+    }
+    assert.ok(
+      restored && Math.abs(restored.x - chipAfter.x) <= 4 && Math.abs(restored.y - chipAfter.y) <= 4,
+      `the position must survive reload via extension-private storage (after=${JSON.stringify(chipAfter)}, restored=${JSON.stringify(restored)})`
+    );
+    assert.equal(await page.evaluate(() => sessionStorage.getItem('ff-chip-pos')), null, 'the position must still never appear in page storage after restore');
+  } finally {
+    await cdp.detach().catch(() => {});
+  }
 });
 
 test('no uncaught errors surfaced anywhere during the real-extension run', async () => {
