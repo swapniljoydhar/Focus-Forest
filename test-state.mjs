@@ -123,6 +123,33 @@ describe('shared/state.js core functions', () => {
     assert.deepStrictEqual(normalizeSettings({ excludedSites: ['WWW.Example.com', 'example.com', ''] }).excludedSites, ['example.com']);
   });
 
+  it('normalizeSettings coerces fractional thresholds to whole branch counts', () => {
+    // Thresholds are branch COUNTS. Math.min/Math.max alone preserve fractions,
+    // and settings/app.js's editableSettings() rejects a non-integer with
+    // 'Invalid settings acknowledgement' -- which leaves the Options page
+    // permanently unreadable, with Save AND "Return to the original rhythm"
+    // both disabled. Coercion belongs here, at the storage trust boundary, for
+    // every accepted input shape (a hand-edited import file is a real source).
+    const cases = [
+      [{ gentleDepth: 4.5, choiceDepth: 5.7 }, { gentleDepth: 5, choiceDepth: 6 }],
+      [{ gentleDepth: '4.5', choiceDepth: '5.7' }, { gentleDepth: 5, choiceDepth: 6 }],
+      [{ gentleDepth: 2.4 }, { gentleDepth: 2, choiceDepth: 5 }],
+      [{ choiceDepth: 9.9 }, { gentleDepth: 4, choiceDepth: 10 }]
+    ];
+    for (const [input, expected] of cases) {
+      const out = normalizeSettings(input);
+      assert.ok(Number.isInteger(out.gentleDepth), `gentleDepth must be an integer for ${JSON.stringify(input)}`);
+      assert.ok(Number.isInteger(out.choiceDepth), `choiceDepth must be an integer for ${JSON.stringify(input)}`);
+      assert.strictEqual(out.gentleDepth, expected.gentleDepth);
+      assert.strictEqual(out.choiceDepth, expected.choiceDepth);
+    }
+    // The one-branch gap must survive rounding in both directions.
+    const rounded = normalizeSettings({ gentleDepth: 7.6, choiceDepth: 3.2 });
+    assert.ok(rounded.choiceDepth >= rounded.gentleDepth + 1, 'choiceDepth must stay at least one branch beyond gentleDepth after rounding');
+    // Integer input must round-trip untouched.
+    assert.strictEqual(normalizeSettings({ gentleDepth: 4 }).gentleDepth, 4);
+  });
+
   it('persists bounded reward history and keeps reward records minimal', () => {
     const state = emptyState();
     state.settings.enableRewards = true;

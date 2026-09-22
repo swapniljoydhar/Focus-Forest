@@ -201,6 +201,9 @@
   const pauseBtn = shadow.querySelector('[data-action="pause"]');
   const minimizeBtn = shadow.querySelector('[data-action="minimize"]');
   let current = null;
+  // Monotonic token: update() awaits the growth ritual (~1.7s) and must not
+  // repaint after a newer update() has already re-rendered or hidden the UI.
+  let updateGeneration = 0;
   let lastUrl = location.href;
   let lastTitle = document.title;
   let ritualToken = 0;
@@ -409,48 +412,28 @@
 
   const safeUpdate = wrapWithErrorBoundary(update, { category: ERROR_CATEGORIES.UI_RENDER, function: 'update' });
   async function update(view) {
-    // A rate-limited GET_ACTIVE_VIEW answers { rateLimited: true }. Keeping
-    // the last known view is the calm degradation; treating the throttle as
-    // "no session" would hide the chip mid-mission during busy browsing.
+    // A rate-limited GET_ACTIVE_VIEW answers { rateLimited: true }; keep the
+    // last known view rather than hiding the chip mid-mission.
     if (view && view.rateLimited) return;
+    const generation = ++updateGeneration;
     const previous = current;
     current = view?.session || null;
-    if (!current?.node || view?.sitePaused) { cancelGrowthRitual(); chip.hidden = true; choiceCard.hidden = true; return; }
-    const previousSessionId = previous?.id || null;
-    const currentSessionId = current.id || null;
-    if (previousSessionId && currentSessionId && previousSessionId !== currentSessionId) {
-      originRitualPlayed = false;
-      try { sessionStorage.removeItem('ff-origin-ritual-played'); } catch { /* storage may be unavailable */ }
-    }
+    if (!current?.node || view?.sitePaused) { hideOverlays({ stopRitual: true }); return; }
+    resetRitualOnSessionChange(previous, current);
     const depth = current.node.depth || 0;
     const paused = current.interventionPaused;
     const thresholds = view?.thresholds || { DESATURATE: 4, INTERRUPT: 5 };
-    const stateKind = paused ? 'resting' : depth >= thresholds.INTERRUPT ? 'interrupt' : depth >= thresholds.DESATURATE ? 'drift' : depth > 0 ? 'branch' : 'root';
-    const state = paused ? 'Forest resting' : depth >= thresholds.INTERRUPT ? 'You may be wandering' : depth >= thresholds.DESATURATE ? 'This branch is getting long' : depth > 0 ? `${depth} ${depth === 1 ? 'branch' : 'branches'} deep` : 'Growing from this mission';
+    const { stateKind, state } = depthState(depth, paused, thresholds);
     const enteredNewBranch = !paused && previous?.node?.id && previous.node.id !== current.node.id && depth > (previous.node.depth || 0);
     const isOriginLoad = !paused && !previous?.node?.id && depth === 0;
-    missionEl.textContent = current.mission;
-    chip.dataset.state = enteredNewBranch ? 'growing' : stateKind;
-    chip.setAttribute('aria-label', `Focus Forest companion. Mission: ${current.mission}. ${state}.`);
-    chip.hidden = false;
-    pauseBtn.textContent = paused ? 'Resume' : 'Pause';
-    pauseBtn.setAttribute('aria-label', paused ? 'Resume Focus Forest' : 'Pause Focus Forest');
+    applyChipCopy(current, enteredNewBranch ? 'growing' : stateKind, state, paused);
+    // Ritual parks "A branch is growing" in stateEl; the final write restores it.
     if (isOriginLoad) await safeShowGrowthRitual(true); else if (enteredNewBranch) await safeShowGrowthRitual(false); else cancelGrowthRitual();
-    // The sheet is shown once per URL but must also be *hidden* when the view
-    // stops qualifying: without this, navigating from a deep page back to a
-    // shallow one (or pausing the mission) left the choice card pinned on
-    // screen even though the forest no longer had anything to ask.
+    // A newer update() ran during the ritual await; it owns the UI now.
+    if (generation !== updateGeneration) return;
     const interventionEligible = !paused && Boolean(view.interventionEligible);
     if (interventionEligible && choiceCard.dataset.shownFor !== location.href) showChoiceSheet(depth, current.node.confidence);
-    else if (!choiceCard.hidden && !interventionEligible) {
-      // Hiding while focus sits inside the card (e.g. an SPA navigation away
-      // while the dismissal button still held focus) would strand focus on
-      // <body>. shadow.activeElement is the closed-shadow view of the focused
-      // element — document.activeElement only ever sees the shadow host.
-      const shadowFocus = shadow.activeElement;
-      choiceCard.hidden = true;
-      if (shadowFocus && choiceCard.contains(shadowFocus)) restorePageFocus();
-    }
+    else if (!choiceCard.hidden && !interventionEligible) hideOverlays({ hideChip: false });
     stateEl.textContent = state;
   }
 
@@ -471,7 +454,7 @@
     const pageEl = document.createElement('q');
     pageEl.textContent = document.title || location.hostname;
     const promptEl = document.createElement('em');
-    promptEl.textContent = reflectionPrompts[depth % reflectionPrompts.length];
+    promptEl.textContent = reflectionPrompts[Math.floor(depth) % reflectionPrompts.length]; // floor(): a fractional depth (import-only) would index undefined and render it
     choiceCopy.append(
       document.createTextNode('You started with '),
       missionEl,
@@ -486,7 +469,65 @@
     shadow.querySelector('[data-action="dismiss"]').focus();
   }
 
-  function hideChoiceCard() { choiceCard.hidden = true; }
+  /**
+   * Single funnel for hiding the companion overlays. Hiding the chip or the
+   * choice card while one of their controls holds focus strands focus on
+   * <body>, because shadow.activeElement is the closed-shadow view of the
+   * focused element while document.activeElement only ever sees the shadow
+   * host. Every hide path routes through here so the rule cannot drift again:
+   * it was applied in two of three paths and missed in the rest. This is also
+   * what retracts the sheet the moment the view stops qualifying — without
+   * that, a deep -> shallow navigation left the card pinned on screen.
+   * @param {{hideChip?: boolean, hideCard?: boolean, stopRitual?: boolean}} [options]
+   */
+  function hideOverlays({ hideChip = true, hideCard = true, stopRitual = false } = {}) {
+    const shadowFocus = shadow.activeElement;
+    const stranded = Boolean(shadowFocus)
+      && ((hideChip && chip.contains(shadowFocus)) || (hideCard && choiceCard.contains(shadowFocus)));
+    if (stopRitual) cancelGrowthRitual();
+    if (hideChip) chip.hidden = true;
+    if (hideCard) choiceCard.hidden = true;
+    if (stranded) restorePageFocus();
+  }
+
+  /**
+   * Maps a branch depth to the visible chip state and its status line.
+   * Pure so the wording lives in one place instead of being re-derived inline
+   * on every refresh.
+   * @returns {{stateKind: string, state: string}}
+   */
+  function depthState(depth, paused, thresholds) {
+    if (paused) return { stateKind: 'resting', state: 'Forest resting' };
+    if (depth >= thresholds.INTERRUPT) return { stateKind: 'interrupt', state: 'You may be wandering' };
+    if (depth >= thresholds.DESATURATE) return { stateKind: 'drift', state: 'This branch is getting long' };
+    return depth > 0
+      ? { stateKind: 'branch', state: `${depth} ${depth === 1 ? 'branch' : 'branches'} deep` }
+      : { stateKind: 'root', state: 'Growing from this mission' };
+  }
+
+  /** Re-arms the origin growth ritual when the view moves to a different garden. */
+  function resetRitualOnSessionChange(previous, next) {
+    const previousSessionId = previous?.id || null;
+    const currentSessionId = next.id || null;
+    if (!previousSessionId || !currentSessionId || previousSessionId === currentSessionId) return;
+    originRitualPlayed = false;
+    try { sessionStorage.removeItem('ff-origin-ritual-played'); } catch { /* storage may be unavailable */ }
+  }
+
+  /** Writes the mission line, chip state and pause control. */
+  function applyChipCopy(session, stateKind, state, paused) {
+    missionEl.textContent = session.mission;
+    chip.dataset.state = stateKind;
+    chip.setAttribute('aria-label', `Focus Forest companion. Mission: ${session.mission}. ${state}.`);
+    chip.hidden = false;
+    pauseBtn.textContent = paused ? 'Resume' : 'Pause';
+    pauseBtn.setAttribute('aria-label', paused ? 'Resume Focus Forest' : 'Pause Focus Forest');
+  }
+
+  // hideChip:false keeps the companion chip on screen while the sheet closes.
+  // Restoration is conditional on the card actually holding focus, so a click
+  // that started in the chip is left where the user put it.
+  function hideChoiceCard() { hideOverlays({ hideChip: false }); }
   function restorePageFocus() {
     const target = lastPageFocus;
     if (target?.isConnected && typeof target.focus === 'function') target.focus({ preventScroll: true });
@@ -510,12 +551,7 @@
     else if (action === 'pause') { await send('PAUSE_INTERVENTION', { paused: !current?.interventionPaused }); await safeRefresh(false); }
     else if (action === 'pause-site') {
       await send('PAUSE_SITE');
-      // Hiding the chip while one of its buttons still holds focus strands
-      // focus on <body>; return it to the page control remembered earlier.
-      const shadowFocus = shadow.activeElement;
-      chip.hidden = true;
-      choiceCard.hidden = true;
-      if (shadowFocus && (chip.contains(shadowFocus) || choiceCard.contains(shadowFocus))) restorePageFocus();
+      hideOverlays();
     }
     else if (action === 'minimize') { chip.classList.toggle('minimized'); minimizeBtn.textContent = chip.classList.contains('minimized') ? '+' : '\u2013'; }
   }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'shadow.click', swallow: true }));
