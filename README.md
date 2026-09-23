@@ -98,5 +98,5 @@ npm run preview:trees         # local gallery of the real SVG tree renderer
 
 - **[ARCHITECTURE.md](ARCHITECTURE.md)** — the engineering deep dive: file structure, navigation semantics, Chromium integration notes, permissions rationale, accessibility engineering, garden rendering, tab/history behavior, memory and performance design, security & reliability implementation, and the full test-lane inventory.
 - **[CHANGELOG.md](CHANGELOG.md)** — complete release history, including the v0.3.6 notes previously duplicated in this README.
-- **[SECURITY.md](SECURITY.md)** · original [security review](SECURITY_REVIEW_2026-08-15.md) · [modified-fork audit](AUDIT_REPORT_2026-08-16.md)
+- **[SECURITY.md](SECURITY.md)** · original [security review](SECURITY_REVIEW_2026-08-15.md) · [modified-fork audit](AUDIT_REPORT_2026-08-16.md) · [September 2026 audit](AUDIT_2026-09-21.md)
 - **[CHROMEWEBSTORE.md](CHROMEWEBSTORE.md)** — store listing copy and per-permission justification · **[CONTRIBUTING.md](CONTRIBUTING.md)**

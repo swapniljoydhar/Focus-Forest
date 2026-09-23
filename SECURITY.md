@@ -20,7 +20,7 @@ The service worker sanitizes all error responses returned to content scripts. In
 
 ## Message Validation
 
-All runtime messages are validated against explicit per-type schemas before processing. Sender identity is checked against `chrome.runtime.id` to reject external messages. Full snapshots and global settings writes are additionally restricted to senders whose URL is an extension page belonging to this extension. Destructive garden operations—clear data, session deletion, pruning, and compost deletion—use the same extension-page boundary. Malformed or unexpected messages are rejected without side effects.
+All runtime messages are validated against explicit per-type schemas before processing. Sender identity is checked against `chrome.runtime.id` to reject external messages. Full snapshots and global settings writes are additionally restricted to senders whose URL is an extension page belonging to this extension. Destructive garden operations—clear data, session deletion, pruning, and compost deletion—use the same extension-page boundary. Chip-position messages take their identity (tab id and origin) exclusively from the validated sender tab, never from the payload, and coordinates are finite-checked and clamped. Malformed or unexpected messages are rejected without side effects.
 
 ## State Caching
 
@@ -36,4 +36,12 @@ The companion chip renders inside a closed shadow root. Its styles are scoped to
 
 ## Data Storage
 
-All browsing signals, garden history, compost items, and optional mission notes stay in `chrome.storage.local`. No remote servers, accounts, analytics, or external dependencies are used.
+All browsing signals, garden history, compost items, and optional mission notes stay in `chrome.storage.local`, bounded (12 gardens · 96 pages per garden · 80 compost items · 30 days of reward history). No remote servers, accounts, analytics, or external dependencies are used. The dashboard's delete-all-data action wipes the stored state and the theme preference together. Mission notes are never sent to page contexts: the companion learns only that a note exists.
+
+## Companion Position Storage
+
+The draggable chip's remembered position is held in extension-private session storage (`chrome.storage.session`) managed by the service worker — keyed by validated sender tab and origin, serialized, bounded, and cleared on tab close and browser exit. Host pages can never read it. On engines without `storage.session` it degrades to worker memory, never to page-readable storage.
+
+## System Memory Permission
+
+The `system.memory` permission is used solely by the optional Performance guardian: `chrome.system.memory.getInfo()` is read locally to calibrate when decorations should calm down. The value is never stored, never transmitted, and never combined with browsing data; where the API is absent the guardian falls back to device-memory class and the extension's own heap signals, and it can be turned off entirely in Settings.
