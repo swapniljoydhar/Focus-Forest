@@ -4,6 +4,10 @@ All notable Focus Forest changes are documented here.
 
 ## [Unreleased]
 
+### Changed (docs — README split for humans, 2026-09-22)
+
+- **README rewritten user-first** (210 lines / 21 sections → ~105): plain-language intro, quick install, "How it works" bullets, a settings table, a short privacy list, the browser table + troubleshooting, roadmap, and dev commands. The engineering deep dive — annotated file tree, navigation semantics, Chromium/fork integration notes, permissions rationale, accessibility engineering, garden rendering, tab/history behavior, memory & performance design, security & reliability implementation, test-lane inventory, release engineering, and the v0.3.6 historical note — moved to the new **[ARCHITECTURE.md](ARCHITECTURE.md)** essentially verbatim: nothing was lost, and the v0.3.6 section is now deduplicated against the CHANGELOG. No lane scans markdown, so tests/CI are unaffected (verified by re-run).
+
 ### Fixed (windowless-install race — the CI F13 "No current window" trace)
 
 - **Fresh installs could log an error trace on headless/windowless startup:** `onInstalled` opened a welcome tab with an unguarded `chrome.tabs.create` lacking a `windowId`; when the install event beat the browser's first window (the GitHub Actions startup race), Chromium rejected with "No current window" and the swallow boundary's storage-category trace tripped the feature suite's zero-error gate (F13). The handler now probes `windows.getLastFocused()` (no permission required): a resolved window is targeted explicitly, a definitive "none" skips the welcome tab quietly — the new-tab override greets the user anyway — and engines without the API keep the legacy best-effort create. `goHome()`'s fallback `tabs.create` received the same guard so a windowless "return" can never morph into an `INTERNAL_ERROR` envelope. Both branches regression-tested in units; F13 green in vivo.
