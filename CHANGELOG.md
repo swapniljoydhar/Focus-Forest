@@ -6,6 +6,8 @@ All notable Focus Forest changes are documented here.
 
 ### Changed (docs — README split for humans, 2026-09-22)
 
+- **Doc set synced with the shipped product:** `SECURITY.md` gained the missing truth (chip-position `storage.session` design, `system.memory` permission scope, storage bounds, note-privacy, delete-all-includes-theme); `CHROMEWEBSTORE.md` store description now reflects Strict mode, drift facts, garden health, streaks, Forest Finds, the guardian, and the shortcuts, its privacy disclosure mentions the local memory reading, and its Version History was re-ordered chronologically and completed through 0.3.6 + the unreleased batch; `CONTRIBUTING.md` verification steps now name the full lane set; README links the previously orphaned September 2026 audit. Dated historical audits (2026-08-15/16, 2026-09-21) deliberately untouched — records are not rewritten.
+
 - **README rewritten user-first** (210 lines / 21 sections → ~105): plain-language intro, quick install, "How it works" bullets, a settings table, a short privacy list, the browser table + troubleshooting, roadmap, and dev commands. The engineering deep dive — annotated file tree, navigation semantics, Chromium/fork integration notes, permissions rationale, accessibility engineering, garden rendering, tab/history behavior, memory & performance design, security & reliability implementation, test-lane inventory, release engineering, and the v0.3.6 historical note — moved to the new **[ARCHITECTURE.md](ARCHITECTURE.md)** essentially verbatim: nothing was lost, and the v0.3.6 section is now deduplicated against the CHANGELOG. No lane scans markdown, so tests/CI are unaffected (verified by re-run).
 
 ### Fixed (windowless-install race — the CI F13 "No current window" trace)

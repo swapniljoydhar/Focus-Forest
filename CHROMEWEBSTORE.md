@@ -18,20 +18,25 @@ When you sit down to research or work, plant an intention for what you are setti
 When a path becomes unusually deep, Focus Forest offers a gentle moment of reflection: a quiet choice sheet that lets you return to your mission, save the curiosity to compost for later, start a new mission, or keep exploring. A deep path is never treated as a mistake.
 
 Key Features:
-- Non-blocking companion: A discreet leaf chip tucked into the corner of your page that shows your current depth and mission.
-- Organic tree visualization: Visit the Garden Dashboard to view your browsing trail rendered as a living botanical tree.
-- Mindful choices: When you reach your chosen branch depth, pause to reflect with gentle options—not loud sirens or blocking walls.
+- Non-blocking companion: A discreet leaf chip tucked into the corner of your page that shows your current depth and mission. Drag it anywhere; it follows your browser's light or dark theme.
+- Organic tree visualization: Visit the Garden Dashboard to view your browsing trail rendered as a living botanical tree. A garden's lushness reflects how closely the path stayed to your intention — a visual record, never a score.
+- Mindful choices with facts: When you reach your chosen branch depth, a quiet corner card shows how far you are — pages and minutes from your mission — and offers gentle options: keep exploring, return, save for later, or start a new mission. Not loud sirens, not blocking walls.
+- Strict mode (optional): Firmer, factual reminders of the intention you planted, including the fact that you wrote down why it matters. The choices never change and nothing is ever blocked.
 - Compost for later: Save interesting discoveries into your personal compost bin with one click or via the context menu.
+- Forest Finds (optional): Quiet offline discoveries when you return or choose deliberately; missions that stayed close to their intention can earn rarer seasonal details. Gentle tending-streak milestones at 3/7/14/30 days are positive-only — a broken streak simply shows nothing.
+- Performance guardian: Automatically calms animations and rituals when memory pressure runs high (real free-memory reading where the browser exposes it), with an opt-out and a sensitivity slider. Tracking, the companion, and your data always keep working.
 - 100% Offline and Private: All session histories and settings stay strictly in your browser's local storage. Zero telemetry, zero external servers, zero tracking.
 - Dark mode and reduced motion support: Built with full accessibility in mind, supporting light/dark themes and system reduced-motion preferences.
 - Single-page application awareness: Tracks branch transitions accurately on modern web apps like YouTube, GitHub, and Notion.
+- Keyboard shortcuts: Alt+F starts or ends a mission; Alt+M returns you to the mission origin.
 
 How to Use:
 1. Open a new tab or click the Focus Forest toolbar icon.
 2. Enter your intention (for example: "Research camera lenses for landscape photography"). Press Enter or choose Plant Intention to save it locally and navigate that same tab to your selected search-results starting point.
 3. Browse normally. Watch the discreet companion chip at the top right of the page.
-4. If you wander several links deep, choose whether to return to your intention, compost the page for later, or keep exploring.
+4. If you wander several links deep, the card shows the facts — how many pages and minutes you are from your mission — and you choose whether to return to your intention, compost the page for later, or keep exploring.
 5. Open the Garden Dashboard anytime to see the tree you grew, why each path was recognized, and your weekly focus insights.
+6. Tip: Alt+F starts or ends a mission from anywhere; Alt+M returns you to the mission origin.
 
 Privacy & Offline Guarantee:
 Focus Forest is completely local. It never connects to an external server, transmits any browsing history, or includes third-party analytics. Mission notes, navigation signals, and garden history remain on this device in local extension storage. Your data belongs exclusively to you.
@@ -84,7 +89,7 @@ English
 
 **Does the extension collect user data?** No
 
-Focus Forest operates entirely offline on the client device. It does not transmit, collect, or sell any user data, browsing history, or personal information.
+Focus Forest operates entirely offline on the client device. It does not transmit, collect, or sell any user data, browsing history, or personal information. The optional Performance guardian reads system memory availability locally (`chrome.system.memory`) solely to decide when to calm animations; that reading is never stored and never transmitted.
 
 | Data Type | Collected? | Transmitted Off-Device? | Purpose | Shared with Third Parties? |
 |-----------|-----------|------------------------|---------|---------------------------|
@@ -122,8 +127,11 @@ Run `npm ci`, then `npm run test:all` and `npm run package`. The resulting `dist
 
 | Version | Date | Changes | Status |
 |---------|------|---------|--------|
-| 0.3.4 | 2026-09-17 | Fixed opt-in Forest Finds persistence and delivery, repaired quota-pressure compaction, removed unused pooling scaffolding, and added reward regression coverage. | Draft |
 | 0.3.0 | 2026-09-14 | Added Browser-default search through Chromium's Search API, stronger SPA route serialization, richer storybook tree twigs and buds, site-level pause controls, release CI, and reproducible packaging. | Draft |
 | 0.3.1 | 2026-09-15 | Fixed recent-bud rendering, title-only SPA updates, rapid History API route snapshots, Back/Forward tracking, and reliable MV3 quota scheduling. | Draft |
 | 0.3.2 | 2026-09-15 | Removed an unintended settings sync mirror so all session, settings, and compost data remain local-only; corrected browser compatibility documentation. | Draft |
 | 0.3.3 | 2026-09-16 | Added a lightweight animated atmospheric background to New Tab with reduced-motion and in-extension motion-setting support. | Draft |
+| 0.3.4 | 2026-09-17 | Fixed opt-in Forest Finds persistence and delivery, repaired quota-pressure compaction, removed unused pooling scaffolding, and added reward regression coverage. | Draft |
+| 0.3.5 | 2026-09-18 | Added a rotating reflection prompt to the choice card; tuned the New Tab atmosphere (slower mist and sun, paint containment) with the existing motion kill-switches intact. | Draft |
+| 0.3.6 | 2026-09-18 | Compact tier-aware Forest Finds reveal with restrained seed/bloom/seasonal treatment; automated SPA performance-regression checks in CI. | Draft |
+| Unreleased | 2026-09-22 | Accountability & guardian batch: drift accounting + opt-in Strict mode, garden health (lush/steady/sparse), rare discoveries for low-drift completions, positive-only tending-streak milestones, Performance guardian (real system-memory signal, sensitivity bar, opt-out), time-of-day New Tab scene with fireflies, dark-mode companion, Alt+M return command, title-churn throttle, extension-private chip-position storage, popup error-state honesty, windowless-install race fix. Details in CHANGELOG.md. | Pending release |

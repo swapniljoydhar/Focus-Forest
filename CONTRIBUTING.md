@@ -4,7 +4,7 @@ Thank you for helping improve Focus Forest. The project is a local-first Chromiu
 
 ## Before opening a change
 
-Run `npm ci`, then run `npm test` and `npm run test:dashboard`. For behavior changes, add a focused regression test before or alongside the implementation. Do not add remote analytics, page-content collection, AI services, or dependencies without documenting the product and privacy impact.
+Run `npm ci`, then verify with `npm test` (13 unit/contract suites, no browser needed) plus the real-Chromium lanes `npm run test:dashboard`, `npm run test:extension`, `npm run test:features`, and `npm run test:spa-stress` (one-time `npx playwright install chromium` first) — see the README's Development section. For behavior changes, add a focused regression test before or alongside the implementation. Do not add remote analytics, page-content collection, AI services, or dependencies without documenting the product and privacy impact.
 
 ## Pull requests
 
