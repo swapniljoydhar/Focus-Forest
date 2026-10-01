@@ -16,4 +16,6 @@ Please do not publish exploitable details in a public issue. Follow the reportin
 
 ## License
 
-Add or review the repository license before accepting external contributions. Contributions should be accepted only under terms that match the chosen project license.
+Intent Grove is licensed under **GNU GPL-3.0-or-later**. See [LICENSE](LICENSE) for the complete terms.
+
+By submitting a contribution, you confirm that you have the right to submit it and agree that it is provided under the same GPL-3.0-or-later terms. Do not submit code, artwork, or other material that you cannot license under those terms.
