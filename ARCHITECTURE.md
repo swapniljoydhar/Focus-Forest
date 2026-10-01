@@ -1,11 +1,11 @@
-# Focus Forest — Architecture & Engineering Notes
+# Intent Grove — Architecture & Engineering Notes
 
 The engineering deep dive, moved out of the README on 2026-09-22 so the README can stay user-first. Everything here describes the code as of that date; user-facing behavior lives in [README.md](README.md), release history in [CHANGELOG.md](CHANGELOG.md).
 
 ## File structure
 
 ```text
-focus-forest/
+intent-grove/
 ├── manifest.json              MV3 manifest (permissions, content scripts, CSP)
 ├── background/
 │   └── service-worker.js      Message router, branch model, mutation queue
@@ -13,7 +13,7 @@ focus-forest/
 │   ├── content.js             Companion chip + choice card (closed shadow DOM)
 │   └── spa-bridge.js          MAIN-world history.pushState/replaceState hook
 ├── shared/
-│   ├── state.js               Schema, validation, persistence, rewards, drift/health
+│   ├── state.js               Schema, validation, persistence, rewards, drift metrics
 │   ├── constants.js           Limits and layout constants
 │   ├── error-tracing.js       ErrorTrace + root-cause diagnosis
 │   ├── theme.js               Dark/light preference for extension pages
@@ -31,7 +31,7 @@ focus-forest/
 ├── settings/                  Options page (thresholds, motion, exclusions, guardian)
 ├── icons/                     16 / 32 / 48 / 128 px icons
 └── scripts/
-    ├── package.mjs            Build: dist/focus-forest.zip
+    ├── package.mjs            Build: dist/intent-grove.zip
     ├── profile-newtab.mjs     Performance and memory gate (CI)
     └── preview-trees.mjs      Local SVG artwork preview server
 ```
@@ -48,12 +48,13 @@ Title-only mutations (playback progress in `<title>`, timers, live dashboards) a
 
 ## Chromium integration notes
 
-- Chromium browsers share the Chrome extension format. The `chrome.*` API namespace, `chrome-extension://` sender URLs, and `chrome_url_overrides` manifest key are intentional; they should not be renamed to `brave.*`, `edge.*`, or `opera.*`. Edge and Opera may also expose `browser.*`; Focus Forest uses `chrome.*` and falls back to `browser.*` when needed (`shared/chromium-api.js`, side-effect-imported by `state.js` and `error-tracing.js`).
+- Chromium browsers share the Chrome extension format. The `chrome.*` API namespace, `chrome-extension://` sender URLs, and `chrome_url_overrides` manifest key are intentional; they should not be renamed to `brave.*`, `edge.*`, or `opera.*`. Edge and Opera may also expose `browser.*`; Intent Grove uses `chrome.*` and falls back to `browser.*` when needed (`shared/chromium-api.js`, side-effect-imported by `state.js` and `error-tracing.js`).
 - New-tab placeholders are recognized across Chromium flavors, including `chrome://newtab`, `chrome://new-tab-page`, `brave://newtab`, `edge://newtab`, `opera://startpage`, and `vivaldi://newtab` (`shared/state.js`). The first ordinary web page becomes the mission root.
 - The companion runs on HTTP(S) websites, not `chrome://settings`, `brave://extensions`, `edge://settings`, or other protected browser pages.
-- Planting from the Focus Forest New Tab saves the mission first, then navigates that same browser tab to the browser's configured default search provider, unless a local provider override is selected in Settings.
+- Planting from the Intent Grove New Tab saves the mission first, then navigates that same browser tab to the browser's configured default search provider, unless a local provider override is selected in Settings.
 - No Google account, telemetry, or vendor-specific service APIs are used: there is no `chrome.gcm`, `chrome.instanceID`, `identity.getAuthToken`, or `sidePanel` integration. The optional `chrome.search` call only hands the user's mission to the browser's already configured default search provider; it does not access Google services or change browser settings. On the rare browser where the Search API is missing or fails, the first-step search falls back to a DuckDuckGo results page rather than silently assuming any specific provider. There is no `update_url` override to port.
-- Settings, session history, and compost items remain in `chrome.storage.local`; Focus Forest does not mirror browsing-related data to `chrome.storage.sync` or an external service.
+- Settings, session history, and compost items remain in `chrome.storage.local`; Intent Grove does not mirror browsing-related data to `chrome.storage.sync` or an external service.
+- The canonical state key is `intentGroveState`. On first read after upgrading from Focus Forest, the extension normalizes the old `focusForestState` value, persists the canonical copy, then removes the old key. If the write fails, the old copy is left intact and the write path aborts. Themes follow the same copy-before-remove rule. Context menus are recreated with Intent Grove IDs; the companion accepts both SPA bridge events and injection markers during the open-tab transition.
 - **Known limitations, per fork:**
   - **Chrome** — reference configuration; no known deviations.
   - **Brave** — may require an explicit confirmation before the new-tab override takes effect. Shields can stay on and should not be disabled as an install step. `chrome.search.query` availability is feature-detected and falls back to a DuckDuckGo results URL.
@@ -68,7 +69,7 @@ Title-only mutations (playback progress in `<title>`, timers, live dashboards) a
 
 The extension uses local storage for gardens and the `tabs` permission to replace Chromium new-tab pages, associate mission tabs, and navigate the planting tab to its first search step. The `search` permission is used only when **Browser default** is selected, sending the mission through Chromium's existing default provider without changing that setting. The `system.memory` permission is used solely by the optional Performance guardian to read free system memory locally for calibration; the value is never stored, never transmitted, and the guardian degrades gracefully to device-class and own-heap signals where the API is absent. It uses declared HTTP(S) page access to render the mission chip and detect eligible link activations, plus `webNavigation` and a minimal main-world SPA bridge (`content/spa-bridge.js`, which requires Chrome 111+) to support SPA route tracking on ordinary HTTP(S) sites. Browser-internal, restricted, and other protected pages may not support the content script and degrade gracefully. Per-permission store justification lives in [CHROMEWEBSTORE.md](CHROMEWEBSTORE.md).
 
-For single-page applications, Focus Forest observes `history.pushState`, `history.replaceState`, `popstate`, and Chromium's `webNavigation.onHistoryStateUpdated`. Each URL/title snapshot is captured when the route event occurs, so rapid chapter or product changes remain distinct branches. Browser Back and Forward navigation reports the route restored by the History API, while the page itself continues updating without a full reload. This preserves the SPA's bookmarkable and shareable URLs without treating the application as a new document on every route.
+For single-page applications, Intent Grove observes `history.pushState`, `history.replaceState`, `popstate`, and Chromium's `webNavigation.onHistoryStateUpdated`. Each URL/title snapshot is captured when the route event occurs, so rapid chapter or product changes remain distinct branches. Browser Back and Forward navigation reports the route restored by the History API, while the page itself continues updating without a full reload. This preserves the SPA's bookmarkable and shareable URLs without treating the application as a new document on every route.
 
 ## Accessibility and agency
 
@@ -82,17 +83,17 @@ The foliage is decorative; **each outlined leaf marker represents a real browsin
 
 The illustration uses native SVG DOM construction, local CSS, and deterministic geometry—no images, Canvas, rendering library, or animation loop. Parent validation and cycle repair affect only the visual topology and never rewrite stored history. The New Tab shares the decorative tree artwork without inventing browsing nodes, and the small companion uses a matching inline cartoon icon built without an HTML sink. Keyboard selection, visible focus states, and reduced-motion preferences are preserved.
 
-**Garden health** is a three-step visual verdict — *lush*, *steady*, or *sparse* — derived only from existing local branch data (`gardenHealth()` in `shared/state.js`: the ratio of pages at or beyond the quiet line; gardens of two pages or fewer are never judged). It is a CSS treatment on the same deterministic geometry (`data-health` on the scene: saturation, canopy glints, leaf opacity), never a number and never a layout change. Faithful completions earn rarer seasonal Forest Finds (`low_drift_completion`), and the dashboard's existing tending streak carries positive-only milestone lines at 3/7/14/30 days — the worker emits milestone *keys*; the dashboard owns the wording. In Strict mode the saved list additionally states how many curiosities have been resting for over a week (`agedSavedCount`, age-based only — no revisit claim is made because none is tracked).
+Garden appearance represents recorded navigation structure only. The renderer does not infer whether pages match an intention, assign a health grade, or award rarer items for shallow paths. Optional Quiet discoveries come from a bounded local catalog with cooldowns and per-session limits. Recorded-day milestones use session starts, navigation events, and foreground-tab selections; unattended elapsed time alone does not create a recorded day. Duration summaries are elapsed estimates: a selected tab is not proof of reading or attention. In Strict mode the saved list additionally states how many curiosities have been resting for over a week (`agedSavedCount`, age-based only — no revisit claim is made because none is tracked).
 
 ## History and tab behavior
 
-Returning to a known URL reuses its canonical garden node. If Chrome opens a duplicate tab on a known path, Focus Forest attaches the new tab as an alias instead of creating a deeper branch. Closing one alias does not erase the path while another attached tab remains. Go Home activates the validated origin without closing tracked or unrelated tabs; both the message and the `return-to-mission` command (`Alt+M`) share one validated flow (`goHome()`), and windowless contexts never turn a graceful "could not return" into an error envelope. Composting also preserves the current page; it changes only the local branch state.
+Returning to a known URL reuses its canonical garden node. If Chrome opens a duplicate tab on a known path, Intent Grove attaches the new tab as an alias instead of creating a deeper branch. Closing one alias does not erase the path while another attached tab remains. Go Home activates the validated origin without closing tracked or unrelated tabs; both the message and the `return-to-mission` command (`Alt+M`) share one validated flow (`goHome()`), and windowless contexts never turn a graceful "could not return" into an error envelope. Composting also preserves the current page; it changes only the local branch state.
 
 The garden dashboard provides **Forget this garden** for removing one selected local session, alongside the explicit delete-all action (which also clears the theme preference — no setting outlives a data wipe).
 
 ## Tending controls and completion ritual
 
-Open **Tend the forest** from the popup or your browser's extension details to choose when the page grows quieter and when the choice sheet appears. The extension enforces a one-branch gap between those moments. Ambient motion can be turned off, and every setting stays local.
+Open **Tend the grove** from the popup or your browser's extension details to choose when the page grows quieter and when the choice sheet appears. The extension enforces a one-branch gap between those moments. Ambient motion can be turned off, and every setting stays local.
 
 **Strict mode** is a copy-and-accent layer, not a behavior change: chip state strings firm up at and beyond the quiet line ("You keep going deeper", "The mission is still waiting"), the choice card adds drift accounting — pages and minutes from the mission, computed by `driftStats()` from existing nodes — and, when a private note exists, quotes the *fact* of the note back without ever transmitting its text (the view carries only `{pages, seconds}` and a `hasNote` boolean, unit-pinned). Gentle-mode strings are byte-identical with Strict off (pinned by e2e F4).
 
@@ -118,7 +119,7 @@ Automated checks cover ES-module syntax validation, error-boundary rejection con
 
 The source intentionally remains dependency-light and loadable without a build step. The service worker is the source of truth; content scripts render page UI and report navigation signals; New Tab, popup, and dashboard are separate extension pages. The depth-aware redesign was informed by comparison with [History Tree](https://github.com/initialshl/history-tree), [Galaxy Tab History Graph](https://github.com/Katee/galaxy-tab-history-graph), and [Focus Pilot](https://github.com/Nahid-mahmud555/focus-pilot-pro-official), but no code or dependency was imported.
 
-Packaging needs no build step for the source itself — the archive is the raw `manifest.json`, `background/`, `content/`, `dashboard/`, `icons/`, `newtab/`, `popup/`, `settings/` and `shared/` directories. The archiver is capability-probed rather than assumed: PowerShell on Windows, otherwise `zip`, otherwise `python3 -m zipfile`. Install any one of those if the script reports that no archiver is usable. Upload `dist/focus-forest.zip` to the Chrome Web Store, or keep loading the folder unpacked for development.
+Packaging needs no build step for the source itself — the archive is the raw `manifest.json`, `background/`, `content/`, `dashboard/`, `icons/`, `newtab/`, `popup/`, `settings/` and `shared/` directories. Windows uses the .NET ZIP API available to PowerShell; other hosts try `zip`, then `python3 -m zipfile`. The script replaces only its own archive and leaves other `dist/` files alone. Upload `dist/intent-grove.zip` to the Chrome Web Store, or keep loading the folder unpacked for development.
 
 The dashboard suite uses Chromium to check first-load visibility, tab switching, live garden updates, leaf selection, dense-canopy page picking, the shared New Tab illustration, the companion under a Trusted Types CSP, and narrow screens against the real HTML/CSS/modules and extension CSP. Only Chromium messaging and storage events are mocked; these UI tests do not replace loading the unpacked extension for end-to-end navigation testing.
 
@@ -126,4 +127,4 @@ The dashboard suite uses Chromium to check first-load visibility, tab switching,
 
 ### Historical note — v0.3.6 (superseded by CHANGELOG)
 
-Version 0.3.6 gave Forest Finds its compact tier-aware reveal, added the calm animated atmosphere on the New Tab planting page (compositor-friendly `transform`/`opacity` fields respecting reduced-motion and the Ambient motion setting), and introduced the automated SPA performance-regression checks (50 rapid `pushState` transitions, route distinctness, post-GC heap growth, and conservative DOM/long-task/layout/style/heap thresholds). The full history lives in [`CHANGELOG.md`](CHANGELOG.md).
+Version 0.3.6 gave Quiet discoveries its compact tier-aware reveal, added the calm animated atmosphere on the New Tab planting page (compositor-friendly `transform`/`opacity` fields respecting reduced-motion and the Ambient motion setting), and introduced the automated SPA performance-regression checks (50 rapid `pushState` transitions, route distinctness, post-GC heap growth, and conservative DOM/long-task/layout/style/heap thresholds). The full history lives in [`CHANGELOG.md`](CHANGELOG.md).

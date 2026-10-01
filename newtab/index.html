@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Focus Forest — Plant Your Intention</title>
+  <title>Intent Grove — Plant Your Intention</title>
   <link rel="stylesheet" href="style.css">
   <link rel="stylesheet" href="../dashboard/tree.css">
 </head>
@@ -24,13 +24,6 @@
       <div class="atmo-gradient-1"></div>
       <div class="atmo-gradient-2"></div>
     </div>
-    <div class="leaf-drift-container" aria-hidden="true">
-      <div class="leaf-drift"></div>
-      <div class="leaf-drift"></div>
-      <div class="leaf-drift"></div>
-      <div class="leaf-drift"></div>
-      <div class="leaf-drift"></div>
-    </div>
     <div class="light-rays"></div>
     <div class="fireflies" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i></div>
   </div>
@@ -42,7 +35,7 @@
         <div class="onboarding-visual" aria-hidden="true">
           <svg id="onboarding-tree" class="onboarding-tree" viewBox="195 0 510 520"></svg>
         </div>
-        <h2 id="onboarding-title" class="onboarding-title">Welcome to Focus Forest</h2>
+        <h2 id="onboarding-title" class="onboarding-title">Welcome to Intent Grove</h2>
         <div class="onboarding-steps">
           <div class="onboarding-step">
             <span class="step-icon" aria-hidden="true">🌱</span>
@@ -55,7 +48,7 @@
             <span class="step-icon" aria-hidden="true">🔍</span>
             <div class="step-content">
               <strong>Notice your path</strong>
-              <p>Focus Forest gently highlights when you wander far from your intention.</p>
+              <p>Intent Grove gently highlights when you wander far from your intention.</p>
             </div>
           </div>
           <div class="onboarding-step">
@@ -66,6 +59,14 @@
             </div>
           </div>
         </div>
+        <button id="demo-open" type="button" class="demo-open">Try a 5-click demo (optional)</button>
+        <section id="onboarding-demo" class="onboarding-demo" aria-label="Sample browsing path demo" hidden>
+          <p class="demo-caption">A fictional browsing path. These sample pages are never opened or saved.</p>
+          <svg id="demo-tree" viewBox="0 0 900 520" role="img" aria-label="Sample garden tree, growing as you follow links"></svg>
+          <button id="demo-step" type="button" class="demo-step">Follow a sample link</button>
+          <p id="demo-status" role="status" aria-live="polite">The tree shows navigation distance, not whether a page fits your intention.</p>
+          <div id="demo-choice" class="demo-choice" hidden>At this sample point, Intent Grove offers a choice. In your settings, you choose when it appears; only you know whether this path is useful.</div>
+        </section>
         <button id="onboarding-start" type="button" class="plant-btn onboarding-start-btn">
           <span class="btn-text">Start Growing</span>
         </button>
@@ -75,21 +76,13 @@
     <!-- Header with brand -->
     <header class="page-header">
       <div class="logo-container">
-        <svg class="logo-mark" viewBox="0 0 40 40" aria-hidden="true">
-          <path class="logo-trunk" d="M17 35 C18 29 17 23 19 18 C20 15 22 13 24 11"/>
-          <path class="logo-branch logo-branch-left" d="M18 27 C15 24 12 22 9 21"/>
-          <path class="logo-branch logo-branch-right" d="M19 23 C23 20 26 18 29 16"/>
-          <path class="logo-leaf logo-leaf-1" d="M15 24 C9 25 6 22 7 18 C12 17 16 19 15 24Z"/>
-          <path class="logo-leaf logo-leaf-2" d="M25 19 C25 13 29 10 34 11 C34 16 30 20 25 19Z"/>
-          <path class="logo-leaf logo-leaf-3" d="M21 17 C17 14 17 10 20 7 C24 9 25 13 21 17Z"/>
-          <path class="logo-ground" d="M11 35 Q19 31 29 35"/>
-        </svg>
+        <img class="logo-mark" src="../icons/icon.svg" alt="" aria-hidden="true">
       </div>
       <div class="brand-text">
-        <h1 class="brand-name">Focus Forest</h1>
+        <h1 class="brand-name">Intent Grove</h1>
         <span class="privacy-badge">
           <span class="lock-icon" aria-hidden="true">🔒</span>
-          Local & Private
+          Private garden
         </span>
       </div>
     </header>
@@ -109,7 +102,7 @@
         </h2>
         <p class="hero-description">
           Set a gentle intention before exploring the web. 
-          Focus Forest helps you notice when you're wandering, 
+          Intent Grove helps you notice when you're wandering, 
           without blocking or judging your curiosity.
         </p>
       </div>
@@ -141,7 +134,7 @@
             Why does this matter today? <span class="optional-label">(optional)</span>
           </label>
           <textarea id="mission-note" maxlength="280" rows="2" placeholder="A small reason can help you return to the root."></textarea>
-          <p class="input-hint">This stays in your local garden as a reminder, never a score.</p>
+          <p class="input-hint">Your note is stored in your local garden. It is not sent to websites.</p>
         </div>
         
         <button type="submit" class="plant-btn" aria-label="Plant your intention and start browsing">
@@ -158,6 +151,7 @@
           </span>
           <span class="btn-arrow" aria-hidden="true">→</span>
         </button>
+        <p class="search-privacy-note">When you plant, the intention is also sent as a search query to your selected search provider. You can choose a different provider in Settings.</p>
       </form>
       
       <!-- Status message area -->
@@ -172,6 +166,10 @@
         <button id="browse-freely-btn" type="button" class="action-btn action-ghost">
           <span class="action-text">Explore Without Intention</span>
         </button>
+        <section id="compost-reminder" class="compost-reminder" aria-live="polite" hidden>
+          <p id="compost-reminder-copy"></p>
+          <button id="open-compost" type="button" class="action-btn action-secondary">Visit the compost pile</button>
+        </section>
       </div>
     </section>
     
@@ -181,7 +179,7 @@
       <div class="footer-content">
         <span class="footer-symbol" aria-hidden="true">🍃</span>
         <p class="footer-tagline">Your curiosity belongs here.</p>
-        <p class="footer-note">All data stays on this device • No tracking • Open source</p>
+        <p class="footer-note">Garden history stays on this device • No extension telemetry • Open source</p>
       </div>
     </footer>
   </main>

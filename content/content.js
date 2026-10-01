@@ -4,10 +4,13 @@
   if (!['http:', 'https:'].includes(location.protocol)) return;
   
   // --- Resilience: Prevent Duplicate Injection ---
-  if (window.__focusForestInjected) {
-    console.warn('[Focus Forest] Duplicate injection detected; skipping.');
+  if (window.__intentGroveInjected || window.__focusForestInjected) {
+    window.__intentGroveInjected = true;
+    window.__focusForestInjected = true;
+    console.warn('[Intent Grove] Duplicate injection detected; skipping.');
     return;
   }
+  window.__intentGroveInjected = true;
   window.__focusForestInjected = true;
 
   // Local error tracing and boundary implementations for isolated content script execution
@@ -22,7 +25,7 @@
       severity: context.severity || 'medium',
       context: { url: location.href, userAgent: navigator.userAgent, ...context }
     };
-    console.error('[Focus Forest Error]', JSON.stringify(trace, null, 2));
+    console.error('[Intent Grove Error]', JSON.stringify(trace, null, 2));
     return trace;
   }
   function wrapWithErrorBoundary(fn, context = {}) {
@@ -55,7 +58,7 @@
   // Root host: pointer-events:none so the page behind stays fully interactive.
   // Only specific children (the chip, the choice card) opt back in with auto.
   const root = document.createElement('div');
-  root.id = 'focus-forest-root';
+  root.id = 'intent-grove-root';
   document.documentElement.appendChild(root);
   const shadow = root.attachShadow({ mode: 'closed' });
 
@@ -113,7 +116,6 @@
 .forest-find[hidden]{display:none}
 .forest-find.is-new{animation:ff-find-reveal .45s cubic-bezier(.2,.8,.3,1) both}
 .forest-find[data-tier="blooms"]{border-color:rgba(187,119,123,.5);box-shadow:0 10px 30px rgba(120,75,78,.2)}
-.forest-find[data-tier="discoveries"]{border-color:rgba(116,151,173,.46)}
 .forest-find-icon{grid-row:span 2;font-size:20px;line-height:1}
 .forest-find-label{font-size:10px;font-weight:800;letter-spacing:.08em;text-transform:uppercase;color:var(--ff-find-text)}
 .forest-find-text{font-size:13px}
@@ -167,7 +169,7 @@
   };
   const rootEl = makeElement('div');
   rootEl.id = 'ff-root';
-  const chipEl = makeElement('div', 'chip', { role: 'group', 'aria-label': 'Focus Forest companion', hidden: true });
+  const chipEl = makeElement('div', 'chip', { role: 'group', 'aria-label': 'Intent Grove companion', hidden: true });
   const seedEl = makeElement('button', 'chip-seed', { 'data-drag-handle': '', title: 'Drag to move', 'aria-label': 'Move companion with arrow keys' });
   // A tiny version of the storybook tree, built without an HTML/Trusted Types sink.
   const treeSVG = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
@@ -189,14 +191,15 @@
   const copyEl = makeElement('span', 'chip-copy');
   copyEl.append(makeElement('span', 'chip-kicker', '', 'current mission'), makeElement('strong', 'chip-mission'), makeElement('small', 'chip-state', { 'aria-live': 'polite' }));
   const actionsEl = makeElement('div', 'chip-actions');
-  actionsEl.append(makeElement('button', 'chip-btn', { 'data-action': 'pause', 'aria-label': 'Pause Focus Forest' }, 'Pause'), makeElement('button', 'chip-btn', { 'data-action': 'pause-site', 'aria-label': 'Pause Focus Forest on this site' }, 'This site'), makeElement('button', 'chip-btn minimize', { 'data-action': 'minimize', 'aria-label': 'Minimize Focus Forest' }, '–'));
+  actionsEl.append(makeElement('button', 'chip-btn', { 'data-action': 'pause', 'aria-label': 'Pause Intent Grove' }, 'Pause'), makeElement('button', 'chip-btn', { 'data-action': 'pause-site', 'aria-label': 'Pause Intent Grove on this site' }, 'This site'), makeElement('button', 'chip-btn minimize', { 'data-action': 'minimize', 'aria-label': 'Minimize Intent Grove' }, '–'));
   chipEl.append(seedEl, copyEl, actionsEl);
   const choiceCardEl = makeElement('section', 'choice-card', { role: 'dialog', 'aria-modal': 'false', 'aria-labelledby': 'ff-title', hidden: true });
   choiceCardEl.append(makeElement('button', 'close', { 'data-action': 'dismiss', 'aria-label': 'Keep exploring' }, '×'), makeElement('p', 'choice-eyebrow', {}, 'A moment to choose'), makeElement('h2', '', { id: 'ff-title' }, 'This path is deep, not wrong.'), makeElement('p', 'choice-copy'));
   const choiceActionsEl = makeElement('div', 'choice-actions');
   const returnChoice = makeChoice('home', 'choice', '↶', 'Return to my mission', 'Go back to where this session began.');
   choiceActionsEl.append(makeChoice('dismiss', 'choice', '→', 'Keep exploring', 'Leave the page open and continue by choice.'), returnChoice, makeChoice('compost', 'choice', '⌁', 'Save this for later', 'Put this curiosity in your compost pile.'), makeChoice('mission', 'choice', '＋', 'Start a new mission', 'Let this become the thing you are here to do.'));
-  choiceCardEl.append(choiceActionsEl);
+  const missionHere = makeElement('button', 'choice-secondary-action', { type: 'button', 'data-action': 'mission-here' }, 'Make this page my new mission');
+  choiceCardEl.append(choiceActionsEl, missionHere);
   const forestFindEl = makeElement('aside', 'forest-find', { role: 'status', 'aria-live': 'polite', hidden: true });
   rootEl.append(chipEl, choiceCardEl, forestFindEl);
   shadow.append(rootEl);
@@ -219,13 +222,22 @@
   let lastPageFocus = null;
   let growthAnimationTrigger = 'mission-origin';
   let ambientMotion = true;
+  const ORIGIN_RITUAL_SESSION_KEY = 'intent-grove-origin-ritual-played';
+  const LEGACY_ORIGIN_RITUAL_SESSION_KEY = 'ff-origin-ritual-played';
   let originRitualPlayed = false;
-  try { originRitualPlayed = sessionStorage.getItem('ff-origin-ritual-played') === 'true'; } catch { /* storage may be unavailable */ }
+  try {
+    originRitualPlayed = sessionStorage.getItem(ORIGIN_RITUAL_SESSION_KEY) === 'true';
+    if (!originRitualPlayed && sessionStorage.getItem(LEGACY_ORIGIN_RITUAL_SESSION_KEY) === 'true') {
+      sessionStorage.setItem(ORIGIN_RITUAL_SESSION_KEY, 'true');
+      originRitualPlayed = true;
+    }
+    sessionStorage.removeItem(LEGACY_ORIGIN_RITUAL_SESSION_KEY);
+  } catch { /* storage may be unavailable */ }
   let forestFindTimer = 0;
   function showForestFind(reward) {
     if (!reward?.text) return;
-    const labels = { seeds: 'Seed noticed', leaves: 'Leaf noticed', blooms: 'Bloom noticed', discoveries: 'Hidden detail found' };
-    forestFindEl.dataset.tier = reward.tier || 'discoveries';
+    const labels = { seeds: 'Seed noticed', leaves: 'Leaf noticed', blooms: 'Bloom noticed' };
+    forestFindEl.dataset.tier = reward.tier || 'seeds';
     const iconEl = document.createElement('span');
     iconEl.className = 'forest-find-icon';
     iconEl.setAttribute('aria-hidden', 'true');
@@ -501,7 +513,7 @@
     // load arriving mid-animation must not start the ritual over again.
     if (isOrigin) {
       originRitualPlayed = true;
-      try { sessionStorage.setItem('ff-origin-ritual-played', 'true'); } catch { /* storage may be unavailable */ }
+      try { sessionStorage.setItem(ORIGIN_RITUAL_SESSION_KEY, 'true'); } catch { /* storage may be unavailable */ }
     }
     const token = ++ritualToken;
     window.clearTimeout(ritualTimer);
@@ -582,17 +594,17 @@
     choiceCopy.append(
       document.createTextNode('You started with '),
       missionEl,
-      document.createTextNode('. You are now '),
+      document.createTextNode('. The browser has traced '),
       depthEl,
-      document.createTextNode(' branches away, looking at '),
+      document.createTextNode(` ${depth === 1 ? 'step' : 'steps'} from the start, at `),
       pageEl,
-      document.createTextNode(`. This is a ${confidence}-confidence branch. Nothing is wrong — choose whether to keep exploring, return to your intention, or pause the forest. `),
+      document.createTextNode(`. This is a ${confidence}-confidence path estimate; depth shows navigation distance, not whether this page fits your intention. Nothing is wrong — choose whether to keep exploring, return, or pause the grove. `),
       promptEl
     );
     if (viewDrift && viewDrift.pages > 0) {
       const driftEl = document.createElement('span');
       driftEl.className = 'choice-drift';
-      driftEl.textContent = driftSentence(viewDrift.pages, Math.round(viewDrift.seconds / 60));
+      driftEl.textContent = driftSentence(viewDrift.pages, Math.ceil(viewDrift.seconds / 60));
       choiceCopy.append(driftEl);
     }
     choiceCard.hidden = false;
@@ -627,7 +639,7 @@
    * @returns {{stateKind: string, state: string}}
    */
   function depthState(depth, paused, thresholds, strict = false) {
-    if (paused) return { stateKind: 'resting', state: 'Forest resting' };
+    if (paused) return { stateKind: 'resting', state: 'Grove resting' };
     // Strict mode changes only the wording at and beyond the quiet line; the
     // gentle strings are pinned byte-for-byte by the e2e suite (F4).
     if (depth >= thresholds.INTERRUPT) return { stateKind: 'interrupt', state: strict ? 'The mission is still waiting' : 'You may be wandering' };
@@ -641,9 +653,9 @@
   // reassurance for accountability and, when a private note exists, quotes
   // the user's own "why" back to them (the note text itself never arrives).
   function driftSentence(pages, minutes) {
-    const facts = `${pages} ${pages === 1 ? 'page' : 'pages'} and ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} from your mission.`;
-    if (!viewStrict) return `You are ${facts}`;
-    return viewHasNote ? `You wrote down why this mattered. ${facts} It is still waiting.` : `${facts} Your mission is still waiting.`;
+    const facts = `${pages} deeper-path ${pages === 1 ? 'page has' : 'pages have'} been open for about ${minutes} ${minutes === 1 ? 'minute' : 'minutes'} in total. Tabs can overlap, and background time counts; this is elapsed time, not active reading time.`;
+    if (!viewStrict) return facts;
+    return viewHasNote ? `You wrote down why this mattered. ${facts} You can decide whether this still serves that intention.` : `${facts} You can decide whether this still serves your intention.`;
   }
 
   /** Re-arms the origin growth ritual when the view moves to a different garden. */
@@ -652,17 +664,20 @@
     const currentSessionId = next.id || null;
     if (!previousSessionId || !currentSessionId || previousSessionId === currentSessionId) return;
     originRitualPlayed = false;
-    try { sessionStorage.removeItem('ff-origin-ritual-played'); } catch { /* storage may be unavailable */ }
+    try {
+      sessionStorage.removeItem(ORIGIN_RITUAL_SESSION_KEY);
+      sessionStorage.removeItem(LEGACY_ORIGIN_RITUAL_SESSION_KEY);
+    } catch { /* storage may be unavailable */ }
   }
 
   /** Writes the mission line, chip state and pause control. */
   function applyChipCopy(session, stateKind, state, paused) {
     missionEl.textContent = session.mission;
     chip.dataset.state = stateKind;
-    chip.setAttribute('aria-label', `Focus Forest companion. Mission: ${session.mission}. ${state}.`);
+    chip.setAttribute('aria-label', `Intent Grove companion. Mission: ${session.mission}. ${state}.`);
     chip.hidden = false;
     pauseBtn.textContent = paused ? 'Resume' : 'Pause';
-    pauseBtn.setAttribute('aria-label', paused ? 'Resume Focus Forest' : 'Pause Focus Forest');
+    pauseBtn.setAttribute('aria-label', paused ? 'Resume Intent Grove' : 'Pause Intent Grove');
   }
 
   // hideChip:false keeps the companion chip on screen while the sheet closes.
@@ -688,6 +703,14 @@
       // purpose), so ask the worker to navigate this tab to the planting page.
       await send('OPEN_PLANTING_PAGE');
     }
+    else if (action === 'mission-here') {
+      const mission = compactPageTitle(document.title, location.hostname);
+      const result = await send('START_MISSION', { mission });
+      if (result) {
+        hideOverlays();
+        await safeRefresh(false);
+      }
+    }
     else if (action === 'dismiss') { hideChoiceCard(); restorePageFocus(); send('DISMISS_INTERVENTION', { url: location.href }).catch((error) => logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'dismissIntervention' })); }
     else if (action === 'pause') { await send('PAUSE_INTERVENTION', { paused: !current?.interventionPaused }); await safeRefresh(false); }
     else if (action === 'pause-site') {
@@ -696,6 +719,11 @@
     }
     else if (action === 'minimize') { chip.classList.toggle('minimized'); minimizeBtn.textContent = chip.classList.contains('minimized') ? '+' : '\u2013'; }
   }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'shadow.click', swallow: true }));
+
+  function compactPageTitle(title, hostname) {
+    const clean = String(title || '').replace(/\s+/g, ' ').trim();
+    return (clean || hostname || 'Explore this page').slice(0, 140);
+  }
 
   shadow.addEventListener('keydown', wrapWithErrorBoundary((event) => {
     if (event.key === 'Escape' && !choiceCard.hidden) {
@@ -765,6 +793,9 @@
   // re-reads location/document itself, so a page cannot inject values into the
   // extension through this channel, and a synthetic event without an actual
   // URL/title change is a no-op inside notifyUrlChange.
+  document.addEventListener('intent-grove-history', safeOnNavigation);
+  // Existing tabs can still have the prior MAIN-world bridge in memory until
+  // they navigate or reload; listen to its data-free event during migration.
   document.addEventListener('focus-forest-history', safeOnNavigation);
 
   // SPA navigation detection: bridge event (above), popstate/hashchange, the
@@ -799,7 +830,7 @@
   // worker's message rate limit. The key mirrors STORAGE_KEY in
   // shared/state.js; this classic content script cannot import ES modules.
   let storageSyncTimer = 0;
-  const STORAGE_SYNC_KEY = 'focusForestState';
+  const STORAGE_SYNC_KEYS = ['intentGroveState', 'focusForestState'];
   const STORAGE_SYNC_DEBOUNCE_MS = 200;
   const STORAGE_SYNC_MIN_GAP_MS = 600;
   const runStorageSync = () => {
@@ -822,7 +853,7 @@
     safeRefresh(false);
   };
   chrome.storage?.onChanged?.addListener(wrapWithErrorBoundary((changes, area) => {
-    if (area !== 'local' || !changes || !Object.hasOwn(changes, STORAGE_SYNC_KEY)) return;
+    if (area !== 'local' || !changes || !STORAGE_SYNC_KEYS.some((key) => Object.hasOwn(changes, key))) return;
     window.clearTimeout(storageSyncTimer);
     storageSyncTimer = window.setTimeout(runStorageSync, STORAGE_SYNC_DEBOUNCE_MS);
   }, { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'storage.onChanged', swallow: true }));

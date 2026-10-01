@@ -1,5 +1,5 @@
 /**
- * Focus Forest — MAIN-world SPA bridge.
+ * Intent Grove — MAIN-world SPA bridge.
  *
  * Registered in manifest.json with "world": "MAIN" (Chrome 111+), this tiny
  * classic script runs in the PAGE's JavaScript world, where it can wrap
@@ -23,11 +23,16 @@
 (() => {
   'use strict';
   // Namespace matches the listener in content/content.js.
-  const BRIDGE_EVENT = 'focus-forest-history';
+  const BRIDGE_EVENT = 'intent-grove-history';
+  const LEGACY_BRIDGE_EVENT = 'focus-forest-history';
 
   function announce() {
     try {
       document.dispatchEvent(new CustomEvent(BRIDGE_EVENT));
+      // An already-open tab may still have the previous isolated-world
+      // listener loaded. Keep its payload-free signal alive until that tab
+      // reloads; both events are harmless no-ops without a real URL change.
+      document.dispatchEvent(new CustomEvent(LEGACY_BRIDGE_EVENT));
     } catch {
       // The document can be gone mid-teardown; the service worker's
       // webNavigation listener still covers the navigation itself.

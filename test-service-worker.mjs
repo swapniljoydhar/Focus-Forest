@@ -16,8 +16,9 @@ const alarms = [];
 globalThis.chrome = {
   storage: {
     local: {
-      async get(key) { return key in store ? { [key]: structuredClone(store[key]) } : {}; },
-      async set(value) { Object.assign(store, structuredClone(value)); }
+      async get(key) { const keys = Array.isArray(key) ? key : [key]; return Object.fromEntries(keys.filter((item) => item in store).map((item) => [item, structuredClone(store[item])])); },
+      async set(value) { Object.assign(store, structuredClone(value)); },
+      async remove(key) { for (const item of Array.isArray(key) ? key : [key]) delete store[item]; }
     },
     session: {
       async get(key) { return key in sessionStore ? { [key]: structuredClone(sessionStore[key]) } : {}; },
@@ -65,7 +66,7 @@ assert.equal(await rawSend({ type: 'CLEAR_DATA' }, undefined), null, 'missing se
 assert.equal(await rawSend({ type: 'toString' }, { id: 'test', url: 'chrome-extension://test/dashboard/index.html' }), null, 'inherited property names must not be accepted as message types');
 const inheritedMessage = Object.create({ type: 'CLEAR_DATA' });
 assert.equal(await rawSend(inheritedMessage, { id: 'test', url: 'chrome-extension://test/dashboard/index.html' }), null, 'inherited message fields must not bypass own-property validation');
-function session() { return store.focusForestState.sessions.find((s) => s.id === store.focusForestState.activeSessionId); }
+function session() { return store.intentGroveState.sessions.find((s) => s.id === store.intentGroveState.activeSessionId); }
 
 // Chromium forks keep the chrome.* extension API and chrome-extension:// sender origin,
 // but expose their own new-tab placeholders (chrome://, brave://, edge://, opera://, vivaldi://).
@@ -109,12 +110,12 @@ assert.equal(session().nodes.at(-1).title, 'Updated route title', 'same-URL SPA 
 
 await send({ type: 'CLEAR_DATA' });
 	tabInfo.clear();
-	tabInfo.set(11, { id: 11, windowId: 1, url: 'chrome-extension://test/newtab/index.html', title: 'Focus Forest' });
-	await send({ type: 'START_MISSION', mission: 'Use browser default', openSearch: true, tab: { url: 'chrome-extension://test/newtab/index.html', title: 'Focus Forest' } });
+	tabInfo.set(11, { id: 11, windowId: 1, url: 'chrome-extension://test/newtab/index.html', title: 'Intent Grove' });
+	await send({ type: 'START_MISSION', mission: 'Use browser default', openSearch: true, tab: { url: 'chrome-extension://test/newtab/index.html', title: 'Intent Grove' } });
 	assert.deepEqual(searchActions.at(-1), { text: 'Use browser default', tabId: 11 }, 'Browser default should use the browser search provider API');
 	await send({ type: 'CLEAR_DATA' });
 	await send({ type: 'UPDATE_SETTINGS', settings: { searchEngine: 'brave' } });
-	await send({ type: 'START_MISSION', mission: 'Find quiet study music', openSearch: true, tab: { url: 'chrome-extension://test/newtab/index.html', title: 'Focus Forest' } });
+	await send({ type: 'START_MISSION', mission: 'Find quiet study music', openSearch: true, tab: { url: 'chrome-extension://test/newtab/index.html', title: 'Intent Grove' } });
 assert.equal(tabActions.at(-1)?.[0], 'update', 'planting from New Tab should navigate the active browser tab');
 assert.equal(tabActions.at(-1)?.[1], 11);
 	assert.match(tabActions.at(-1)?.[2]?.url || '', /search\.brave\.com\/search\?q=Find%20quiet%20study%20music/, 'planting should open the selected search engine for the mission');
@@ -135,9 +136,9 @@ assert.equal(session().nodes.at(-1).state, 'interrupted', 'depth 5 should be int
 assert.equal(session().nodes.slice(0, -1).some((node) => node.tabIds?.includes(7)), false, 'a navigating tab should not remain attached to historical nodes');
 
 await send({ type: 'COMPOST', url: 'https://example.com/weapons', title: 'Weapons' }, { id: 11 });
-assert.equal(store.focusForestState.schemaVersion, 4, 'state should use the current compact schema');
+assert.equal(store.intentGroveState.schemaVersion, 4, 'state should use the current compact schema');
 assert.equal('transitions' in session(), false, 'nodes should be the only branch relationship source');
-assert.equal(store.focusForestState.compostItems.length, 1, 'compost should save one item');
+assert.equal(store.intentGroveState.compostItems.length, 1, 'compost should save one item');
 assert.equal(tabActions.some((action) => action[0] === 'remove' && action[1] === 7), false, 'compost must not close the current tab');
 
 await send({ type: 'CLEAR_DATA' });
@@ -145,8 +146,8 @@ tabActions.length = 0;
 await send({ type: 'START_MISSION', mission: 'First mission', tab: { id: 7, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
 await send({ type: 'START_MISSION', mission: 'Research history', missionNote: 'Understand the roots before choosing a direction.', tab: { id: 9, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
 assert.equal(session().note, 'Understand the roots before choosing a direction.', 'mission note should be stored with the active garden');
-assert.equal(store.focusForestState.sessions[0].status, 'completed', 'starting a new mission should complete the prior garden');
-assert.equal(store.focusForestState.sessions[0].endReason, 'mission_changed', 'prior garden should record the reason for change');
+assert.equal(store.intentGroveState.sessions[0].status, 'completed', 'starting a new mission should complete the prior garden');
+assert.equal(store.intentGroveState.sessions[0].endReason, 'mission_changed', 'prior garden should record the reason for change');
 await send({ type: 'CLEAR_DATA' });
 tabActions.length = 0;
 await send({ type: 'START_MISSION', mission: 'Research history', tab: { id: 7, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
@@ -178,7 +179,7 @@ const beforePruneNodes = session().nodes.length;
 await send({ type: 'PRUNE_NODE', sessionId: session().id, nodeId: pruneTarget.id, toCompost: true });
 assert.equal(session().nodes.length, beforePruneNodes, 'pruning should preserve the historical node');
 assert.equal(session().nodes.find((node) => node.id === pruneTarget.id).state, 'pruned', 'pruning should mark the node without deleting it');
-assert.equal(store.focusForestState.compostItems.some((item) => item.url === pruneTarget.url), true, 'returning a branch to compost should save its canonical path');
+assert.equal(store.intentGroveState.compostItems.some((item) => item.url === pruneTarget.url), true, 'returning a branch to compost should save its canonical path');
 const prunedCount = session().nodes.length;
 await send({ type: 'OBSERVE_PAGE', url: pruneTarget.url, title: 'Pruned path' }, { id: 61 });
 assert.equal(session().nodes.length, prunedCount, 'a pruned path must not become an active known-path alias again');
@@ -213,28 +214,28 @@ assert.equal(session().nodes[0].depth, 0, 'directly opened search page should re
 await send({ type: 'END_MISSION', reason: 'user_ended' });
 assert.equal((await send({ type: 'GET_SNAPSHOT' })).session, null, 'completed mission should not reappear as active page state');
 assert.equal((await send({ type: 'GET_SNAPSHOT', includeHistory: true })).session.mission, 'Search root test', 'dashboard history should expose the latest completed garden');
-assert.equal(store.focusForestState.sessions.length <= 12, true, 'session history should remain bounded');
-assert.equal(store.focusForestState.sessions.at(-1).events.length <= 72, true, 'event history should remain bounded');
-const forgetId = store.focusForestState.sessions.at(-1).id;
+assert.equal(store.intentGroveState.sessions.length <= 12, true, 'session history should remain bounded');
+assert.equal(store.intentGroveState.sessions.at(-1).events.length <= 72, true, 'event history should remain bounded');
+const forgetId = store.intentGroveState.sessions.at(-1).id;
 await send({ type: 'DELETE_SESSION', sessionId: forgetId });
-assert.equal(store.focusForestState.sessions.some((item) => item.id === forgetId), false, 'selected garden should be deletable without clearing all history');
+assert.equal(store.intentGroveState.sessions.some((item) => item.id === forgetId), false, 'selected garden should be deletable without clearing all history');
 
 await send({ type: 'START_MISSION', mission: 'Boundary safety', tab: { id: 31, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
 await send({ type: 'OBSERVE_PAGE', url: 'https://safe.example', title: 'Safe' }, { id: 31 });
-const safeNodeCount = session().nodes.length; const safeCompostCount = store.focusForestState.compostItems.length; const safeEvents = session().events.length;
+const safeNodeCount = session().nodes.length; const safeCompostCount = store.intentGroveState.compostItems.length; const safeEvents = session().events.length;
 await send({ type: 'OBSERVE_PAGE', url: 'javascript:alert(1)', title: 'Unsafe' }, { id: 31 });
 await send({ type: 'LINK_CLICK', url: 'data:text/html,<script>alert(1)</script>', title: 'Unsafe', targetBlank: false }, { id: 31 });
 await send({ type: 'COMPOST', url: 'javascript:alert(1)', title: 'Unsafe' }, { id: 31 });
 assert.equal(session().nodes.length, safeNodeCount, 'unsafe URL schemes must not create nodes');
-assert.equal(store.focusForestState.compostItems.length, safeCompostCount, 'unsafe URL schemes must not create compost items');
+assert.equal(store.intentGroveState.compostItems.length, safeCompostCount, 'unsafe URL schemes must not create compost items');
 assert.equal(session().events.length, safeEvents, 'unsafe URL schemes must not create navigation events');
-const beforeInvalidMutation = JSON.stringify(store.focusForestState);
+const beforeInvalidMutation = JSON.stringify(store.intentGroveState);
 await send({ type: 'PRUNE_NODE', sessionId: 'bad.id', nodeId: 'bad.id', toCompost: true });
-assert.equal(JSON.stringify(store.focusForestState), beforeInvalidMutation, 'invalid identifiers must not mutate state');
+assert.equal(JSON.stringify(store.intentGroveState), beforeInvalidMutation, 'invalid identifiers must not mutate state');
 await send({ type: 'LINK_CLICK', title: 'Missing URL', targetBlank: false }, { id: 31 });
-assert.equal(JSON.stringify(store.focusForestState), beforeInvalidMutation, 'messages missing required fields must not mutate state');
+assert.equal(JSON.stringify(store.intentGroveState), beforeInvalidMutation, 'messages missing required fields must not mutate state');
 await send({ type: 'CLEAR_DATA' }, { id: 31 });
-assert.equal(JSON.stringify(store.focusForestState), beforeInvalidMutation, 'content-script senders must not clear all local data');
+assert.equal(JSON.stringify(store.intentGroveState), beforeInvalidMutation, 'content-script senders must not clear all local data');
 assert.equal(await send({ type: 'GET_SNAPSHOT' }, { id: 31 }), null, 'content-script senders must not receive the full garden snapshot');
 await send({ type: 'UPDATE_SETTINGS', settings: { gentleDepth: 1, choiceDepth: 2 } }, { id: 31 });
 const protectedSettings = await send({ type: 'GET_SNAPSHOT' });
@@ -346,13 +347,13 @@ assert.equal(afterPreferenceImport.settings.ambientMotion, true, 'import should 
 // Import merges must be repeatable and persist independently of the worker cache.
 await test('import deduplicates sessions and applies incoming record conflicts', async () => {
   await send({ type: 'IMPORT_DATA', payload: exported });
-  assert.equal(store.focusForestState.sessions.length, 1, 'repeat imports must not duplicate sessions');
+  assert.equal(store.intentGroveState.sessions.length, 1, 'repeat imports must not duplicate sessions');
   const revised = structuredClone(exported);
   revised.data.sessions[0].mission = 'Revised imported mission';
   await send({ type: 'IMPORT_DATA', payload: revised });
-  assert.equal(store.focusForestState.sessions.length, 1);
-  assert.equal(store.focusForestState.sessions[0].mission, 'Revised imported mission');
-  assert.equal(store.focusForestState.activeSessionId, exported.data.activeSessionId);
+  assert.equal(store.intentGroveState.sessions.length, 1);
+  assert.equal(store.intentGroveState.sessions[0].mission, 'Revised imported mission');
+  assert.equal(store.intentGroveState.activeSessionId, exported.data.activeSessionId);
 });
 
 await test('import preserves existing and incoming rewards without duplicating occurrences', async () => {
@@ -360,11 +361,11 @@ await test('import preserves existing and incoming rewards without duplicating o
   const now = Date.now();
   const local = { rewardId: 'seed_1', timestamp: now - 2000 };
   const incoming = { rewardId: 'seed_1', timestamp: now - 1000 };
-  store.focusForestState.rewardHistory = [local];
+  store.intentGroveState.rewardHistory = [local];
   clearStateCache();
   const payload = { data: { rewardHistory: [local, incoming] } };
   await send({ type: 'IMPORT_DATA', payload });
-  assert.deepEqual(store.focusForestState.rewardHistory, [local, incoming]);
+  assert.deepEqual(store.intentGroveState.rewardHistory, [local, incoming]);
   await send({ type: 'IMPORT_DATA', payload });
   await send({ type: 'IMPORT_DATA', payload: { data: {} } });
   clearStateCache();
@@ -393,8 +394,8 @@ await test('import reads current state after a queued clear completes', async ()
     await new Promise((resolve) => setImmediate(resolve));
     releaseWrite();
     await Promise.all([clearing, importing]);
-    assert.deepEqual(store.focusForestState.sessions, [], 'import must not resurrect pre-clear sessions');
-    assert.deepEqual(store.focusForestState.rewardHistory, []);
+    assert.deepEqual(store.intentGroveState.sessions, [], 'import must not resurrect pre-clear sessions');
+    assert.deepEqual(store.intentGroveState.rewardHistory, []);
   } finally {
     releaseWrite();
     await Promise.allSettled([clearing, importing]);
@@ -438,14 +439,14 @@ tabActions.length = 0;
 await listeners.updated[0](901, { status: 'loading', url: 'brave://newtab/' }, { id: 901, url: 'brave://newtab/', pendingUrl: 'brave://newtab/' });
 assert.equal(tabActions.some((action) => action[0] === 'update' && action[1] === 901), false, 'loading-phase NTP placeholders must not trigger a takeover');
 await listeners.updated[0](901, { status: 'complete', url: 'brave://newtab/' }, { id: 901, url: 'brave://newtab/' });
-assert.equal(tabActions.some((action) => action[0] === 'update' && action[1] === 901 && action[2].url === 'chrome-extension://test/newtab/index.html'), true, 'Brave dashboard new tabs must be replaced by Focus Forest once committed');
+assert.equal(tabActions.some((action) => action[0] === 'update' && action[1] === 901 && action[2].url === 'chrome-extension://test/newtab/index.html'), true, 'Brave dashboard new tabs must be replaced by Intent Grove once committed');
 tabActions.length = 0;
 // There is deliberately no tabs.onCreated takeover listener (it can only see
 // uncommitted/placeholder URLs); committed Chrome NTPs are taken over via
 // onUpdated 'complete'.
 assert.equal(listeners.created.length, 0, 'no onCreated takeover listener may be registered');
 await listeners.updated[0](902, { status: 'complete', url: 'chrome://newtab' }, { id: 902, url: 'chrome://newtab' });
-assert.equal(tabActions.some((action) => action[0] === 'update' && action[1] === 902 && action[2].url === 'chrome-extension://test/newtab/index.html'), true, 'Chrome new tabs must be replaced by Focus Forest when the override is skipped');
+assert.equal(tabActions.some((action) => action[0] === 'update' && action[1] === 902 && action[2].url === 'chrome-extension://test/newtab/index.html'), true, 'Chrome new tabs must be replaced by Intent Grove when the override is skipped');
 tabActions.length = 0;
 await listeners.updated[0](903, { status: 'complete', url: 'https://example.com/' }, { id: 903, url: 'https://example.com/' });
 assert.equal(tabActions.some((action) => action[0] === 'update' && action[1] === 903), false, 'ordinary pages must not be rewritten to the planting page');
@@ -474,9 +475,16 @@ try {
   await send({ type: 'IMPORT_DATA', payload: { data: { sessions: [overnight] } } });
   const stats = await send({ type: 'GET_DASHBOARD_STATS' });
   assert.equal(stats.totalFocusTime, 3600, 'elapsed session time must not change');
-  assert.equal(stats.currentStreak, 2, 'streaks count calendar days, not smaller time buckets');
+  assert.equal(stats.currentStreak, 1, 'an unattended session spanning midnight counts only its recorded start day');
   assert.deepEqual(stats.weeklyData.map((day) => day.minutes), [0, 0, 0, 0, 0, 30, 30],
     'a session crossing UTC midnight must split between its two dates');
+
+  await send({ type: 'IMPORT_DATA', payload: { data: { sessions: [{
+    ...overnight, id: 'calendar_engaged',
+    events: [{ id: 'e1', type: 'navigation', at: Date.parse('2026-09-17T00:10:00Z') }]
+  }] } } });
+  const engagedStreak = await send({ type: 'GET_DASHBOARD_STATS' });
+  assert.equal(engagedStreak.currentStreak, 2, 'a recorded trail action adds its day to the tending streak');
 
   await send({ type: 'CLEAR_DATA' });
   const historical = {
@@ -505,9 +513,9 @@ await send({ type: 'IMPORT_DATA', payload: { data: {
     { id: 'keep_saved', url: 'https://other.example/article', title: 'Keep me', savedAt: Date.now() }
   ]
 } } });
-assert.equal(store.focusForestState.compostItems.length, 2, 'fixture must be persisted');
+assert.equal(store.intentGroveState.compostItems.length, 2, 'fixture must be persisted');
 await send({ type: 'FORGET_SITE', hostname: 'saved.example' });
-assert.deepEqual(store.focusForestState.compostItems.map((item) => item.id), ['keep_saved'],
+assert.deepEqual(store.intentGroveState.compostItems.map((item) => item.id), ['keep_saved'],
   'compost-only forgetting must persist deletion and preserve unrelated saved items');
 assert.equal(await send({ type: 'FORGET_SITE', hostname: 'saved.example' }), null,
   'forgetting a site with no remaining matches is a no-op');
@@ -569,7 +577,7 @@ await test('Forget Site repairs surviving descendants and removes deleted-node r
   // A forgotten origin must not act as an unplanted New Tab placeholder and
   // overwrite an unrelated surviving root on the next page observation.
   await send({ type: 'OBSERVE_PAGE', url: 'https://keep.example/next', title: 'Next' }, { id: 72 });
-  assert.equal(store.focusForestState.sessions[0].nodes[0].url, 'https://keep.example/');
+  assert.equal(store.intentGroveState.sessions[0].nodes[0].url, 'https://keep.example/');
 });
 
 await test('quota maintenance waits behind a queued clear instead of restoring old history', async () => {
@@ -604,7 +612,7 @@ await test('quota maintenance waits behind a queued clear instead of restoring o
     await maintenance;
     assert.equal(callsWhileBlocked, 0, 'quota maintenance must not read stale history while clear is pending');
     assert.equal(quotaCalls, 1, 'one alarm should perform one quota check');
-    assert.deepEqual(store.focusForestState.compostItems, []);
+    assert.deepEqual(store.intentGroveState.compostItems, []);
     assert.equal(writes, 1, 'empty cleared history requires no compaction write');
   } finally {
     release();
@@ -628,7 +636,7 @@ globalThis.chrome.storage.local.set = async (value) => {
 await send({ type: 'OBSERVE_PAGE', url: 'https://retry.example/page', title: 'Retry page' }, { id: 800 });
 globalThis.chrome.storage.local.set = originalSet;
 assert.equal(setFailures, 1, 'fixture must have exercised exactly one failed write');
-assert.equal(store.focusForestState.sessions[0].nodes.some((node) => node.url === 'https://retry.example/page'), true,
+assert.equal(store.intentGroveState.sessions[0].nodes.some((node) => node.url === 'https://retry.example/page'), true,
   'a transient write failure must be retried so the user action is not lost');
 
 // onSuspend must be registered as a lifecycle listener when available.
@@ -682,7 +690,7 @@ await send({ type: 'CLEAR_DATA' });
 await send({ type: 'START_MISSION', mission: 'Do not guess a parent', tab: { id: 70, url: 'https://root.example/', title: 'Root' } });
 await send({ type: 'LINK_CLICK', url: 'https://orphan.example/', title: 'Orphan' }, { id: 71 });
 assert.equal(session().nodes.length, 1, 'an unmapped tab must not attach a link to the most recent unrelated node');
-// --- R2/R3: drift accounting, note privacy, lush-completion rewards, aged compost, streak milestones ---
+// --- R2/R3: drift accounting, note privacy, non-graded completion rewards, aged compost, streak milestones ---
 {
   const nowTs = Date.now();
   const mkNode = (id, depth, url) => ({ id, url, title: id, parentId: null, depth, firstSeenAt: nowTs - 60000, closedAt: nowTs - 30000, relationshipConfidence: 'direct', confidence: 'high', navigationKind: 'link' });
@@ -695,21 +703,21 @@ assert.equal(session().nodes.length, 1, 'an unmapped tab must not attach a link 
   assert.ok(!JSON.stringify(view).includes('a private why'), 'the note text itself must never reach a page context');
   assert.deepEqual(view.drift, { pages: 0, seconds: 0 }, 'a fresh root reports zero drift');
 
-  // A lush garden: 10 pages, only one at or beyond the quiet line (ratio 0.1).
+  // Completion rewards never infer whether a browsing path matched the intention.
   const lushNodes = Array.from({ length: 9 }, (_, i) => mkNode(`lush-${i}`, i === 0 ? 0 : 1, `https://lush.example/p${i}`));
   lushNodes.push(mkNode('lush-deep', 5, 'https://lush.example/deep'));
   await send({ type: 'IMPORT_DATA', payload: { data: { sessions: [mkSession('lush-session', lushNodes)], activeSessionId: 'lush-session', settings: { enableRewards: true, gentleDepth: 4 } } } });
   const lushEnd = await send({ type: 'END_MISSION', reason: 'user_ended' });
-  assert.equal(lushEnd?.reward?.tier, 'discoveries', 'a lush completion earns a rare seasonal discovery');
-  assert.equal(lushEnd?.reward?.trigger, 'low_drift_completion');
-  assert.match(lushEnd?.reward?.note || '', /close to your intention/, 'the reward explains itself');
+  assert.equal(lushEnd?.reward?.tier, 'blooms', 'completion rewards use the same tier regardless of path depth');
+  assert.equal(lushEnd?.reward?.trigger, 'session_end_user_ended');
+  assert.match(lushEnd?.reward?.note || '', /deliberately/, 'the reward reflects the choice to end, not a presumed outcome');
 
-  // A sparse garden keeps the ordinary bloom.
+  // A deeper path receives the same completion treatment.
   const sparseNodes = [mkNode('sp-0', 0, 'https://sparse.example/p0'), mkNode('sp-1', 4, 'https://sparse.example/p1'), mkNode('sp-2', 5, 'https://sparse.example/p2'), mkNode('sp-3', 6, 'https://sparse.example/p3')];
   await send({ type: 'CLEAR_DATA' });
   await send({ type: 'IMPORT_DATA', payload: { data: { sessions: [mkSession('sparse-session', sparseNodes)], activeSessionId: 'sparse-session', settings: { enableRewards: true, gentleDepth: 4 } } } });
   const sparseEnd = await send({ type: 'END_MISSION', reason: 'user_ended' });
-  assert.equal(sparseEnd?.reward?.tier, 'blooms', 'a drifted completion keeps the ordinary bloom');
+  assert.equal(sparseEnd?.reward?.tier, 'blooms', 'path depth does not change the reward tier');
 
   // Aged compost + streak milestone surface as data, never as copy.
   await send({ type: 'IMPORT_DATA', payload: { data: { compostItems: [{ id: 'aged-1', url: 'https://aged.example/', title: 'Aged curiosity', mission: 'old mission', savedAt: nowTs - 8 * 24 * 60 * 60 * 1000 }, { id: 'fresh-1', url: 'https://fresh.example/', title: 'Fresh', mission: 'now', savedAt: nowTs - 1000 }] } } });

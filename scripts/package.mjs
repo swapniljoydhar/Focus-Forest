@@ -1,25 +1,40 @@
 /**
- * Packages the extension into dist/focus-forest.zip.
+ * Packages the extension into dist/intent-grove.zip.
  *
- * Archiver selection is capability-probed, never assumed. `zip` is absent on
- * minimal images and often cannot be installed (no root), so a hard dependency
- * on it breaks the build outside CI. Each candidate is attempted in order and a
- * missing binary (spawnSync -> result.error ENOENT) falls through to the next;
- * the error names every candidate tried so an unsupported host is
- * diagnosable in one read.
+ * Archiver selection is capability-probed, never assumed. Windows uses the
+ * .NET ZIP API shipped with PowerShell rather than relying on the optional
+ * Microsoft.PowerShell.Archive module. Other hosts prefer `zip`, then Python.
  */
 import { existsSync, mkdirSync, rmSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 
 const root = process.cwd();
 const dist = `${root}/dist`;
-const archive = `${dist}/focus-forest.zip`;
+const archive = `${dist}/intent-grove.zip`;
 const entries = ['manifest.json', 'background', 'content', 'dashboard', 'icons', 'newtab', 'popup', 'settings', 'shared'];
+const quotePowerShell = (value) => `'${value.replaceAll("'", "''")}'`;
 
 // Preference order. Both Unix candidates store paths relative to `root` and
 // recurse into directories, so the produced archive is identical either way.
 const ARCHIVERS = process.platform === 'win32'
-  ? [{ name: 'powershell', file: 'powershell.exe', args: () => ['-NoProfile', '-NonInteractive', '-Command', `Compress-Archive -Path ${entries.join(',')} -DestinationPath '${archive}' -Force`] }]
+  ? [{
+      name: 'PowerShell .NET ZIP',
+      file: 'powershell.exe',
+      args: () => {
+        const paths = entries.map(quotePowerShell).join(',');
+        const script = [
+          "$ErrorActionPreference='Stop'",
+          'Add-Type -AssemblyName System.IO.Compression',
+          'Add-Type -AssemblyName System.IO.Compression.FileSystem',
+          `$root=${quotePowerShell(root)}`,
+          `$archive=${quotePowerShell(archive)}`,
+          `$entries=@(${paths})`,
+          '$zip=[IO.Compression.ZipFile]::Open($archive,[IO.Compression.ZipArchiveMode]::Create)',
+          'try { foreach($entry in $entries) { $source=Join-Path $root $entry; if(Test-Path -LiteralPath $source -PathType Leaf) { $items=@(Get-Item -LiteralPath $source) } else { $items=@(Get-ChildItem -LiteralPath $source -File -Recurse) }; foreach($item in $items) { $name=$item.FullName.Substring($root.Length+1).Replace("\\","/"); $null=[IO.Compression.ZipFileExtensions]::CreateEntryFromFile($zip,$item.FullName,$name) } } } finally { $zip.Dispose() }'
+        ].join('; ');
+        return ['-NoProfile', '-NonInteractive', '-Command', script];
+      }
+    }]
   : [
       { name: 'zip', file: 'zip', args: () => ['-rq', archive, ...entries] },
       { name: 'python3 zipfile', file: 'python3', args: () => ['-m', 'zipfile', '-c', archive, ...entries] }
@@ -39,8 +54,9 @@ function runArchiver() {
   throw new Error(`Packaging failed - no usable archiver. Tried ${failures.join('; ')}. Install 'zip', or python3 with the zipfile module.`);
 }
 
-rmSync(dist, { recursive: true, force: true });
 mkdirSync(dist, { recursive: true });
+rmSync(archive, { force: true });
 
 const used = runArchiver();
 console.log(`Packaged ${archive} (via ${used})`);
+

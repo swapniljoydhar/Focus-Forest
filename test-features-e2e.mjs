@@ -18,9 +18,10 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '.');
-const extDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-ext-'));
+const repoRoot = path.dirname(fileURLToPath(import.meta.url));
+const extDir = fs.mkdtempSync(path.join(os.tmpdir(), 'intent-grove-ext-'));
 for (const entry of ['manifest.json', 'background', 'content', 'dashboard', 'icons', 'newtab', 'popup', 'settings', 'shared']) {
   fs.cpSync(path.join(repoRoot, entry), path.join(extDir, entry), { recursive: true });
 }
@@ -55,19 +56,19 @@ async function waitForServiceWorker(ctx, timeoutMs = 25000) {
   throw new Error('service worker never registered — the manifest failed to load');
 }
 async function readState() {
-  return await sw.evaluate(() => chrome.storage.local.get('focusForestState').then((r) => r.focusForestState ?? null));
+  return await sw.evaluate(() => chrome.storage.local.get('intentGroveState').then((r) => r.intentGroveState ?? null));
 }
 async function resetState() {
-  await sw.evaluate(() => chrome.storage.local.remove('focusForestState'));
+  await sw.evaluate(() => chrome.storage.local.remove('intentGroveState'));
   await new Promise((r) => setTimeout(r, 250));
 }
 async function writeState(state) {
-  await sw.evaluate((st) => chrome.storage.local.set({ focusForestState: st }), state);
+  await sw.evaluate((st) => chrome.storage.local.set({ intentGroveState: st }), state);
   await new Promise((r) => setTimeout(r, 300)); // let the worker's onChanged invalidate its cache
 }
 async function patchSettings(patch) {
   const apply = async () => sw.evaluate(async (p) => {
-    const key = 'focusForestState';
+    const key = 'intentGroveState';
     const current = (await chrome.storage.local.get(key))[key] ?? null;
     const base = current ?? {
       schemaVersion: 4, activeSessionId: null, sessions: [], compostItems: [],
@@ -80,7 +81,7 @@ async function patchSettings(patch) {
   }, patch);
   await apply();
   for (let attempt = 0; attempt < 10; attempt++) {
-    const stored = await sw.evaluate(() => chrome.storage.local.get('focusForestState').then((r) => r.focusForestState?.settings ?? null));
+    const stored = await sw.evaluate(() => chrome.storage.local.get('intentGroveState').then((r) => r.intentGroveState?.settings ?? null));
     if (stored && Object.entries(patch).every(([k, v]) => stored[k] === v)) return;
     await new Promise((r) => setTimeout(r, 300));
     await apply();
@@ -187,11 +188,14 @@ before(async () => {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-profile-'));
+  const executablePath = process.env.CHROMIUM_EXECUTABLE_PATH;
   context = await chromium.launchPersistentContext(userDataDir, {
     headless: true,
-    channel: 'chromium',
+    acceptDownloads: true,
+    ...(executablePath ? { executablePath } : { channel: 'chromium' }),
     chromiumSandbox: false,
     args: [
+      ...(executablePath ? ['--headless=new'] : []),
       `--disable-extensions-except=${extDir}`,
       `--load-extension=${extDir}`,
       '--no-first-run',
@@ -211,7 +215,7 @@ before(async () => {
   await context.route('https://duckduckgo.com/**', (route) => route.fulfill({ status: 204 }));
   // Let onInstalled seeding finish, then close startup debris.
   for (let i = 0; i < 40; i++) {
-    const seeded = await sw.evaluate(() => chrome.storage.local.get('focusForestState').then((r) => Boolean(r.focusForestState))).catch(() => false);
+    const seeded = await sw.evaluate(() => chrome.storage.local.get('intentGroveState').then((r) => Boolean(r.intentGroveState))).catch(() => false);
     if (seeded) break;
     await new Promise((r) => setTimeout(r, 250));
   }
@@ -332,7 +336,7 @@ test('F5  chip controls: minimize toggles, pause rests the forest, resume restor
   await waitForChip(page, cdp, (c) => c.present && !c.minimized, 'chip restored');
   await clickShadow(page, cdp, (n) => attrOf(n, 'data-action') === 'pause');
   await waitForState((s) => activeSessionOf(s)?.interventionPaused === true, 'pause persisted');
-  await waitForChip(page, cdp, (c) => c.present && c.stateText === 'Forest resting', 'resting copy');
+  await waitForChip(page, cdp, (c) => c.present && c.stateText === 'Grove resting', 'resting copy');
   let b = await badge();
   for (let i = 0; i < 20 && b.text !== '⏸'; i++) { await new Promise((r) => setTimeout(r, 200)); b = await badge(); }
   assert.equal(b.text, '⏸', 'paused badge in vivo');
@@ -364,9 +368,13 @@ test('F6  compost from the card: item saved, node composted, reward earned, toas
   assert.equal(state.rewardHistory.length, 1, 'the compost choice earns exactly one reward');
   let toast = false;
   for (let i = 0; i < 30 && !toast; i++) { toast = await findToastVisible(page, cdp); if (!toast) await new Promise((r) => setTimeout(r, 200)); }
-  assert.ok(toast, 'Forest Find toast is shown in the closed shadow root');
+  assert.ok(toast, 'Grove Note toast is shown in the closed shadow root');
   // Chip hides while the tab sits on a composted (terminal) node — honest state.
   await waitForChip(page, cdp, (c) => c.present && c.hidden, 'chip rests after composting the current page');
+  await extPage.goto(`chrome-extension://${extensionId}/newtab/index.html`);
+  await extPage.waitForSelector('#compost-reminder:not([hidden])', { timeout: 5000 });
+  assert.match(await extPage.textContent('#compost-reminder-copy'), /1 saved curiosity is resting/,
+    'the planting page gently resurfaces the saved curiosity');
 });
 
 test('F7  post-compost continuity: the tab keeps growing the garden (orphan fix in vivo)', async () => {
@@ -427,7 +435,7 @@ test('F10 settings page: save round-trip, reset to defaults, exclusion clears an
     rewards.dispatchEvent(new Event('change', { bubbles: true }));
   });
   await extPage.click('#save');
-  await extPage.waitForFunction(() => /tending the forest now/.test(document.querySelector('#status').textContent), null, { timeout: 10000 });
+  await extPage.waitForFunction(() => /tending the grove now/.test(document.querySelector('#status').textContent), null, { timeout: 10000 });
   let settings = (await readState()).settings;
   assert.deepEqual(
     { g: settings.gentleDepth, c: settings.choiceDepth, e: settings.searchEngine, x: settings.excludedSites, r: settings.enableRewards },
@@ -495,18 +503,48 @@ test('F11 dashboard: tree, trail, compost, stats, theme, export, clear, import, 
   await extPage.click('[data-tab="stats"]');
   await extPage.waitForFunction(() => document.querySelector('#totalSessions')?.textContent === '2', null, { timeout: 10000 });
   assert.equal(await extPage.textContent('#savedCount'), '1');
+  // An upgrade must migrate the former theme key and preserve the user's choice.
+  await extPage.evaluate(() => {
+    localStorage.removeItem('intent-grove-theme');
+    localStorage.setItem('focus-forest-theme', 'dark');
+  });
+  await extPage.reload();
+  await extPage.waitForSelector('#theme-toggle');
+  assert.equal(await extPage.evaluate(() => document.documentElement.getAttribute('data-theme')), 'dark');
+  assert.equal(await extPage.evaluate(() => localStorage.getItem('intent-grove-theme')), 'dark');
+  assert.equal(await extPage.evaluate(() => localStorage.getItem('focus-forest-theme')), null);
   // Theme toggle
   await extPage.click('#theme-toggle');
+  assert.equal(await extPage.evaluate(() => document.documentElement.getAttribute('data-theme')), 'light');
+  assert.equal(await extPage.evaluate(() => localStorage.getItem('intent-grove-theme')), 'light');
+  await extPage.click('#theme-toggle');
   assert.equal(await extPage.evaluate(() => document.documentElement.getAttribute('data-theme')), 'dark');
-  assert.equal(await extPage.evaluate(() => localStorage.getItem('focus-forest-theme')), 'dark');
   await extPage.click('#theme-toggle'); // back to light for later pages
-  // Export -> download -> parse
-  const [download] = await Promise.all([
-    extPage.waitForEvent('download', { timeout: 10000 }),
-    extPage.click('#exportData'),
-  ]);
-  const exportPath = await download.path();
-  const exported = JSON.parse(fs.readFileSync(exportPath, 'utf8'));
+  // Export -> capture the browser download handoff -> parse. Edge/Brave
+  // headless extension contexts do not consistently surface Playwright's
+  // Download event, so intercept only the final anchor click while exercising
+  // the real worker export and UI serialization path.
+  await extPage.evaluate(() => {
+    const click = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+      if (this.download.startsWith('intent-grove-export-')) {
+        window.__intentGroveExport = { filename: this.download, href: this.href };
+        return;
+      }
+      return click.call(this);
+    };
+  });
+  await extPage.click('[data-tab="stats"]'); // page reload restores the default Garden Map tab
+  await extPage.click('#exportData');
+  await extPage.waitForFunction(() => Boolean(window.__intentGroveExport), null, { timeout: 10000 });
+  const exportCapture = await extPage.evaluate(async () => ({
+    filename: window.__intentGroveExport.filename,
+    data: JSON.parse(await (await fetch(window.__intentGroveExport.href)).text()),
+  }));
+  assert.match(exportCapture.filename, /^intent-grove-export-\d{4}-\d{2}-\d{2}\.json$/);
+  const exportPath = path.join(os.tmpdir(), exportCapture.filename);
+  fs.writeFileSync(exportPath, JSON.stringify(exportCapture.data));
+  const exported = exportCapture.data;
   assert.equal(exported.sessions.length, 2, 'export contains both gardens');
   // Clear local data through the confirm dialog
   await extPage.click('#clear');
@@ -515,6 +553,7 @@ test('F11 dashboard: tree, trail, compost, stats, theme, export, clear, import, 
   await waitForState((s) => (s?.sessions ?? []).length === 0, 'clear local data empties the forest');
   // Import the exported file back
   await extPage.setInputFiles('#importFile', exportPath);
+  fs.unlinkSync(exportPath);
   await extPage.waitForFunction(() => /Import complete/.test(document.querySelector('#import-status')?.textContent || ''), null, { timeout: 15000 });
   await waitForState((s) => (s?.sessions ?? []).length === 2, 'import restores both gardens');
   // Forget the selected garden
@@ -555,7 +594,29 @@ test('F12 popup: empty-state footer hidden, plant via form, completion ritual, e
   assert.equal(b.text, '', 'badge clears after the ritual');
 });
 
-test('F13 no uncaught errors surfaced during the whole feature walk', async () => {
+test('F13 the current page can become a fresh mission without leaving the page', async () => {
+  await resetState();
+  await patchSettings({ gentleDepth: 2, choiceDepth: 3 });
+  const page = await plantMission('Follow this research', webPage);
+  await page.click('#link-p1');
+  await page.waitForURL(`${baseUrl}/p/1`);
+  for (let depth = 2; depth <= 3; depth++) {
+    await page.click(`#link-next${depth}`);
+    await page.waitForURL(`${baseUrl}/p/${depth}`);
+  }
+  const cdp = await context.newCDPSession(page);
+  let card = false;
+  for (let i = 0; i < 40 && !card; i++) { card = await choiceCardVisible(page, cdp); if (!card) await new Promise((resolve) => setTimeout(resolve, 250)); }
+  assert.equal(card, true, 'the current page must reach the configured choice point');
+  const title = await page.title();
+  await clickShadow(page, cdp, (node) => attrOf(node, 'data-action') === 'mission-here');
+  await waitForState((state) => activeSessionOf(state)?.mission === title, 'the current page title becomes the new mission');
+  const current = await readState();
+  assert.equal(activeSessionOf(current)?.origin?.url, `${baseUrl}/p/3`, 'the current page becomes the new garden root');
+  assert.equal(current.sessions.at(-2)?.status, 'completed', 'the previous garden is preserved as completed');
+});
+
+test('F14 no uncaught errors surfaced during the whole feature walk', async () => {
   const real = [...swErrors, ...webErrors].filter((e) => !/rate limit/i.test(e));
   assert.deepEqual(real, [], 'service worker and pages must stay free of uncaught errors');
 });

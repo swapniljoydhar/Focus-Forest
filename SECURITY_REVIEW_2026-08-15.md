@@ -1,5 +1,7 @@
 # Focus Forest Security and Correctness Review — 2026-08-15
 
+> Historical report: this audit was written under the former Focus Forest name and describes the repository at its stated date. It is retained as a record; current product behavior and guidance are documented in [README.md](README.md), [ARCHITECTURE.md](ARCHITECTURE.md), [EVIDENCE.md](EVIDENCE.md), and [SECURITY.md](SECURITY.md).
+
 ## Scope and baseline
 
 The audit targets the published no-shortcuts `main` branch of `swapniljoydhar/focus-forest` at the pre-review commit. The repository is a dependency-free Manifest V3 extension with a service worker, HTTP(S)-only content script, New Tab override, popup, dashboard, settings page, local storage, and a mocked-Chrome behavior harness.

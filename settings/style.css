@@ -2,11 +2,7 @@
 body{min-height:100vh;margin:0;background:radial-gradient(circle at 50% 0,rgba(245,240,190,.5),transparent 40%),linear-gradient(180deg,#eef5ef,#f8f6eb 65%,#dfebdd)}
 .settings-shell{width:min(660px,calc(100% - 38px));margin:auto;padding:36px 0}
 .brand-line{display:flex;align-items:center;gap:9px;color:#527154;font-size:13px}
-.brand-mark{position:relative;width:21px;height:21px}
-.brand-mark span{position:absolute;bottom:1px;width:5px;border-radius:6px;background:#719b6b}
-.brand-mark span:nth-child(1){left:2px;height:10px;transform:rotate(-22deg)}
-.brand-mark span:nth-child(2){left:8px;height:17px}
-.brand-mark span:nth-child(3){left:14px;height:13px;transform:rotate(22deg)}
+.brand-mark{display:block;width:28px;height:28px;border-radius:7px;object-fit:cover}
 .local-pill{margin-left:5px;padding:3px 8px;border-radius:20px;background:#e5eee1;color:#789175;font-size:10px}
 .eyebrow{margin:72px 0 10px;color:#779071;font-size:10px;font-weight:800;letter-spacing:.17em}
 .settings-shell h1{margin:0;font:500 clamp(40px,7vw,62px)/.98 Georgia,serif;letter-spacing:-.05em}

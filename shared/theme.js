@@ -5,12 +5,30 @@
  */
 
 // Module-internal storage key; pages interact through applyStoredTheme/toggleTheme.
-const THEME_STORAGE_KEY = 'focus-forest-theme';
+const THEME_STORAGE_KEY = 'intent-grove-theme';
+const LEGACY_THEME_STORAGE_KEY = 'focus-forest-theme';
+
+function readThemePreference() {
+  try {
+    const current = localStorage.getItem(THEME_STORAGE_KEY);
+    if (current === 'dark' || current === 'light') {
+      localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
+      return current;
+    }
+    const legacy = localStorage.getItem(LEGACY_THEME_STORAGE_KEY);
+    if (legacy === 'dark' || legacy === 'light') {
+      localStorage.setItem(THEME_STORAGE_KEY, legacy);
+      localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
+      return legacy;
+    }
+  } catch { /* storage may be unavailable */ }
+  return null;
+}
 
 /** Apply the user's stored theme (dark/light) to the current page's <html>. */
 export function applyStoredTheme() {
   try {
-    const saved = localStorage.getItem(THEME_STORAGE_KEY);
+    const saved = readThemePreference();
     if (saved === 'dark' || saved === 'light') {
       document.documentElement.setAttribute('data-theme', saved);
     }
@@ -23,13 +41,19 @@ export function toggleTheme() {
   const current = html.getAttribute('data-theme') || 'light';
   const next = current === 'light' ? 'dark' : 'light';
   html.setAttribute('data-theme', next);
-  try { localStorage.setItem(THEME_STORAGE_KEY, next); } catch { /* storage may be unavailable */ }
+  try {
+    localStorage.setItem(THEME_STORAGE_KEY, next);
+    localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
+  } catch { /* storage may be unavailable */ }
   return next;
 }
 
 /** Remove the stored theme choice; used by the dashboard's clear-all-data
  *  flow so no preference outlives an explicit local data wipe. */
 export function clearStoredTheme() {
-  try { localStorage.removeItem(THEME_STORAGE_KEY); } catch { /* storage may be unavailable */ }
+  try {
+    localStorage.removeItem(THEME_STORAGE_KEY);
+    localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
+  } catch { /* storage may be unavailable */ }
   document.documentElement.removeAttribute('data-theme');
 }

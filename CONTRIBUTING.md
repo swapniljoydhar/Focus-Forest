@@ -1,6 +1,6 @@
-# Contributing to Focus Forest
+# Contributing to Intent Grove
 
-Thank you for helping improve Focus Forest. The project is a local-first Chromium extension, so changes should preserve user agency, privacy, and the ability to run without a build step.
+Thank you for helping improve Intent Grove. The project is a local-first Chromium extension, so changes should preserve user agency, privacy, and the ability to run without a build step.
 
 ## Before opening a change
 

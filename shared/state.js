@@ -1,7 +1,8 @@
 import './chromium-api.js';
 import { logError, logWarning, logCritical, ERROR_CATEGORIES } from './error-tracing.js';
 
-export const STORAGE_KEY = 'focusForestState';
+export const STORAGE_KEY = 'intentGroveState';
+export const LEGACY_STORAGE_KEY = 'focusForestState';
 export const SCHEMA_VERSION = 4; // Incremented for reward system
 export const LIMITS = { SESSIONS: 12, NODES_PER_SESSION: 96, EVENTS_PER_SESSION: 72, COMPOST: 80, TITLE: 120, MISSION_NOTE: 280, URL: 1024 };
 export const DEFAULT_SETTINGS = { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false, strictMode: false, ramGuard: true, ramGuardLevel: 3 };
@@ -9,7 +10,7 @@ export const STORAGE_QUOTA_WARNING_THRESHOLD = 4 * 1024 * 1024; // 4MB warning t
 export const STORAGE_QUOTA_CRITICAL_THRESHOLD = 7 * 1024 * 1024; // 7MB critical threshold (Chrome's limit is ~8MB)
 
 /**
- * Curated offline reward catalog - deterministic, bounded, meaningful
+ * Curated offline reward catalog - bounded, meaningful, locally randomized
  * Rewards reinforce reflection and intentional choice, not browsing duration
  */
 export const REWARD_CATALOG = {
@@ -36,15 +37,6 @@ export const REWARD_CATALOG = {
     { id: 'bloom_3', text: 'The forest remembers this path.', icon: '🌳' },
     { id: 'bloom_4', text: 'Seasons change, wisdom remains.', icon: '🍄' },
     { id: 'bloom_5', text: 'A new pattern takes root.', icon: '🪴' }
-  ],
-  // Special discoveries: Rare seasonal details
-  discoveries: [
-    { id: 'disc_1', text: 'A visiting bird left a feather.', icon: '🐦' },
-    { id: 'disc_2', text: 'Morning dew catches the light.', icon: '💧' },
-    { id: 'disc_3', text: 'A mushroom appears after rain.', icon: '🍄' },
-    { id: 'disc_4', text: 'Seasonal berries ripen quietly.', icon: '🫐' },
-    { id: 'disc_5', text: 'Sunlight reaches the forest floor.', icon: '☀️' },
-    { id: 'disc_6', text: 'A quiet season settles in the canopy.', icon: '🌼' }
   ]
 };
 
@@ -65,8 +57,7 @@ const REWARD_TRIGGER_NOTES = {
   return_to_root: 'You came back to the intention you set.',
   compost_choice: 'You chose to keep this for later instead of following it now.',
   session_end: 'You set the garden down deliberately.',
-  mission_changed: 'You noticed a new direction and let this garden rest.',
-  low_drift_completion: 'You kept this path close to your intention.'
+  mission_changed: 'You noticed a new direction and let this garden rest.'
 };
 
 /**
@@ -80,24 +71,6 @@ export function rewardNote(trigger) {
   // Session endings are recorded as session_end_<reason>.
   if (trigger.startsWith('session_end')) return REWARD_TRIGGER_NOTES.session_end;
   return '';
-}
-
-/**
- * Chooses the tier for a reward earned by returning to the mission root.
- * A return from at or beyond the choice threshold earns a rare discovery;
- * any other return earns a seed. This is contextual and deterministic on
- * purpose: rewards stay explainable, and randomness is never amplified to
- * drive engagement.
- * @param {object} state - Current application state.
- * @returns {string} Tier name present in REWARD_CATALOG.
- */
-export function returnRewardTier(state) {
-  const session = activeSession(state);
-  if (!session) return 'seeds';
-  // Depth is structural distance from the root, not a judgement about a page.
-  const deepest = Math.max(0, ...(session.nodes || []).map((node) => Number(node?.depth) || 0));
-  const { choiceDepth } = normalizeSettings(state.settings);
-  return deepest >= choiceDepth ? 'discoveries' : 'seeds';
 }
 
 /**
@@ -246,7 +219,7 @@ export function getDepthState(depth, paused = false, thresholds = DEFAULT_SETTIN
 
 /**
  * Finds the currently active session in a state object.
- * @param {object} state - Focus Forest state.
+ * @param {object} state - Intent Grove state.
  * @returns {object|null} Active session or null.
  */
 export function activeSession(state) {
@@ -426,26 +399,6 @@ export function driftStats(session, thresholds) {
 }
 
 /**
- * Garden health: a three-step visual verdict (lush / steady / sparse) derived
- * only from existing local branch data — never a score, never shown as a
- * number. Young gardens (two pages or fewer) are always 'steady': one page
- * of journey cannot say anything true about a path.
- * @param {object|null} session
- * @param {object} settings - Raw or normalized settings.
- * @returns {'lush'|'steady'|'sparse'}
- */
-export function gardenHealth(session, settings) {
-  const nodes = Array.isArray(session?.nodes) ? session.nodes : [];
-  if (nodes.length <= 2) return 'steady';
-  const { gentleDepth } = normalizeSettings(settings);
-  const { pages } = driftStats(session, { gentleDepth });
-  const ratio = pages / nodes.length;
-  if (ratio <= 0.2) return 'lush';
-  if (ratio >= 0.5) return 'sparse';
-  return 'steady';
-}
-
-/**
  * Normalizes user-provided settings against defaults and clamps values.
  * @param {object} value - Raw settings object.
  * @param {object} [fallback=emptyState().settings] - Default settings.
@@ -478,6 +431,8 @@ export function normalizeSettings(value, fallback = emptyState().settings) {
 }
 
 let stateCache = null;
+let stateLoadPromise = null;
+let stateLoadGeneration = 0;
 let ownWritesInFlight = 0;
 
 /**
@@ -569,7 +524,7 @@ export async function compactStateIfNeeded() {
 }
 
 /**
- * Loads the persisted Focus Forest state from chrome.storage.local.
+ * Loads the persisted Intent Grove state from chrome.storage.local.
  * Returns a cached copy if available and not invalidated.
  * READ-ONLY consumers: on a storage read failure this resolves to a fresh
  * empty state so UIs degrade to "nothing planted" instead of throwing.
@@ -579,11 +534,8 @@ export async function compactStateIfNeeded() {
  * @returns {Promise<object>} Normalized state object.
  */
 export async function loadState() {
-  if (stateCache !== null) return stateCache;
   try {
-    const result = await chrome.storage.local.get(STORAGE_KEY);
-    stateCache = normalizeState(result[STORAGE_KEY]);
-    return stateCache;
+    return await loadPersistedStateOnce();
   } catch {
     return emptyState();
   }
@@ -602,10 +554,61 @@ export async function loadState() {
  * @throws When chrome.storage.local.get rejects.
  */
 export async function loadStateForWrite() {
+  return loadPersistedStateOnce();
+}
+
+async function loadPersistedStateOnce() {
   if (stateCache !== null) return stateCache;
-  const result = await chrome.storage.local.get(STORAGE_KEY);
-  stateCache = normalizeState(result[STORAGE_KEY]);
-  return stateCache;
+  if (!stateLoadPromise) {
+    const generation = stateLoadGeneration;
+    stateLoadPromise = readPersistedState().then((state) => {
+      if (generation === stateLoadGeneration) stateCache = state;
+      return state;
+    });
+  }
+  const pending = stateLoadPromise;
+  try {
+    return await pending;
+  } finally {
+    if (stateLoadPromise === pending) stateLoadPromise = null;
+  }
+}
+
+/**
+ * Read the current storage namespace, migrating the former Focus Forest key
+ * once when needed. The canonical write completes before the legacy value is
+ * removed, so interrupted upgrades can safely retry without losing gardens.
+ */
+async function readPersistedState() {
+  const result = await chrome.storage.local.get([STORAGE_KEY, LEGACY_STORAGE_KEY]);
+  if (Object.hasOwn(result, STORAGE_KEY)) {
+    if (Object.hasOwn(result, LEGACY_STORAGE_KEY)) await removeLegacyStateQuietly();
+    return normalizeState(result[STORAGE_KEY]);
+  }
+  if (!Object.hasOwn(result, LEGACY_STORAGE_KEY)) return emptyState();
+
+  const migrated = normalizeState(result[LEGACY_STORAGE_KEY]);
+  ownWritesInFlight += 1;
+  try {
+    await chrome.storage.local.set({ [STORAGE_KEY]: migrated });
+  } finally {
+    ownWritesInFlight = Math.max(0, ownWritesInFlight - 1);
+  }
+  await removeLegacyStateQuietly();
+  return migrated;
+}
+
+async function removeLegacyStateQuietly() {
+  try {
+    await chrome.storage.local.remove(LEGACY_STORAGE_KEY);
+  } catch (error) {
+    logWarning(error, { category: ERROR_CATEGORIES.STORAGE, operation: 'legacyStateCleanup' });
+  }
+}
+
+/** Remove any legacy copy as part of the user's explicit delete-all action. */
+export async function clearLegacyState() {
+  await chrome.storage.local.remove(LEGACY_STORAGE_KEY);
 }
 
 /**
@@ -632,6 +635,8 @@ export async function saveState(state) {
  */
 export function clearStateCache() {
   stateCache = null;
+  stateLoadGeneration += 1;
+  stateLoadPromise = null;
 }
 
 // Invalidate the in-memory cache when storage is written from any external
@@ -682,7 +687,7 @@ export function canEarnReward(state) {
 /**
  * Select a random reward from the appropriate tier
  * Uses crypto.getRandomValues for true randomness when available
- * @param {string} tier - Reward tier ('seeds', 'leaves', 'blooms', 'discoveries')
+ * @param {string} tier - Reward tier ('seeds', 'leaves', or 'blooms')
  * @param {number} seed - Optional seed for deterministic selection
  * @returns {object|null} Selected reward or null if tier empty
  */

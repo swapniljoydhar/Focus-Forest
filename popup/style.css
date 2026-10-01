@@ -14,10 +14,7 @@ body[data-motion="off"] .empty,
 body[data-motion="off"] .empty-seed { animation:none !important; }
 .popup-shell{min-height:420px;padding:16px 18px 12px;display:flex;flex-direction:column}
 .popup-brand{display:flex;align-items:center;gap:8px;color:#527154;font-size:13px}
-.brand-mark{width:20px;height:20px}
-.brand-mark svg{display:block;width:100%;height:100%}
-.brand-trunk,.brand-branch{fill:none;stroke:#7b5538;stroke-width:1.7;stroke-linecap:round}
-.brand-leaf{fill:#79a96a;stroke:#4d7d50;stroke-width:.55}
+.brand-mark{display:block;width:24px;height:24px;border-radius:6px;object-fit:cover}
 .brand-leaf-right{fill:#91ba78}
 .local-dot{margin-left:auto;color:#8b9b87;font-size:10px;font-weight:500;display:flex;align-items:center;gap:5px}
 .local-dot:before{content:"";display:inline-block;width:6px;height:6px;border-radius:50%;background:#83a578;vertical-align:1px;animation:localPulse 3s ease-in-out infinite}

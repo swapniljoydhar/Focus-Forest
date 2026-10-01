@@ -60,7 +60,7 @@ assert.match(content, /showGrowthRitual/, 'companion branch growth should use an
 assert.match(content, /chip-growth-ritual/, 'companion ritual should have a named visual state');
 assert.match(content, /waitForGrowth\(1200/, 'companion ritual should hold the completion grow phase for ~1.2s before flicker');
 assert.match(content, /prefers-reduced-motion/, 'companion ritual should respect reduced-motion preferences');
-assert.match(content, /let originRitualPlayed = false;\s*try \{ originRitualPlayed = sessionStorage\.getItem/, 'initial sessionStorage access must be guarded');
+assert.match(content, /let originRitualPlayed = false;\s*try \{[\s\S]*?sessionStorage\.getItem\(ORIGIN_RITUAL_SESSION_KEY\)/, 'initial sessionStorage access must be guarded');
 assert.match(dashboard, /!event\.shiftKey && \(index === focusables\.length - 1 \|\| index < 0\)/, 'dashboard dialog must trap Tab when focus starts outside the dialog');
 assert.equal(/setInterval\(/.test(content), false, 'companion ritual must not introduce a continuous timer loop');
 console.log('static security contracts passed');

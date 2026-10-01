@@ -15,7 +15,8 @@ globalThis.chrome = {
     local: {
       async get(key) {
         if (failNextGet) { failNextGet = false; throw new Error('simulated storage read failure'); }
-        return key in storage ? { [key]: structuredClone(storage[key]) } : {};
+        const keys = Array.isArray(key) ? key : [key];
+        return Object.fromEntries(keys.filter((item) => item in storage).map((item) => [item, structuredClone(storage[item])]));
       },
       async set(value) {
         if (failNextSet) { failNextSet = false; throw new Error('simulated storage write failure'); }
@@ -24,7 +25,8 @@ globalThis.chrome = {
         heldSetCount -= 1;
         setStartResolvers.shift()?.();
         await new Promise((resolve) => { setReleaseResolvers.push(resolve); });
-      }
+      },
+      async remove(key) { for (const item of Array.isArray(key) ? key : [key]) delete storage[item]; }
     },
     onChanged: {
       addListener(listener) { changeListeners.push(listener); }
@@ -34,6 +36,7 @@ globalThis.chrome = {
 
 const {
   STORAGE_KEY,
+  LEGACY_STORAGE_KEY,
   isSearchUrl,
   isBrowserNewTabUrl,
   isExtensionNewTabUrl,
@@ -51,19 +54,56 @@ const {
   earnReward,
   canEarnReward,
   selectRandomReward,
-  returnRewardTier,
   rewardHistoryView,
   rewardNote,
   driftStats,
-  gardenHealth,
   REWARD_CATALOG,
   loadState,
   saveState,
+  loadStateForWrite,
   clearStateCache,
   compactStateIfNeeded,
   STORAGE_QUOTA_CRITICAL_THRESHOLD,
   makeId
 } = await import('./shared/state.js');
+
+describe('storage namespace migration', () => {
+  it('moves legacy gardens to Intent Grove storage before removing the old key', async () => {
+    const priorCurrent = storage[STORAGE_KEY];
+    const priorLegacy = storage[LEGACY_STORAGE_KEY];
+    delete storage[STORAGE_KEY];
+    storage[LEGACY_STORAGE_KEY] = sessionFixture('legacy-garden');
+    clearStateCache();
+    try {
+      const migrated = await loadStateForWrite();
+      assert.equal(migrated.sessions[0].id, 'legacy-garden');
+      assert.equal(storage[STORAGE_KEY].sessions[0].id, 'legacy-garden');
+      assert.equal(Object.hasOwn(storage, LEGACY_STORAGE_KEY), false, 'old key should be removed only after the canonical copy is saved');
+    } finally {
+      if (priorCurrent === undefined) delete storage[STORAGE_KEY]; else storage[STORAGE_KEY] = priorCurrent;
+      if (priorLegacy === undefined) delete storage[LEGACY_STORAGE_KEY]; else storage[LEGACY_STORAGE_KEY] = priorLegacy;
+      clearStateCache();
+    }
+  });
+
+  it('retains the old garden if writing the canonical key fails during migration', async () => {
+    const priorCurrent = storage[STORAGE_KEY];
+    const priorLegacy = storage[LEGACY_STORAGE_KEY];
+    delete storage[STORAGE_KEY];
+    storage[LEGACY_STORAGE_KEY] = sessionFixture('safe-legacy-garden');
+    clearStateCache();
+    failNextSet = true;
+    try {
+      await assert.rejects(loadStateForWrite(), /simulated storage write failure/);
+      assert.equal(Object.hasOwn(storage, STORAGE_KEY), false);
+      assert.equal(storage[LEGACY_STORAGE_KEY].sessions[0].id, 'safe-legacy-garden');
+    } finally {
+      if (priorCurrent === undefined) delete storage[STORAGE_KEY]; else storage[STORAGE_KEY] = priorCurrent;
+      if (priorLegacy === undefined) delete storage[LEGACY_STORAGE_KEY]; else storage[LEGACY_STORAGE_KEY] = priorLegacy;
+      clearStateCache();
+    }
+  });
+});
 
 function fireStorageChange(newValue, oldValue = undefined) {
   for (const listener of changeListeners) {
@@ -184,23 +224,7 @@ describe('shared/state.js core functions', () => {
       assert.equal(reward?.tier, tier, `${tier} must be earnable`);
       assert.ok(REWARD_CATALOG[tier].some((item) => item.id === reward.id));
     }
-    assert.equal(returnRewardTier(emptyState()), 'seeds');
     assert.equal(selectRandomReward('missing-tier', 0), null);
-  });
-
-  it('returning from a deep branch earns a discovery instead of a seed', () => {
-    const shallow = emptyState();
-    shallow.sessions.push({ id: 's', startedAt: Date.now(), status: 'active', nodes: [{ id: 'n', depth: 1 }], events: [] });
-    shallow.activeSessionId = 's';
-    assert.equal(returnRewardTier(shallow), 'seeds', 'a shallow return is a seed');
-    // choiceDepth defaults to 5, so a return from the choice threshold is deeper.
-    shallow.sessions[0].nodes.push({ id: 'n2', depth: 5 });
-    assert.equal(returnRewardTier(shallow), 'discoveries');
-    // The threshold follows the user's own setting rather than a fixed depth.
-    shallow.settings.choiceDepth = 8;
-    assert.equal(returnRewardTier(shallow), 'seeds');
-    shallow.settings.choiceDepth = 3;
-    assert.equal(returnRewardTier(shallow), 'discoveries');
   });
 
   it('rewards stay off until the user enables them', () => {
@@ -226,12 +250,12 @@ describe('shared/state.js core functions', () => {
     const history = [
       { rewardId: 'seed_1', timestamp: now - 3000 },
       { rewardId: 'not_in_catalog', timestamp: now - 2000 },
-      { rewardId: 'disc_2', timestamp: now - 1000 }
+      { rewardId: 'bloom_2', timestamp: now - 1000 }
     ];
     const finds = rewardHistoryView(history);
-    assert.deepEqual(finds.map((find) => find.id), ['disc_2', 'seed_1'], 'newest first, unknown ids skipped');
-    assert.equal(finds[0].text, 'Morning dew catches the light.');
-    assert.equal(finds[0].tier, 'discoveries');
+    assert.deepEqual(finds.map((find) => find.id), ['bloom_2', 'seed_1'], 'newest first, unknown ids skipped');
+    assert.equal(finds[0].text, 'A session tended with care.');
+    assert.equal(finds[0].tier, 'blooms');
     assert.equal(finds[1].tier, 'seeds');
     assert.equal(rewardHistoryView(history, 1).length, 1);
     assert.deepEqual(rewardHistoryView(null), []);
@@ -498,7 +522,7 @@ describe('storage cache and invalidation', () => {
   });
 });
 
-describe('drift accounting and garden health (R2/R3 foundation)', () => {
+describe('drift accounting and rewards', () => {
   const node = (depth, secondsAgo = 0, closedAfter = null) => ({
     id: `n${depth}-${secondsAgo}`, depth, firstSeenAt: Date.now() - secondsAgo * 1000,
     ...(closedAfter == null ? {} : { closedAt: Date.now() - closedAfter * 1000 })
@@ -516,23 +540,9 @@ describe('drift accounting and garden health (R2/R3 foundation)', () => {
     assert.deepStrictEqual(driftStats({ nodes: [] }, { DESATURATE: 4 }), { pages: 0, seconds: 0 });
   });
 
-  it('gardenHealth never judges young gardens', () => {
-    assert.equal(gardenHealth({ nodes: [node(9), node(9)] }, {}), 'steady');
-    assert.equal(gardenHealth(null, {}), 'steady');
-  });
-
-  it('gardenHealth maps the drift ratio to lush / steady / sparse', () => {
-    const lush = { nodes: [node(0), node(1), node(2), node(3), node(4), node(1), node(2), node(0), node(1), node(2)] };
-    assert.equal(gardenHealth(lush, { gentleDepth: 4 }), 'lush', '1 of 10 pages beyond the quiet line');
-    const mixed = { nodes: [node(0), node(1), node(4), node(5), node(2)] };
-    assert.equal(gardenHealth(mixed, { gentleDepth: 4 }), 'steady', '2 of 5 pages beyond the quiet line');
-    const sparse = { nodes: [node(0), node(4), node(4), node(5)] };
-    assert.equal(gardenHealth(sparse, { gentleDepth: 4 }), 'sparse', '3 of 4 pages beyond the quiet line');
-  });
-
-  it('reward catalog keeps unique ids and explains the low-drift trigger', () => {
+  it('reward catalog keeps unique ids without grading path depth', () => {
     const ids = Object.values(REWARD_CATALOG).flat().map((item) => item.id);
     assert.equal(new Set(ids).size, ids.length, 'catalog ids must stay unique');
-    assert.match(rewardNote('low_drift_completion'), /close to your intention/);
+    assert.equal(rewardNote('low_drift_completion'), '');
   });
 });

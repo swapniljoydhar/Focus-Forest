@@ -1,12 +1,36 @@
 # Changelog
 
-All notable Focus Forest changes are documented here.
+All notable Intent Grove changes are documented here.
+
+## [Unreleased — 0.3.8]
+
+### Changed
+
+- Rebranded the product from Focus Forest to **Intent Grove** in the manifest, user-facing surfaces, package metadata, artwork, and current documentation.
+- Migrated the canonical browsing state and theme keys, companion root ID, bridge event, context-menu IDs, and session marker to the Intent Grove namespace. Legacy state and theme data migrate before cleanup; already-open tabs accept both bridge events, and old injection markers prevent duplicate companions during reload transitions.
+- Added [EVIDENCE.md](EVIDENCE.md), which describes the limits of current digital self-regulation research, makes no efficacy claims for this extension, and sets explicit anti-shame and autonomy guardrails.
+- Updated user-facing strict-mode copy to “Use firmer reminders” and corrected dashboard wording so recorded paths are not described as inferred attention.
+- Renamed the generated archive to `dist/intent-grove.zip`; updated current install, architecture, store, and contributor documentation. Historical audits remain dated records and are marked as such.
+- Fixed the New Tab performance profiler's hidden-animation assertion to inspect actual running animation play states instead of comparing timing snapshots.
+- Made Windows packaging independent of the optional PowerShell Archive module by using the built-in .NET ZIP API; the script also replaces only its generated archive instead of deleting the whole `dist/` directory.
 
 ## [Unreleased]
 
+### Improved (user agency, clarity, and New Tab performance — 2026-10-01)
+
+- Added an optional five-step fictional garden demo that teaches path depth without saving anything or opening pages.
+- Added one-tap Gentle, Balanced, and Accountable presets; preset selection previews changes without saving them.
+- Added **Make this page my new mission** to the non-blocking choice card, preserving the previous garden when a useful detour becomes the new intention.
+- Surface saved compost curiosities on the New Tab page, and explain that planting sends the mission text to the selected search provider.
+- Reworded path depth, elapsed time, statistics, and completion reflection to describe recorded navigation facts without inferring relevance or attention. Recorded-day counts no longer grow just because an unattended mission spans multiple days.
+- Kept optional Quiet discoveries bounded and locally randomized, but removed rarity tiers tied to path depth or presumed mission fit. No shame copy or punitive mechanism was added.
+- Reduced persistent New Tab background work: removed two full-screen moving gradient layers and five continuously moving leaf particles, removed the large glow blur, switched the sun pulse to opacity-only, and consolidated three separately animated tree layers into one gentle canopy-and-branches sway. The tree and atmosphere pause when the page is hidden.
+- Replaced the separate sprout wordmarks with a shared botanical icon across New Tab, popup, settings, and dashboard.
+- Expanded browser tests for the demo and mission action; made extension test launchers accept `CHROMIUM_EXECUTABLE_PATH` and fixed Windows-safe file URL resolution.
+
 ### Changed (docs — README split for humans, 2026-09-22)
 
-- **Doc set synced with the shipped product:** `SECURITY.md` gained the missing truth (chip-position `storage.session` design, `system.memory` permission scope, storage bounds, note-privacy, delete-all-includes-theme); `CHROMEWEBSTORE.md` store description now reflects Strict mode, drift facts, garden health, streaks, Forest Finds, the guardian, and the shortcuts, its privacy disclosure mentions the local memory reading, and its Version History was re-ordered chronologically and completed through 0.3.6 + the unreleased batch; `CONTRIBUTING.md` verification steps now name the full lane set; README links the previously orphaned September 2026 audit. Dated historical audits (2026-08-15/16, 2026-09-21) deliberately untouched — records are not rewritten.
+- **Doc set synced with the shipped product:** `SECURITY.md` gained the missing truth (chip-position `storage.session` design, `system.memory` permission scope, storage bounds, note-privacy, delete-all-includes-theme); `CHROMEWEBSTORE.md` store description now reflects Strict mode, drift facts, garden health, streaks, Quiet discoveries, the guardian, and the shortcuts, its privacy disclosure mentions the local memory reading, and its Version History was re-ordered chronologically and completed through 0.3.6 + the unreleased batch; `CONTRIBUTING.md` verification steps now name the full lane set; README links the previously orphaned September 2026 audit. Dated historical audits (2026-08-15/16, 2026-09-21) deliberately untouched — records are not rewritten.
 
 - **README rewritten user-first** (210 lines / 21 sections → ~105): plain-language intro, quick install, "How it works" bullets, a settings table, a short privacy list, the browser table + troubleshooting, roadmap, and dev commands. The engineering deep dive — annotated file tree, navigation semantics, Chromium/fork integration notes, permissions rationale, accessibility engineering, garden rendering, tab/history behavior, memory & performance design, security & reliability implementation, test-lane inventory, release engineering, and the v0.3.6 historical note — moved to the new **[ARCHITECTURE.md](ARCHITECTURE.md)** essentially verbatim: nothing was lost, and the v0.3.6 section is now deduplicated against the CHANGELOG. No lane scans markdown, so tests/CI are unaffected (verified by re-run).
 
@@ -26,7 +50,7 @@ All notable Focus Forest changes are documented here.
 - **Drift accounting (R2):** the choice card now states one more fact — how many pages and minutes you are from your mission — computed from existing local branch data (nodes at or beyond the quiet line, live duration). The worker sends only `{pages, seconds}` plus a `hasNote` boolean; the private note text itself never reaches a page context (unit-pinned).
 - **Strict mode (R2, opt-in, default off):** firmer factual chip copy ("The mission is still waiting" / "You keep going deeper"), a choice-card line quoting the fact that you wrote down *why this mattered*, and stronger state accents on the companion. All four choices — including **Keep exploring** — are untouched; a `test-security.mjs` pin makes that agency guarantee contractual. Gentle copy is byte-identical when Strict is off (pinned by e2e F4).
 - **Garden health (R3):** `gardenHealth()` derives *lush / steady / sparse* purely from the local branch ratio — never a number, never a layout change; the dashboard treats the same deterministic SVG (saturation, glints, leaf opacity). Young gardens (≤2 pages) are never judged.
-- **Forest Finds extension (R3):** low-drift mission completion earns a rare seasonal discovery (new `low_drift_completion` trigger + two catalog entries); every other ending keeps the ordinary bloom. Same cooldowns, caps, and opt-in setting.
+- **Quiet discoveries extension (R3):** low-drift mission completion earns a rare seasonal discovery (new `low_drift_completion` trigger + two catalog entries); every other ending keeps the ordinary bloom. Same cooldowns, caps, and opt-in setting.
 - **Streak milestones (R3):** the worker exposes a milestone *key* (3/7/14/30 days) from the existing `currentStreak` stat; the dashboard words it, positive-only — a broken streak shows nothing and is never framed as a loss. No new storage.
 - **Performance guardian (RAM):** new [`shared/ram-guard.js`](shared/ram-guard.js) (+ an inline companion mirror, since content scripts are classic scripts). Honest signals only — Chromium has no free-RAM API, so the guardian uses the `navigator.deviceMemory` class and the context's own JS-heap ratio, with a 1–5 sensitivity bar and a full opt-out. `body[data-perf="reduced"]` / `.perf-reduced` stops ambient layers, fireflies, growth rituals, discovery reveals, and living-garden animation while tracking, the chip, and the choice card always keep working. Pure-function matrix tested ([`test-ram-guard.mjs`](test-ram-guard.mjs)).
 - **New Tab scene:** static time-of-day tint (dawn/day/dusk/night — computed once per load, zero animation cost) plus six dusk/night fireflies (transform/opacity only, 7 DOM nodes; profiler: 120/160 nodes, budgets green). Every existing kill-switch (Ambient motion, reduced-motion, hidden-tab) covers the new layers, and a guardian kill-list joins them.
@@ -155,7 +179,7 @@ Whole-repository dead-code pass. Every item was proven to have zero consumers (r
 
 ### Improved
 
-- Made Forest Finds appear as a compact tier-aware discovery reveal with a small one-shot entrance motion, instead of a plain text toast.
+- Made Quiet discoveries appear as a compact tier-aware discovery reveal with a small one-shot entrance motion, instead of a plain text toast.
 - Added distinct but restrained visual treatment for seeds, blooms, and seasonal discoveries while keeping the page usable and unobscured.
 - Preserved reduced-motion behavior and the existing offline, cooldown, and per-session reward limits.
 
@@ -174,7 +198,7 @@ Whole-repository dead-code pass. Every item was proven to have zero consumers (r
 
 ### Fixed
 
-- Fixed opt-in Forest Finds so reward history survives normalization and reloads while storing only a reward ID and timestamp locally.
+- Fixed opt-in Quiet discoveries so reward history survives normalization and reloads while storing only a reward ID and timestamp locally.
 - Fixed reward cooldown accounting and awaited reward persistence for composting, mission completion, and returning to the mission root.
 - Added non-blocking reward feedback to the companion and New Tab status area without changing the extension’s passive browsing model.
 - Fixed storage-pressure compaction so it no longer calls a service-worker-only mutation helper or overwrites a concurrent save.

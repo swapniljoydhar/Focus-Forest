@@ -139,7 +139,11 @@ function drawScene(svg, tree, prefix) {
   const art = group('forest-art');
   art.append(ground(tree));
   if (tree.mode === 'empty') art.append(emptySprout(tree));
-  else art.append(canopyBack(tree), woodyStructure(tree, prefix), canopyFront(tree));
+  else {
+    const crownAndBranches = group('tree-canopy');
+    crownAndBranches.append(canopyBack(tree), woodyStructure(tree, prefix), canopyFront(tree));
+    art.append(crownAndBranches);
+  }
   svg.append(art);
 }
 function pageMark(node, point, root, count, selected, describeNode, classForNode, onTrail = false) {

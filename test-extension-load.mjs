@@ -1,4 +1,4 @@
-// Gate 0–2 + Gate 5: load Focus Forest as a REAL extension in Chromium.
+// Gate 0–2 + Gate 5: load Intent Grove as a REAL extension in Chromium.
 // This is the suite the audit kept demanding: the manifest itself (world:"MAIN"
 // bridge, newtab override, service worker, content scripts) executes here —
 // nothing is mocked except the open web (a local HTTP server + one routed
@@ -8,7 +8,7 @@
 // - Untracked tabs never show a chip and never grow branches ("unrelated tabs
 //   must not become branches"), so every flow plants a mission and navigates
 //   within the tab the worker is tracking.
-// - The companion host #focus-forest-root is a zero-size, pointer-events:none
+// - The companion host #intent-grove-root is a zero-size, pointer-events:none
 //   container (children are position:fixed inside a closed shadow root), so
 //   presence is asserted with state:'attached', never "visible".
 //
@@ -31,11 +31,12 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '.');
+const repoRoot = path.dirname(fileURLToPath(import.meta.url));
 
 // --- Build a clean extension directory (mirrors scripts/package.mjs entries) ---
-const extDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-ext-'));
+const extDir = fs.mkdtempSync(path.join(os.tmpdir(), 'intent-grove-ext-'));
 for (const entry of ['manifest.json', 'background', 'content', 'dashboard', 'icons', 'newtab', 'popup', 'settings', 'shared']) {
   fs.cpSync(path.join(repoRoot, entry), path.join(extDir, entry), { recursive: true });
 }
@@ -79,14 +80,14 @@ async function waitForServiceWorker(ctx, timeoutMs = 25000) {
 }
 
 async function readState() {
-  return await sw.evaluate(() => chrome.storage.local.get('focusForestState').then((r) => r.focusForestState ?? null));
+  return await sw.evaluate(() => chrome.storage.local.get('intentGroveState').then((r) => r.intentGroveState ?? null));
 }
 async function resetState() {
-  await sw.evaluate(() => chrome.storage.local.remove('focusForestState'));
+  await sw.evaluate(() => chrome.storage.local.remove('intentGroveState'));
 }
 async function patchSettings(patch) {
   const apply = async () => sw.evaluate(async (p) => {
-    const key = 'focusForestState';
+    const key = 'intentGroveState';
     const current = (await chrome.storage.local.get(key))[key] ?? null;
     const base = current ?? {
       schemaVersion: 4, activeSessionId: null, sessions: [], compostItems: [],
@@ -101,7 +102,7 @@ async function patchSettings(patch) {
   // Verify-by-readback: the worker's async onInstalled seeding can land right
   // after an early write and clobber it. Re-apply until storage matches.
   for (let attempt = 0; attempt < 10; attempt++) {
-    const stored = await sw.evaluate(() => chrome.storage.local.get('focusForestState').then((r) => r.focusForestState?.settings ?? null));
+    const stored = await sw.evaluate(() => chrome.storage.local.get('intentGroveState').then((r) => r.intentGroveState?.settings ?? null));
     if (stored && Object.entries(patch).every(([k, v]) => stored[k] === v)) return;
     await new Promise((r) => setTimeout(r, 300));
     await apply();
@@ -210,11 +211,13 @@ before(async () => {
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-profile-'));
+  const executablePath = process.env.CHROMIUM_EXECUTABLE_PATH;
   context = await chromium.launchPersistentContext(userDataDir, {
     headless: true,
-    channel: 'chromium', // new headless: required for extension support
+    ...(executablePath ? { executablePath } : { channel: 'chromium' }), // new headless is required for extension support
     chromiumSandbox: false,
     args: [
+      ...(executablePath ? ['--headless=new'] : []),
       `--disable-extensions-except=${extDir}`,
       `--load-extension=${extDir}`,
       '--no-first-run',
@@ -270,7 +273,7 @@ before(async () => {
   // Let the worker's onInstalled seeding finish before touching storage, then
   // close the install-tab debris so no renderer is wasted on idle pages.
   for (let i = 0; i < 40; i++) {
-    const seeded = await sw.evaluate(() => chrome.storage.local.get('focusForestState').then((r) => Boolean(r.focusForestState))).catch(() => false);
+    const seeded = await sw.evaluate(() => chrome.storage.local.get('intentGroveState').then((r) => Boolean(r.intentGroveState))).catch(() => false);
     if (seeded) break;
     await new Promise((r) => setTimeout(r, 250));
   }
@@ -344,7 +347,7 @@ test('Gate 0: a real new tab resolves to the planting page override', async () =
 
 test('Gate 0: companion host + MAIN-world bridge inject on an ordinary http page', async () => {
   await webPage.goto(`${baseUrl}/p/1`);
-  await webPage.waitForSelector('#focus-forest-root', { state: 'attached', timeout: 15000 });
+  await webPage.waitForSelector('#intent-grove-root', { state: 'attached', timeout: 15000 });
   const patched = await webPage.evaluate(() => {
     const src = history.pushState.toString();
     return { own: Object.prototype.hasOwnProperty.call(history, 'pushState'), announces: src.includes('announce') };
@@ -387,7 +390,7 @@ test('Gate 2: page-world pushState reaches the worker through the bridge; hostil
   const spaNodes = activeSessionOf(await readState()).nodes.filter((n) => n.url === `${baseUrl}/spa-route-1`);
   assert.equal(spaNodes.length, 1, 'one pushState must create exactly one branch');
 
-  await page.evaluate(() => { document.dispatchEvent(new CustomEvent('focus-forest-history')); });
+  await page.evaluate(() => { document.dispatchEvent(new CustomEvent('intent-grove-history')); });
   await new Promise((r) => setTimeout(r, 800));
   const after = await readState();
   assert.equal(activeSessionOf(after).nodes.length, countBefore + 1, 'synthetic bridge event must not create nodes');
@@ -541,7 +544,7 @@ test('Gate 6: chip drag position persists across reload through extension-privat
     assert.equal(await page.evaluate(() => sessionStorage.getItem('ff-chip-pos')), null, 'the host page sessionStorage must never hold the chip position');
     await new Promise((r) => setTimeout(r, 400)); // let the immediate SET_CHIP_POS reach chrome.storage.session
     await page.reload();
-    await page.waitForSelector('#focus-forest-root', { state: 'attached', timeout: 15000 });
+    await page.waitForSelector('#intent-grove-root', { state: 'attached', timeout: 15000 });
     let restored = null;
     for (let attempt = 0; attempt < 40; attempt++) {
       restored = await chipBox(page, cdp);
