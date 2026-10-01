@@ -11,6 +11,7 @@ All notable Intent Grove changes are documented here.
 - Updated user-facing strict-mode copy to “Use firmer reminders” and corrected dashboard wording so recorded paths are not described as inferred attention.
 - Renamed the generated archive to `dist/intent-grove.zip`; updated current install, architecture, store, and contributor documentation. Historical audits remain dated records and are marked as such.
 - Fixed the New Tab performance profiler's hidden-animation assertion to inspect actual running animation play states instead of comparing timing snapshots.
+- Made Windows packaging independent of the optional PowerShell Archive module by using the built-in .NET ZIP API; the script also replaces only its generated archive instead of deleting the whole `dist/` directory.
 
 ## [Unreleased]
 
