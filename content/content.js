@@ -194,7 +194,8 @@
   const choiceCardEl = makeElement('section', 'choice-card', { role: 'dialog', 'aria-modal': 'false', 'aria-labelledby': 'ff-title', hidden: true });
   choiceCardEl.append(makeElement('button', 'close', { 'data-action': 'dismiss', 'aria-label': 'Keep exploring' }, '×'), makeElement('p', 'choice-eyebrow', {}, 'A moment to choose'), makeElement('h2', '', { id: 'ff-title' }, 'This path is deep, not wrong.'), makeElement('p', 'choice-copy'));
   const choiceActionsEl = makeElement('div', 'choice-actions');
-  choiceActionsEl.append(makeChoice('dismiss', 'choice', '→', 'Keep exploring', 'Leave the page open and continue by choice.'), makeChoice('home', 'choice', '↶', 'Return to my mission', 'Go back to where this session began.'), makeChoice('compost', 'choice', '⌁', 'Save this for later', 'Put this curiosity in your compost pile.'), makeChoice('mission', 'choice', '＋', 'Start a new mission', 'Let this become the thing you are here to do.'));
+  const returnChoice = makeChoice('home', 'choice', '↶', 'Return to my mission', 'Go back to where this session began.');
+  choiceActionsEl.append(makeChoice('dismiss', 'choice', '→', 'Keep exploring', 'Leave the page open and continue by choice.'), returnChoice, makeChoice('compost', 'choice', '⌁', 'Save this for later', 'Put this curiosity in your compost pile.'), makeChoice('mission', 'choice', '＋', 'Start a new mission', 'Let this become the thing you are here to do.'));
   choiceCardEl.append(choiceActionsEl);
   const forestFindEl = makeElement('aside', 'forest-find', { role: 'status', 'aria-live': 'polite', hidden: true });
   rootEl.append(chipEl, choiceCardEl, forestFindEl);
@@ -571,6 +572,11 @@
     depthEl.textContent = String(depth);
     const pageEl = document.createElement('q');
     pageEl.textContent = document.title || location.hostname;
+    const originTarget = String(current?.origin?.title || (() => { try { return new URL(current?.origin?.url || '').hostname; } catch { return 'the mission root'; } })());
+    const returnTitle = returnChoice.querySelector('strong');
+    const returnCopy = returnChoice.querySelector('small');
+    if (returnTitle) returnTitle.textContent = `Return to “${originTarget.slice(0, 48)}${originTarget.length > 48 ? '…' : ''}”`;
+    if (returnCopy) returnCopy.textContent = 'Go back to where this session began.';
     const promptEl = document.createElement('em');
     promptEl.textContent = reflectionPrompts[Math.floor(depth) % reflectionPrompts.length]; // floor(): a fractional depth (import-only) would index undefined and render it
     choiceCopy.append(

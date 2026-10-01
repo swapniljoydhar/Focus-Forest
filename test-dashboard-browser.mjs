@@ -337,6 +337,19 @@ for (const restoring of [false, true]) {
   });
 }
 
+test('settings presets make common rhythms one click away without auto-saving', async t => {
+  const { page, consoleErrors } = await openSettings(t);
+  await page.locator('[data-preset="accountable"]').click();
+  assert.equal(await page.locator('#gentle').inputValue(), '3');
+  assert.equal(await page.locator('#choice').inputValue(), '4');
+  assert.equal(await page.locator('#save').isEnabled(), true);
+  assert.equal(await page.evaluate(() => settingsCalls.some(call => call.type === 'UPDATE_SETTINGS')), false);
+  await page.locator('[data-preset="gentle"]').click();
+  assert.equal(await page.locator('#gentle').inputValue(), '8');
+  assert.equal(await page.locator('#choice').inputValue(), '10');
+  assert.deepEqual(consoleErrors, []);
+});
+
 test('forest finds list earned reflections and stay hidden when there are none', async t => {
   const now = Date.UTC(2026, 8, 7, 9);
   const withFinds = stateFor();
