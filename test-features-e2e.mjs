@@ -553,9 +553,9 @@ test('F11 dashboard: tree, trail, compost, stats, theme, export, clear, import, 
   await waitForState((s) => (s?.sessions ?? []).length === 0, 'clear local data empties the forest');
   // Import the exported file back
   await extPage.setInputFiles('#importFile', exportPath);
-  fs.unlinkSync(exportPath);
   await extPage.waitForFunction(() => /Import complete/.test(document.querySelector('#import-status')?.textContent || ''), null, { timeout: 15000 });
   await waitForState((s) => (s?.sessions ?? []).length === 2, 'import restores both gardens');
+  fs.unlinkSync(exportPath);
   // Forget the selected garden
   await extPage.click('[data-tab="map"]');
   await extPage.waitForFunction(() => Boolean(document.querySelector('#tree')?.dataset.treeMode), null, { timeout: 10000 });
@@ -620,3 +620,4 @@ test('F14 no uncaught errors surfaced during the whole feature walk', async () =
   const real = [...swErrors, ...webErrors].filter((e) => !/rate limit/i.test(e));
   assert.deepEqual(real, [], 'service worker and pages must stay free of uncaught errors');
 });
+
