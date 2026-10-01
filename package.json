@@ -24,5 +24,6 @@
   },
   "devDependencies": {
     "playwright": "^1.63.0"
-  }
+  },
+  "license": "GPL-3.0-or-later"
 }

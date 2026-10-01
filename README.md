@@ -61,6 +61,10 @@ After updating files, click **Reload** on the extension card, then refresh open 
 - Your mission note never leaves the worker: the companion only learns *that* a note exists, never its text.
 - Duration statistics are elapsed time between starting and ending a mission, plus time a tab is selected. These are estimates, can include time away, and do not detect reading, typing, or attention.
 
+## License
+
+Intent Grove is licensed under **GNU GPL-3.0-or-later**. See [LICENSE](LICENSE) for the complete terms.
+
 ## Browser support
 
 Desktop Chromium: **Chrome, Brave, Edge, Opera, Vivaldi** (and Chromium/Arc). Not Firefox. The engine floor is Chromium 111; on a fork shipping an older engine the extension still works — SPA route tracking just falls back to a slightly slower path. Automated tests run in Chromium; a manual walkthrough per fork is required before store submission (see the roadmap).
