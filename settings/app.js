@@ -41,6 +41,11 @@ const gentleValue = document.querySelector('#gentle-value'); const choiceValue =
 const gentlePreviewLabel = document.querySelector('#gentle-preview-label'); const choicePreviewLabel = document.querySelector('#choice-preview-label');
 const previewGentle = document.querySelector('#preview-gentle'); const previewChoice = document.querySelector('#preview-choice');
 const previewCopy = document.querySelector('#preview-copy');
+const presets = {
+  gentle: { gentleDepth: 8, choiceDepth: 10 },
+  balanced: { gentleDepth: 4, choiceDepth: 5 },
+  accountable: { gentleDepth: 3, choiceDepth: 4 }
+};
 // The "original rhythm" is the shared DEFAULT_SETTINGS, not a hand-copied
 // literal: if defaults ever change, reset must restore the true defaults
 // (the old copy would have silently restored a stale rhythm).
@@ -127,6 +132,14 @@ searchEngine.addEventListener('change', wrapWithErrorBoundary(markDirty, { categ
 excludedSites.addEventListener('input', wrapWithErrorBoundary(markDirty, { category: ERROR_CATEGORIES.UI_RENDER, function: 'excluded-sites.input', swallow: true }));
 document.querySelectorAll('input[name="growth-animation"]').forEach((radio) => radio.addEventListener('change', wrapWithErrorBoundary(markDirty, { category: ERROR_CATEGORIES.UI_RENDER, function: 'growth-animation.change', swallow: true })));
 if (enableRewardsToggle) enableRewardsToggle.addEventListener('change', wrapWithErrorBoundary(markDirty, { category: ERROR_CATEGORIES.UI_RENDER, function: 'enable-rewards.change', swallow: true }));
+document.querySelectorAll('[data-preset]').forEach((button) => button.addEventListener('click', wrapWithErrorBoundary(() => {
+  const preset = presets[button.dataset.preset];
+  if (!preset) return;
+  gentle.value = String(preset.gentleDepth);
+  choice.value = String(preset.choiceDepth);
+  sync();
+  status.textContent = `${button.textContent.replace(/\s+\d+\s*\/\s*\d+/, '').trim()} rhythm is ready to save.`;
+}, { category: ERROR_CATEGORIES.UI_RENDER, function: 'preset.click', swallow: true })));
 async function persistSettings(restoring = false) {
   if (!ready || saving) return;
   sync();
