@@ -1,6 +1,6 @@
 # Chrome Web Store Listing — Intent Grove
 
-> Last Updated: 2026-09-15
+> Last Updated: 2026-10-02
 
 ## Store Listing
 
@@ -134,4 +134,5 @@ Run `npm ci`, then `npm run test:all` and `npm run package`. The resulting `dist
 | 0.3.4 | 2026-09-17 | Fixed opt-in Quiet discoveries persistence and delivery, repaired quota-pressure compaction, removed unused pooling scaffolding, and added reward regression coverage. | Draft |
 | 0.3.5 | 2026-09-18 | Added a rotating reflection prompt to the choice card; tuned the New Tab atmosphere (slower mist and sun, paint containment) with the existing motion kill-switches intact. | Draft |
 | 0.3.6 | 2026-09-18 | Compact tier-aware Quiet discoveries reveal with restrained seed/bloom/seasonal treatment; automated SPA performance-regression checks in CI. | Draft |
-| Unreleased | 2026-10-01 | User-agency and clarity updates: fictional first-run tree demo, one-tap rhythm presets, current-page mission action, compost reminder, neutral path and elapsed-time explanations, non-graded bounded Quiet discoveries, activity-signal day calculation, lower-cost New Tab atmosphere, and shared botanical icon. Details in CHANGELOG.md. | Pending release |
+| 0.3.7 | 2026-10-01 | Rebrand to Intent Grove, user-agency and clarity updates: fictional first-run tree demo, one-tap rhythm presets, current-page mission action, compost reminder, neutral path and elapsed-time explanations, non-graded bounded Quiet discoveries, activity-signal day calculation, lower-cost New Tab atmosphere, evidence/limits guide, and shared botanical icon. | Draft |
+| Unreleased | 2026-10-02 | Migrate legacy Focus Forest storage/theme values safely, rename internal identifiers with compatibility handling for open tabs, and harden Windows packaging. Details in CHANGELOG.md. | Pending release |

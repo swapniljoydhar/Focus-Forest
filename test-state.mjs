@@ -15,7 +15,8 @@ globalThis.chrome = {
     local: {
       async get(key) {
         if (failNextGet) { failNextGet = false; throw new Error('simulated storage read failure'); }
-        return key in storage ? { [key]: structuredClone(storage[key]) } : {};
+        const keys = Array.isArray(key) ? key : [key];
+        return Object.fromEntries(keys.filter((item) => item in storage).map((item) => [item, structuredClone(storage[item])]));
       },
       async set(value) {
         if (failNextSet) { failNextSet = false; throw new Error('simulated storage write failure'); }
@@ -24,7 +25,8 @@ globalThis.chrome = {
         heldSetCount -= 1;
         setStartResolvers.shift()?.();
         await new Promise((resolve) => { setReleaseResolvers.push(resolve); });
-      }
+      },
+      async remove(key) { for (const item of Array.isArray(key) ? key : [key]) delete storage[item]; }
     },
     onChanged: {
       addListener(listener) { changeListeners.push(listener); }
@@ -34,6 +36,7 @@ globalThis.chrome = {
 
 const {
   STORAGE_KEY,
+  LEGACY_STORAGE_KEY,
   isSearchUrl,
   isBrowserNewTabUrl,
   isExtensionNewTabUrl,
@@ -57,11 +60,50 @@ const {
   REWARD_CATALOG,
   loadState,
   saveState,
+  loadStateForWrite,
   clearStateCache,
   compactStateIfNeeded,
   STORAGE_QUOTA_CRITICAL_THRESHOLD,
   makeId
 } = await import('./shared/state.js');
+
+describe('storage namespace migration', () => {
+  it('moves legacy gardens to Intent Grove storage before removing the old key', async () => {
+    const priorCurrent = storage[STORAGE_KEY];
+    const priorLegacy = storage[LEGACY_STORAGE_KEY];
+    delete storage[STORAGE_KEY];
+    storage[LEGACY_STORAGE_KEY] = sessionFixture('legacy-garden');
+    clearStateCache();
+    try {
+      const migrated = await loadStateForWrite();
+      assert.equal(migrated.sessions[0].id, 'legacy-garden');
+      assert.equal(storage[STORAGE_KEY].sessions[0].id, 'legacy-garden');
+      assert.equal(Object.hasOwn(storage, LEGACY_STORAGE_KEY), false, 'old key should be removed only after the canonical copy is saved');
+    } finally {
+      if (priorCurrent === undefined) delete storage[STORAGE_KEY]; else storage[STORAGE_KEY] = priorCurrent;
+      if (priorLegacy === undefined) delete storage[LEGACY_STORAGE_KEY]; else storage[LEGACY_STORAGE_KEY] = priorLegacy;
+      clearStateCache();
+    }
+  });
+
+  it('retains the old garden if writing the canonical key fails during migration', async () => {
+    const priorCurrent = storage[STORAGE_KEY];
+    const priorLegacy = storage[LEGACY_STORAGE_KEY];
+    delete storage[STORAGE_KEY];
+    storage[LEGACY_STORAGE_KEY] = sessionFixture('safe-legacy-garden');
+    clearStateCache();
+    failNextSet = true;
+    try {
+      await assert.rejects(loadStateForWrite(), /simulated storage write failure/);
+      assert.equal(Object.hasOwn(storage, STORAGE_KEY), false);
+      assert.equal(storage[LEGACY_STORAGE_KEY].sessions[0].id, 'safe-legacy-garden');
+    } finally {
+      if (priorCurrent === undefined) delete storage[STORAGE_KEY]; else storage[STORAGE_KEY] = priorCurrent;
+      if (priorLegacy === undefined) delete storage[LEGACY_STORAGE_KEY]; else storage[LEGACY_STORAGE_KEY] = priorLegacy;
+      clearStateCache();
+    }
+  });
+});
 
 function fireStorageChange(newValue, oldValue = undefined) {
   for (const listener of changeListeners) {

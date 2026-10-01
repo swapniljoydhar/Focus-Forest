@@ -4,10 +4,13 @@
   if (!['http:', 'https:'].includes(location.protocol)) return;
   
   // --- Resilience: Prevent Duplicate Injection ---
-  if (window.__focusForestInjected) {
+  if (window.__intentGroveInjected || window.__focusForestInjected) {
+    window.__intentGroveInjected = true;
+    window.__focusForestInjected = true;
     console.warn('[Intent Grove] Duplicate injection detected; skipping.');
     return;
   }
+  window.__intentGroveInjected = true;
   window.__focusForestInjected = true;
 
   // Local error tracing and boundary implementations for isolated content script execution
@@ -55,7 +58,7 @@
   // Root host: pointer-events:none so the page behind stays fully interactive.
   // Only specific children (the chip, the choice card) opt back in with auto.
   const root = document.createElement('div');
-  root.id = 'focus-forest-root';
+  root.id = 'intent-grove-root';
   document.documentElement.appendChild(root);
   const shadow = root.attachShadow({ mode: 'closed' });
 
@@ -219,8 +222,17 @@
   let lastPageFocus = null;
   let growthAnimationTrigger = 'mission-origin';
   let ambientMotion = true;
+  const ORIGIN_RITUAL_SESSION_KEY = 'intent-grove-origin-ritual-played';
+  const LEGACY_ORIGIN_RITUAL_SESSION_KEY = 'ff-origin-ritual-played';
   let originRitualPlayed = false;
-  try { originRitualPlayed = sessionStorage.getItem('ff-origin-ritual-played') === 'true'; } catch { /* storage may be unavailable */ }
+  try {
+    originRitualPlayed = sessionStorage.getItem(ORIGIN_RITUAL_SESSION_KEY) === 'true';
+    if (!originRitualPlayed && sessionStorage.getItem(LEGACY_ORIGIN_RITUAL_SESSION_KEY) === 'true') {
+      sessionStorage.setItem(ORIGIN_RITUAL_SESSION_KEY, 'true');
+      originRitualPlayed = true;
+    }
+    sessionStorage.removeItem(LEGACY_ORIGIN_RITUAL_SESSION_KEY);
+  } catch { /* storage may be unavailable */ }
   let forestFindTimer = 0;
   function showForestFind(reward) {
     if (!reward?.text) return;
@@ -501,7 +513,7 @@
     // load arriving mid-animation must not start the ritual over again.
     if (isOrigin) {
       originRitualPlayed = true;
-      try { sessionStorage.setItem('ff-origin-ritual-played', 'true'); } catch { /* storage may be unavailable */ }
+      try { sessionStorage.setItem(ORIGIN_RITUAL_SESSION_KEY, 'true'); } catch { /* storage may be unavailable */ }
     }
     const token = ++ritualToken;
     window.clearTimeout(ritualTimer);
@@ -652,7 +664,10 @@
     const currentSessionId = next.id || null;
     if (!previousSessionId || !currentSessionId || previousSessionId === currentSessionId) return;
     originRitualPlayed = false;
-    try { sessionStorage.removeItem('ff-origin-ritual-played'); } catch { /* storage may be unavailable */ }
+    try {
+      sessionStorage.removeItem(ORIGIN_RITUAL_SESSION_KEY);
+      sessionStorage.removeItem(LEGACY_ORIGIN_RITUAL_SESSION_KEY);
+    } catch { /* storage may be unavailable */ }
   }
 
   /** Writes the mission line, chip state and pause control. */
@@ -778,6 +793,9 @@
   // re-reads location/document itself, so a page cannot inject values into the
   // extension through this channel, and a synthetic event without an actual
   // URL/title change is a no-op inside notifyUrlChange.
+  document.addEventListener('intent-grove-history', safeOnNavigation);
+  // Existing tabs can still have the prior MAIN-world bridge in memory until
+  // they navigate or reload; listen to its data-free event during migration.
   document.addEventListener('focus-forest-history', safeOnNavigation);
 
   // SPA navigation detection: bridge event (above), popstate/hashchange, the
@@ -812,7 +830,7 @@
   // worker's message rate limit. The key mirrors STORAGE_KEY in
   // shared/state.js; this classic content script cannot import ES modules.
   let storageSyncTimer = 0;
-  const STORAGE_SYNC_KEY = 'focusForestState';
+  const STORAGE_SYNC_KEYS = ['intentGroveState', 'focusForestState'];
   const STORAGE_SYNC_DEBOUNCE_MS = 200;
   const STORAGE_SYNC_MIN_GAP_MS = 600;
   const runStorageSync = () => {
@@ -835,7 +853,7 @@
     safeRefresh(false);
   };
   chrome.storage?.onChanged?.addListener(wrapWithErrorBoundary((changes, area) => {
-    if (area !== 'local' || !changes || !Object.hasOwn(changes, STORAGE_SYNC_KEY)) return;
+    if (area !== 'local' || !changes || !STORAGE_SYNC_KEYS.some((key) => Object.hasOwn(changes, key))) return;
     window.clearTimeout(storageSyncTimer);
     storageSyncTimer = window.setTimeout(runStorageSync, STORAGE_SYNC_DEBOUNCE_MS);
   }, { category: ERROR_CATEGORIES.CONTENT_SCRIPT, function: 'storage.onChanged', swallow: true }));

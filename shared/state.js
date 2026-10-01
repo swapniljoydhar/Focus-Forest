@@ -1,7 +1,8 @@
 import './chromium-api.js';
 import { logError, logWarning, logCritical, ERROR_CATEGORIES } from './error-tracing.js';
 
-export const STORAGE_KEY = 'focusForestState';
+export const STORAGE_KEY = 'intentGroveState';
+export const LEGACY_STORAGE_KEY = 'focusForestState';
 export const SCHEMA_VERSION = 4; // Incremented for reward system
 export const LIMITS = { SESSIONS: 12, NODES_PER_SESSION: 96, EVENTS_PER_SESSION: 72, COMPOST: 80, TITLE: 120, MISSION_NOTE: 280, URL: 1024 };
 export const DEFAULT_SETTINGS = { gentleDepth: 4, choiceDepth: 5, ambientMotion: true, growthAnimationTrigger: 'mission-origin', excludedSites: [], searchEngine: 'default', enableRewards: false, strictMode: false, ramGuard: true, ramGuardLevel: 3 };
@@ -430,6 +431,8 @@ export function normalizeSettings(value, fallback = emptyState().settings) {
 }
 
 let stateCache = null;
+let stateLoadPromise = null;
+let stateLoadGeneration = 0;
 let ownWritesInFlight = 0;
 
 /**
@@ -531,11 +534,8 @@ export async function compactStateIfNeeded() {
  * @returns {Promise<object>} Normalized state object.
  */
 export async function loadState() {
-  if (stateCache !== null) return stateCache;
   try {
-    const result = await chrome.storage.local.get(STORAGE_KEY);
-    stateCache = normalizeState(result[STORAGE_KEY]);
-    return stateCache;
+    return await loadPersistedStateOnce();
   } catch {
     return emptyState();
   }
@@ -554,10 +554,61 @@ export async function loadState() {
  * @throws When chrome.storage.local.get rejects.
  */
 export async function loadStateForWrite() {
+  return loadPersistedStateOnce();
+}
+
+async function loadPersistedStateOnce() {
   if (stateCache !== null) return stateCache;
-  const result = await chrome.storage.local.get(STORAGE_KEY);
-  stateCache = normalizeState(result[STORAGE_KEY]);
-  return stateCache;
+  if (!stateLoadPromise) {
+    const generation = stateLoadGeneration;
+    stateLoadPromise = readPersistedState().then((state) => {
+      if (generation === stateLoadGeneration) stateCache = state;
+      return state;
+    });
+  }
+  const pending = stateLoadPromise;
+  try {
+    return await pending;
+  } finally {
+    if (stateLoadPromise === pending) stateLoadPromise = null;
+  }
+}
+
+/**
+ * Read the current storage namespace, migrating the former Focus Forest key
+ * once when needed. The canonical write completes before the legacy value is
+ * removed, so interrupted upgrades can safely retry without losing gardens.
+ */
+async function readPersistedState() {
+  const result = await chrome.storage.local.get([STORAGE_KEY, LEGACY_STORAGE_KEY]);
+  if (Object.hasOwn(result, STORAGE_KEY)) {
+    if (Object.hasOwn(result, LEGACY_STORAGE_KEY)) await removeLegacyStateQuietly();
+    return normalizeState(result[STORAGE_KEY]);
+  }
+  if (!Object.hasOwn(result, LEGACY_STORAGE_KEY)) return emptyState();
+
+  const migrated = normalizeState(result[LEGACY_STORAGE_KEY]);
+  ownWritesInFlight += 1;
+  try {
+    await chrome.storage.local.set({ [STORAGE_KEY]: migrated });
+  } finally {
+    ownWritesInFlight = Math.max(0, ownWritesInFlight - 1);
+  }
+  await removeLegacyStateQuietly();
+  return migrated;
+}
+
+async function removeLegacyStateQuietly() {
+  try {
+    await chrome.storage.local.remove(LEGACY_STORAGE_KEY);
+  } catch (error) {
+    logWarning(error, { category: ERROR_CATEGORIES.STORAGE, operation: 'legacyStateCleanup' });
+  }
+}
+
+/** Remove any legacy copy as part of the user's explicit delete-all action. */
+export async function clearLegacyState() {
+  await chrome.storage.local.remove(LEGACY_STORAGE_KEY);
 }
 
 /**
@@ -584,6 +635,8 @@ export async function saveState(state) {
  */
 export function clearStateCache() {
   stateCache = null;
+  stateLoadGeneration += 1;
+  stateLoadPromise = null;
 }
 
 // Invalidate the in-memory cache when storage is written from any external

@@ -1,6 +1,6 @@
 # Evidence, limits, and ethical design
 
-**Reviewed:** 2026-10-02 · **Applies to:** Intent Grove 0.3.7 and later
+**Reviewed:** 2026-10-02 · **Applies to:** Intent Grove 0.3.8 and later
 
 Intent Grove is a private self-reflection tool. It is not a blocker, clinical intervention, treatment, or a proven way to reduce screen time. Its current implementation records browser navigation structure and elapsed estimates; it cannot infer whether a page is relevant, whether a person is attentive, or what they intended to do. Individual benefit is not established by the existence of these features.
 
@@ -10,6 +10,9 @@ Intent Grove is a private self-reflection tool. It is not a blocker, clinical in
 - A systematic review and meta-analysis of digital self-control tools describes a diverse, still-developing evidence base, rather than a single reliably effective design. [Roffarello & De Russis, *ACM Transactions on Computer-Human Interaction* (2023)](https://iris.polito.it/handle/11583/2972709).
 - A 2026 scoping review covering studies through 2025 found that the literature is concentrated on smartphones and total-use measures, with limited theory use and short evaluation periods. This constrains what can be inferred about a desktop browser reflection extension. [2026 scoping review, PubMed](https://pubmed.ncbi.nlm.nih.gov/42778172/).
 - A 2025 perspective on digital interventions emphasizes supporting autonomy and more intentional use, rather than treating less use as automatically better. [Skeggs & Orben, *Nature Human Behaviour* (2025)](https://selfdeterminationtheory.org/wp-content/uploads/2025/06/2025_SkeggsOrben_SocialMedia.pdf).
+- A 2025 systematic literature review proposes eight digital-attention design heuristics grounded in autonomy, competence, and relatedness. This supports clear, dismissible, user-configurable reminders; it does not demonstrate that Intent Grove's specific design changes behavior. [Monge Roffarello, De Russis & Lukoff, *ACM Transactions on Computer-Human Interaction* (2025)](https://doi.org/10.1145/3725215).
+- A 2025 study explored end-user customization of digital self-control rules. Its small usability study (11 participants) supports studying personalization, not claims of long-term effectiveness. [Monge Roffarello & De Russis (2025)](https://iris.polito.it/handle/11583/3000496).
+- Recent umbrella reviews of digital-addiction interventions report heterogeneous evidence and limitations in the underlying reviews. These interventions are not equivalent to this nonclinical browser tool. [*Interventions for Digital Addiction: Umbrella Review of Meta-Analyses*, JMIR (2025)](https://www.jmir.org/2025/1/e59656/); [umbrella review and meta-meta-analysis (2026)](https://pmc.ncbi.nlm.nih.gov/articles/PMC12978896/).
 
 These papers do not validate Intent Grove specifically. Their subjects, devices, and interventions differ. The design decisions below are cautious applications of general findings, not claims that a particular prompt or animation has a proven psychological effect.
 
@@ -17,7 +20,7 @@ These papers do not validate Intent Grove specifically. Their subjects, devices,
 
 - **Make signals observable and modest.** The tree represents recorded navigation paths. The extension reports branch depth and elapsed estimates, never a relevance score or attention claim.
 - **Keep agency with the user.** Continue, return, save, pause, and start a new mission remain available. Reminder thresholds and firmer wording are optional and can be changed or disabled.
-- **Avoid coercive pressure.** No shaming, public comparison, streak loss, punishment, deceptive urgency, variable-ratio rewards, or content-triggered persuasion. Optional random notes are bounded, transparent, local, and unrelated to depth or presumed success.
+- **Avoid coercive pressure.** No shaming, public comparison, streak loss, punishment, deceptive urgency, variable-ratio reward schedule, or content-triggered persuasion. Optional Grove Notes are tied to named user choices, disclose why they appeared, are capped by a cooldown and per-session limit, and randomize only the wording/icon—not whether a user will be rewarded for continued browsing. They are local and can be disabled.
 - **Keep the intervention private.** Browsing data stays on-device; mission text is sent only to the selected search provider when the user plants a mission. There is no analytics or cloud telemetry.
 - **Offer a calm exit.** Users can pause reminders and clear local data. A reminder should not make a user feel watched or obligated to continue using the product.
 

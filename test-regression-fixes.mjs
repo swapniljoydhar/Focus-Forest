@@ -13,8 +13,9 @@ const tabInfo = new Map();
 globalThis.chrome = {
   storage: {
     local: {
-      async get(key) { return key in store ? { [key]: structuredClone(store[key]) } : {}; },
-      async set(value) { Object.assign(store, structuredClone(value)); }
+      async get(key) { const keys = Array.isArray(key) ? key : [key]; return Object.fromEntries(keys.filter((item) => item in store).map((item) => [item, structuredClone(store[item])])); },
+      async set(value) { Object.assign(store, structuredClone(value)); },
+      async remove(key) { for (const item of Array.isArray(key) ? key : [key]) delete store[item]; }
     },
     sync: { async set() {} }
   },
@@ -53,7 +54,7 @@ function send(message, tab = undefined) {
   const sender = tab ? { id: 'test', tab, url: `https://page.test/${tab.id}` } : { id: 'test', url: 'chrome-extension://test/dashboard/index.html' };
   return rawSend(message, sender);
 }
-const session = () => store.focusForestState.sessions.find((s) => s.id === store.focusForestState.activeSessionId);
+const session = () => store.intentGroveState.sessions.find((s) => s.id === store.intentGroveState.activeSessionId);
 const clear = () => send({ type: 'CLEAR_DATA' });
 
 await test('B10: search fallback for "default" engine never routes to Google', async () => {
@@ -98,7 +99,7 @@ await test('B7: compost entries carry no fabricated depth', async () => {
   await clear();
   await send({ type: 'START_MISSION', mission: 'compost depth', tab: { id: 7, url: 'chrome://newtab', title: 'New Tab' } });
   await send({ type: 'COMPOST', url: 'https://snack.example/article', title: 'Snack' }, { id: 7 });
-  const item = store.focusForestState.compostItems[0];
+  const item = store.intentGroveState.compostItems[0];
   assert.ok(item, 'compost item must be stored');
   assert.equal(Object.hasOwn(item, 'depth'), false, 'compost items must not invent a depth field');
   const exported = (await send({ type: 'EXPORT_DATA' })).data;
@@ -125,7 +126,7 @@ await test('legacy migration: sessions frozen by the old Forget-Site bug heal on
   const now = Date.now();
   // Seed storage exactly the way an old install would have persisted it after
   // forgetting the origin host: dashboard URL as origin, no way to replant.
-  store.focusForestState = {
+  store.intentGroveState = {
     schemaVersion: 4,
     activeSessionId: 'legacy_frozen',
     sessions: [{
@@ -148,7 +149,7 @@ await test('legacy migration: sessions frozen by the old Forget-Site bug heal on
 
   // The legitimate placeholder (our own newtab page) must NOT be rewritten by the migration.
   await clear();
-  store.focusForestState = {
+  store.intentGroveState = {
     schemaVersion: 4, activeSessionId: 'legit_placeholder',
     sessions: [{ id: 'legit_placeholder', mission: 'placeholder', status: 'active', startedAt: now, endedAt: null, endReason: null,
       origin: { tabId: 5, windowId: 1, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' },

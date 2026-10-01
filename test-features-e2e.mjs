@@ -21,7 +21,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.dirname(fileURLToPath(import.meta.url));
-const extDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-ext-'));
+const extDir = fs.mkdtempSync(path.join(os.tmpdir(), 'intent-grove-ext-'));
 for (const entry of ['manifest.json', 'background', 'content', 'dashboard', 'icons', 'newtab', 'popup', 'settings', 'shared']) {
   fs.cpSync(path.join(repoRoot, entry), path.join(extDir, entry), { recursive: true });
 }
@@ -56,19 +56,19 @@ async function waitForServiceWorker(ctx, timeoutMs = 25000) {
   throw new Error('service worker never registered — the manifest failed to load');
 }
 async function readState() {
-  return await sw.evaluate(() => chrome.storage.local.get('focusForestState').then((r) => r.focusForestState ?? null));
+  return await sw.evaluate(() => chrome.storage.local.get('intentGroveState').then((r) => r.intentGroveState ?? null));
 }
 async function resetState() {
-  await sw.evaluate(() => chrome.storage.local.remove('focusForestState'));
+  await sw.evaluate(() => chrome.storage.local.remove('intentGroveState'));
   await new Promise((r) => setTimeout(r, 250));
 }
 async function writeState(state) {
-  await sw.evaluate((st) => chrome.storage.local.set({ focusForestState: st }), state);
+  await sw.evaluate((st) => chrome.storage.local.set({ intentGroveState: st }), state);
   await new Promise((r) => setTimeout(r, 300)); // let the worker's onChanged invalidate its cache
 }
 async function patchSettings(patch) {
   const apply = async () => sw.evaluate(async (p) => {
-    const key = 'focusForestState';
+    const key = 'intentGroveState';
     const current = (await chrome.storage.local.get(key))[key] ?? null;
     const base = current ?? {
       schemaVersion: 4, activeSessionId: null, sessions: [], compostItems: [],
@@ -81,7 +81,7 @@ async function patchSettings(patch) {
   }, patch);
   await apply();
   for (let attempt = 0; attempt < 10; attempt++) {
-    const stored = await sw.evaluate(() => chrome.storage.local.get('focusForestState').then((r) => r.focusForestState?.settings ?? null));
+    const stored = await sw.evaluate(() => chrome.storage.local.get('intentGroveState').then((r) => r.intentGroveState?.settings ?? null));
     if (stored && Object.entries(patch).every(([k, v]) => stored[k] === v)) return;
     await new Promise((r) => setTimeout(r, 300));
     await apply();
@@ -191,6 +191,7 @@ before(async () => {
   const executablePath = process.env.CHROMIUM_EXECUTABLE_PATH;
   context = await chromium.launchPersistentContext(userDataDir, {
     headless: true,
+    acceptDownloads: true,
     ...(executablePath ? { executablePath } : { channel: 'chromium' }),
     chromiumSandbox: false,
     args: [
@@ -214,7 +215,7 @@ before(async () => {
   await context.route('https://duckduckgo.com/**', (route) => route.fulfill({ status: 204 }));
   // Let onInstalled seeding finish, then close startup debris.
   for (let i = 0; i < 40; i++) {
-    const seeded = await sw.evaluate(() => chrome.storage.local.get('focusForestState').then((r) => Boolean(r.focusForestState))).catch(() => false);
+    const seeded = await sw.evaluate(() => chrome.storage.local.get('intentGroveState').then((r) => Boolean(r.intentGroveState))).catch(() => false);
     if (seeded) break;
     await new Promise((r) => setTimeout(r, 250));
   }
@@ -502,18 +503,48 @@ test('F11 dashboard: tree, trail, compost, stats, theme, export, clear, import, 
   await extPage.click('[data-tab="stats"]');
   await extPage.waitForFunction(() => document.querySelector('#totalSessions')?.textContent === '2', null, { timeout: 10000 });
   assert.equal(await extPage.textContent('#savedCount'), '1');
+  // An upgrade must migrate the former theme key and preserve the user's choice.
+  await extPage.evaluate(() => {
+    localStorage.removeItem('intent-grove-theme');
+    localStorage.setItem('focus-forest-theme', 'dark');
+  });
+  await extPage.reload();
+  await extPage.waitForSelector('#theme-toggle');
+  assert.equal(await extPage.evaluate(() => document.documentElement.getAttribute('data-theme')), 'dark');
+  assert.equal(await extPage.evaluate(() => localStorage.getItem('intent-grove-theme')), 'dark');
+  assert.equal(await extPage.evaluate(() => localStorage.getItem('focus-forest-theme')), null);
   // Theme toggle
   await extPage.click('#theme-toggle');
+  assert.equal(await extPage.evaluate(() => document.documentElement.getAttribute('data-theme')), 'light');
+  assert.equal(await extPage.evaluate(() => localStorage.getItem('intent-grove-theme')), 'light');
+  await extPage.click('#theme-toggle');
   assert.equal(await extPage.evaluate(() => document.documentElement.getAttribute('data-theme')), 'dark');
-  assert.equal(await extPage.evaluate(() => localStorage.getItem('focus-forest-theme')), 'dark');
   await extPage.click('#theme-toggle'); // back to light for later pages
-  // Export -> download -> parse
-  const [download] = await Promise.all([
-    extPage.waitForEvent('download', { timeout: 10000 }),
-    extPage.click('#exportData'),
-  ]);
-  const exportPath = await download.path();
-  const exported = JSON.parse(fs.readFileSync(exportPath, 'utf8'));
+  // Export -> capture the browser download handoff -> parse. Edge/Brave
+  // headless extension contexts do not consistently surface Playwright's
+  // Download event, so intercept only the final anchor click while exercising
+  // the real worker export and UI serialization path.
+  await extPage.evaluate(() => {
+    const click = HTMLAnchorElement.prototype.click;
+    HTMLAnchorElement.prototype.click = function () {
+      if (this.download.startsWith('intent-grove-export-')) {
+        window.__intentGroveExport = { filename: this.download, href: this.href };
+        return;
+      }
+      return click.call(this);
+    };
+  });
+  await extPage.click('[data-tab="stats"]'); // page reload restores the default Garden Map tab
+  await extPage.click('#exportData');
+  await extPage.waitForFunction(() => Boolean(window.__intentGroveExport), null, { timeout: 10000 });
+  const exportCapture = await extPage.evaluate(async () => ({
+    filename: window.__intentGroveExport.filename,
+    data: JSON.parse(await (await fetch(window.__intentGroveExport.href)).text()),
+  }));
+  assert.match(exportCapture.filename, /^intent-grove-export-\d{4}-\d{2}-\d{2}\.json$/);
+  const exportPath = path.join(os.tmpdir(), exportCapture.filename);
+  fs.writeFileSync(exportPath, JSON.stringify(exportCapture.data));
+  const exported = exportCapture.data;
   assert.equal(exported.sessions.length, 2, 'export contains both gardens');
   // Clear local data through the confirm dialog
   await extPage.click('#clear');
@@ -522,6 +553,7 @@ test('F11 dashboard: tree, trail, compost, stats, theme, export, clear, import, 
   await waitForState((s) => (s?.sessions ?? []).length === 0, 'clear local data empties the forest');
   // Import the exported file back
   await extPage.setInputFiles('#importFile', exportPath);
+  fs.unlinkSync(exportPath);
   await extPage.waitForFunction(() => /Import complete/.test(document.querySelector('#import-status')?.textContent || ''), null, { timeout: 15000 });
   await waitForState((s) => (s?.sessions ?? []).length === 2, 'import restores both gardens');
   // Forget the selected garden

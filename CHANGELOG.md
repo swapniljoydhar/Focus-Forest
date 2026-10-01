@@ -2,11 +2,12 @@
 
 All notable Intent Grove changes are documented here.
 
-## [Unreleased — 0.3.7]
+## [Unreleased — 0.3.8]
 
 ### Changed
 
-- Rebranded the product from Focus Forest to **Intent Grove** in the manifest, user-facing surfaces, package metadata, and current documentation. Stable storage keys, DOM hooks, and context-menu identifiers retain their legacy `focus-forest` namespace so existing installations keep their data and integrations.
+- Rebranded the product from Focus Forest to **Intent Grove** in the manifest, user-facing surfaces, package metadata, artwork, and current documentation.
+- Migrated the canonical browsing state and theme keys, companion root ID, bridge event, context-menu IDs, and session marker to the Intent Grove namespace. Legacy state and theme data migrate before cleanup; already-open tabs accept both bridge events, and old injection markers prevent duplicate companions during reload transitions.
 - Added [EVIDENCE.md](EVIDENCE.md), which describes the limits of current digital self-regulation research, makes no efficacy claims for this extension, and sets explicit anti-shame and autonomy guardrails.
 - Updated user-facing strict-mode copy to “Use firmer reminders” and corrected dashboard wording so recorded paths are not described as inferred attention.
 - Renamed the generated archive to `dist/intent-grove.zip`; updated current install, architecture, store, and contributor documentation. Historical audits remain dated records and are marked as such.

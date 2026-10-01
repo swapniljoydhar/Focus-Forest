@@ -24,9 +24,11 @@ globalThis.chrome = {
     local: {
       async get(key) {
         if (failGets > 0) { failGets -= 1; throw new Error('simulated transient read failure'); }
-        return key in store ? { [key]: structuredClone(store[key]) } : {};
+        const keys = Array.isArray(key) ? key : [key];
+        return Object.fromEntries(keys.filter((item) => item in store).map((item) => [item, structuredClone(store[item])]));
       },
-      async set(value) { Object.assign(store, structuredClone(value)); }
+      async set(value) { Object.assign(store, structuredClone(value)); },
+      async remove(key) { for (const item of Array.isArray(key) ? key : [key]) delete store[item]; }
     }
   },
   runtime: {
@@ -77,14 +79,14 @@ async function send(message, tab = undefined) {
     : { id: 'test', url: 'chrome-extension://test/dashboard/index.html' };
   return rawSend(message, sender);
 }
-function session() { return store.focusForestState.sessions.find((s) => s.id === store.focusForestState.activeSessionId); }
+function session() { return store.intentGroveState.sessions.find((s) => s.id === store.intentGroveState.activeSessionId); }
 
 await test('A1: a transient storage read failure aborts mutations instead of wiping durable data', async () => {
   clearStateCache();
   await send({ type: 'CLEAR_DATA' });
   await send({ type: 'START_MISSION', mission: 'Precious garden', tab: { id: 7, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
   await send({ type: 'OBSERVE_PAGE', url: 'https://example.com/start', title: 'Start' }, { id: 7 });
-  assert.equal(store.focusForestState.sessions.length, 1, 'fixture mission must be persisted');
+  assert.equal(store.intentGroveState.sessions.length, 1, 'fixture mission must be persisted');
 
   // Simulate a worker restart / external invalidation so the next load hits
   // storage, then fail BOTH the attempt and its retry: the mutation must abort
@@ -98,8 +100,8 @@ await test('A1: a transient storage read failure aborts mutations instead of wip
     'a failed state read must surface as an error, not as a silent empty state'
   );
   assert.equal(failGets, 0, 'both read attempts must have been exercised');
-  assert.equal(store.focusForestState.sessions.length, 1, 'durable data must survive a failed read');
-  assert.equal(store.focusForestState.sessions[0].mission, 'Precious garden', 'no session may be lost or replaced by an empty fallback');
+  assert.equal(store.intentGroveState.sessions.length, 1, 'durable data must survive a failed read');
+  assert.equal(store.intentGroveState.sessions[0].mission, 'Precious garden', 'no session may be lost or replaced by an empty fallback');
   assert.equal(session().interventionPaused, false, 'the aborted mutation must not half-apply');
 
   // A single-attempt (truly transient) failure is recovered by the retry
@@ -108,7 +110,7 @@ await test('A1: a transient storage read failure aborts mutations instead of wip
   failGets = 1;
   await send({ type: 'PAUSE_INTERVENTION', paused: true });
   assert.equal(session().interventionPaused, true, 'mutations must recover once storage reads succeed again');
-  assert.equal(store.focusForestState.sessions[0].mission, 'Precious garden');
+  assert.equal(store.intentGroveState.sessions[0].mission, 'Precious garden');
 });
 
 await test('A2: dual-observed commits never double-record; tracked links never record reloads', async () => {
@@ -155,7 +157,7 @@ await test('A3: search_refinement events are persisted, not left in the cache on
   // The commit's twin observation must not double-record the refinement.
   await send({ type: 'OBSERVE_PAGE', url: 'https://duckduckgo.com/?q=later+refinement', title: 'Search' }, { id: 7 });
 
-  const persisted = store.focusForestState.sessions.find((s) => s.id === store.focusForestState.activeSessionId).events.map((e) => e.type);
+  const persisted = store.intentGroveState.sessions.find((s) => s.id === store.intentGroveState.activeSessionId).events.map((e) => e.type);
   const snapshot = await send({ type: 'GET_SNAPSHOT' });
   const inMemory = snapshot.session.events.map((e) => e.type);
   assert.ok(persisted.includes('search_refinement'), 'the refinement event must reach durable storage immediately');
@@ -208,7 +210,7 @@ await test('A5: context-menu registration is idempotent and duplicate-id rejecti
   menuActions.length = 0;
   await listeners.installed[1]({ reason: 'install' });
   await new Promise((resolve) => setTimeout(resolve, 10));
-  assert.deepEqual(menuActions, [['removeAll'], ['create', 'focus-forest-start'], ['create', 'focus-forest-compost'], ['create', 'focus-forest-end']], 'removeAll must run first so re-registration cannot hit duplicate ids');
+  assert.deepEqual(menuActions, [['removeAll'], ['create', 'intent-grove-start'], ['create', 'intent-grove-compost'], ['create', 'intent-grove-end']], 'removeAll must run first so re-registration cannot hit duplicate ids');
 
   // Even when a create rejects (stale duplicate), the failure is logged and
   // swallowed instead of surfacing as an unhandled promise rejection.
@@ -236,7 +238,7 @@ await test('A6: imported sessions ending before they started are repaired to an 
       }
     }
   });
-  const imported = store.focusForestState.sessions.find((s) => s.id === 'session-bad-range');
+  const imported = store.intentGroveState.sessions.find((s) => s.id === 'session-bad-range');
   assert.ok(imported, 'the imported session must survive validation');
   assert.equal(imported.endedAt, null, 'endedAt before startedAt must be cleared, not stored');
 });
@@ -263,7 +265,8 @@ await test('A9: the companion never navigates the page to an extension URL direc
   assert.ok(!content.includes("window.location.href = chrome.runtime.getURL"), 'web-origin navigation to chrome-extension:// URLs is blocked without web_accessible_resources');
   assert.match(content, /send\('OPEN_PLANTING_PAGE'\)/, 'the mission action must ask the worker to navigate instead');
   assert.match(content, /chrome\.storage\?\.onChanged\?\.addListener/, 'the companion must sync with cross-context state changes');
-  assert.match(content, /focus-forest-history/, 'the companion must listen for the MAIN-world SPA bridge event');
+  assert.match(content, /intent-grove-history/, 'the companion must listen for the MAIN-world SPA bridge event');
+  assert.match(content, /focus-forest-history/, 'already-open tabs must remain compatible with the legacy SPA bridge event');
   assert.equal(/setInterval\(/.test(content), false, 'companion timers must stay bounded');
 
   const bridge = readFileSync(new URL('./content/spa-bridge.js', import.meta.url), 'utf8');
@@ -271,7 +274,8 @@ await test('A9: the companion never navigates the page to an extension URL direc
   assert.equal(checked.status, 0, `spa-bridge.js must parse as a classic script:\n${checked.stderr}`);
   assert.match(bridge, /history\.pushState/, 'the bridge must wrap pushState in the page world');
   assert.match(bridge, /history\.replaceState/, 'the bridge must wrap replaceState in the page world');
-  assert.match(bridge, /focus-forest-history/, 'the bridge must announce via the namespaced DOM event');
+  assert.match(bridge, /intent-grove-history/, 'the bridge must announce via the namespaced DOM event');
+  assert.match(bridge, /focus-forest-history/, 'the bridge must continue announcing the legacy event for existing tabs');
 
   const manifest = JSON.parse(readFileSync(new URL('./manifest.json', import.meta.url), 'utf8'));
   const bridgeEntry = (manifest.content_scripts || []).find((entry) => (entry.js || []).includes('content/spa-bridge.js'));
@@ -337,7 +341,7 @@ await test('A11: completed sessions without a usable endedAt never accrue phanto
       }
     }
   });
-  const imported = store.focusForestState.sessions.find((s) => s.id === 'session-inverted');
+  const imported = store.intentGroveState.sessions.find((s) => s.id === 'session-inverted');
   assert.equal(imported.endedAt, null, 'the inverted endedAt must be repaired to null');
   const stats = await send({ type: 'GET_DASHBOARD_STATS' });
   assert.equal(stats.totalFocusTime, 0, 'a repaired completed session must count as zero-length, not accrue to now');
@@ -348,7 +352,7 @@ await test('A11: completed sessions without a usable endedAt never accrue phanto
 
   // Genuinely active sessions still accrue elapsed time up to now.
   await send({ type: 'START_MISSION', mission: 'Live garden', tab: { id: 7, url: 'chrome-extension://test/newtab/index.html', title: 'New Tab' } });
-  store.focusForestState.sessions.find((s) => s.id === store.focusForestState.activeSessionId).startedAt = now - 3600000;
+  store.intentGroveState.sessions.find((s) => s.id === store.intentGroveState.activeSessionId).startedAt = now - 3600000;
   clearStateCache();
   const liveStats = await send({ type: 'GET_DASHBOARD_STATS' });
   assert.ok(liveStats.totalFocusTime >= 3599 && liveStats.totalFocusTime <= 3601, `active session time must still accrue (got ${liveStats.totalFocusTime})`);
@@ -383,7 +387,7 @@ await test('A12: V2 hardening sentinels (visibility gate, isolated bookkeeping, 
   bridgeSource.runInNewContext(healthy);
   healthy.history.pushState({}, '', '/a');
   healthy.history.replaceState({}, '', '/b');
-  assert.deepEqual(events, ['focus-forest-history', 'focus-forest-history'], 'patched history must announce each write');
+  assert.deepEqual(events, ['intent-grove-history', 'focus-forest-history', 'intent-grove-history', 'focus-forest-history'], 'patched history must announce new and legacy events for each write');
 
   const sabotaged = {
     CustomEvent: class CustomEvent { constructor(type) { this.type = type; } },
@@ -507,12 +511,12 @@ await test('A17: the dashboard export file re-imports bare, enveloped forms stil
   // Bare-state payload (the real dashboard export/import round-trip).
   await send({ type: 'CLEAR_DATA' });
   assert.deepEqual(await send({ type: 'IMPORT_DATA', payload: fileContents }), { imported: true });
-  assert.ok(store.focusForestState.sessions.some((s) => s.mission === 'Round trip'), 'bare export file must restore the garden');
+  assert.ok(store.intentGroveState.sessions.some((s) => s.mission === 'Round trip'), 'bare export file must restore the garden');
 
   // Envelope form ({ data: state }) still works.
   await send({ type: 'CLEAR_DATA' });
   assert.deepEqual(await send({ type: 'IMPORT_DATA', payload: { data: fileContents } }), { imported: true });
-  assert.ok(store.focusForestState.sessions.some((s) => s.mission === 'Round trip'), 'enveloped export must restore the garden');
+  assert.ok(store.intentGroveState.sessions.some((s) => s.mission === 'Round trip'), 'enveloped export must restore the garden');
 
   // Arbitrary JSON is still rejected with the honest error.
   await assert.rejects(send({ type: 'IMPORT_DATA', payload: { hello: 'world' } }), /INTERNAL_ERROR/, 'unrecognized files must be rejected, not silently imported as empty');

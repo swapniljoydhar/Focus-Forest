@@ -13,8 +13,9 @@ const tabInfo = new Map();
 
 globalThis.chrome = {
   storage: { local: {
-    async get(key) { return key in store ? { [key]: structuredClone(store[key]) } : {}; },
-    async set(value) { Object.assign(store, structuredClone(value)); }
+    async get(key) { const keys = Array.isArray(key) ? key : [key]; return Object.fromEntries(keys.filter((item) => item in store).map((item) => [item, structuredClone(store[item])])); },
+    async set(value) { Object.assign(store, structuredClone(value)); },
+    async remove(key) { for (const item of Array.isArray(key) ? key : [key]) delete store[item]; }
   } },
   runtime: { id: 'test', getURL(p) { return `chrome-extension://test/${p}`; },
     onInstalled: { addListener(fn) { listeners.installed.push(fn); } },
@@ -49,7 +50,7 @@ async function send(message, tab) {
   const sender = tab ? { id: 'test', tab, url: `https://page.test/${tab.id}` } : { id: 'test', url: 'chrome-extension://test/dashboard/index.html' };
   return await new Promise((resolve, reject) => handler(message, sender, (r) => r?.error ? reject(new Error(r.error)) : resolve(r)));
 }
-function session() { return store.focusForestState.sessions.find((s) => s.id === store.focusForestState.activeSessionId); }
+function session() { return store.intentGroveState.sessions.find((s) => s.id === store.intentGroveState.activeSessionId); }
 const settle = () => new Promise((r) => setTimeout(r, 60));
 
 assert.equal(listeners.command.length, 1, 'the toggle-mission command listener must be registered');
@@ -77,10 +78,10 @@ await test('Alt+F names browser new tabs "New Tab" instead of an internal URL', 
 await test('Alt+F ends the running mission (toggle)', async () => {
   await listeners.command[0]('toggle-mission');
   await settle();
-  const ended = store.focusForestState.sessions.at(-1);
+  const ended = store.intentGroveState.sessions.at(-1);
   assert.equal(ended.status, 'completed');
   assert.equal(ended.endReason, 'user_ended');
-  assert.equal(store.focusForestState.activeSessionId, null);
+  assert.equal(store.intentGroveState.activeSessionId, null);
 });
 
 await test('Alt+F ignores unrelated commands and missing tabs', async () => {
@@ -90,7 +91,7 @@ await test('Alt+F ignores unrelated commands and missing tabs', async () => {
   await listeners.command[0]('some-other-command');
   await listeners.command[0]('toggle-mission');
   await settle();
-  assert.equal(store.focusForestState.sessions.length, 0, 'no mission may be created without an active tab');
+  assert.equal(store.intentGroveState.sessions.length, 0, 'no mission may be created without an active tab');
 });
 
 await test('context menu: start mission from a link targets the link, and only navigates when needed', async () => {
@@ -98,7 +99,7 @@ await test('context menu: start mission from a link targets the link, and only n
   await send({ type: 'CLEAR_DATA' });
   tabInfo.clear(); tabInfo.set(3, { id: 3, windowId: 1, url: 'https://blog.example/post', title: 'Blog post' });
   tabActions.length = 0;
-  await listeners.menu[0]({ menuItemId: 'focus-forest-start', linkUrl: 'https://target.example/guide', selectionText: '  Reading the guide  ' }, { id: 3, windowId: 1, url: 'https://blog.example/post', title: 'Blog post' });
+  await listeners.menu[0]({ menuItemId: 'intent-grove-start', linkUrl: 'https://target.example/guide', selectionText: '  Reading the guide  ' }, { id: 3, windowId: 1, url: 'https://blog.example/post', title: 'Blog post' });
   await settle();
   assert.equal(session().mission, 'Reading the guide', 'selection text becomes the mission, trimmed and compacted');
   assert.equal(session().origin.url, 'https://target.example/guide', "a link's mission targets the link destination, not the host page");
@@ -106,7 +107,7 @@ await test('context menu: start mission from a link targets the link, and only n
 
   // Same-URL case: no redundant reload of the page the tab already shows.
   tabActions.length = 0;
-  await listeners.menu[0]({ menuItemId: 'focus-forest-start', linkUrl: 'https://target.example/guide' }, { id: 3, windowId: 1, url: 'https://target.example/guide', title: 'Guide' });
+  await listeners.menu[0]({ menuItemId: 'intent-grove-start', linkUrl: 'https://target.example/guide' }, { id: 3, windowId: 1, url: 'https://target.example/guide', title: 'Guide' });
   await settle();
   assert.equal(tabActions.some((a) => a[0] === 'update'), false, 'starting from a link the tab already shows must not reload it');
 });
@@ -115,7 +116,7 @@ await test('context menu: start mission from the page falls back to the page tit
   clearStateCache();
   await send({ type: 'CLEAR_DATA' });
   tabInfo.clear(); tabInfo.set(4, { id: 4, windowId: 1, url: 'https://docs.example/intro', title: 'Documentation intro' });
-  await listeners.menu[0]({ menuItemId: 'focus-forest-start' }, { id: 4, windowId: 1, url: 'https://docs.example/intro', title: 'Documentation intro' });
+  await listeners.menu[0]({ menuItemId: 'intent-grove-start' }, { id: 4, windowId: 1, url: 'https://docs.example/intro', title: 'Documentation intro' });
   await settle();
   assert.equal(session().mission, 'Documentation intro');
   assert.equal(session().origin.url, 'https://docs.example/intro');
@@ -127,16 +128,16 @@ await test('context menu: save-for-later handles links and pages distinctly', as
   tabInfo.clear(); tabInfo.set(5, { id: 5, windowId: 1, url: 'https://reader.example/now', title: 'Reading now' });
   await send({ type: 'START_MISSION', mission: 'Compost menu probe', tab: { id: 5, url: 'https://reader.example/now', title: 'Reading now' } });
   // A LINK target is saved without touching the tab's own node.
-  await listeners.menu[0]({ menuItemId: 'focus-forest-compost', linkUrl: 'https://later.example/article', linkText: 'An article for later' }, { id: 5, windowId: 1, url: 'https://reader.example/now', title: 'Reading now' });
+  await listeners.menu[0]({ menuItemId: 'intent-grove-compost', linkUrl: 'https://later.example/article', linkText: 'An article for later' }, { id: 5, windowId: 1, url: 'https://reader.example/now', title: 'Reading now' });
   await settle();
-  let items = store.focusForestState.compostItems;
+  let items = store.intentGroveState.compostItems;
   assert.equal(items.length, 1);
   assert.equal(items[0].url, 'https://later.example/article');
   assert.equal(items[0].title, 'An article for later');
   // The PAGE itself: saves and composts the tab's current node.
-  await listeners.menu[0]({ menuItemId: 'focus-forest-compost' }, { id: 5, windowId: 1, url: 'https://reader.example/now', title: 'Reading now' });
+  await listeners.menu[0]({ menuItemId: 'intent-grove-compost' }, { id: 5, windowId: 1, url: 'https://reader.example/now', title: 'Reading now' });
   await settle();
-  items = store.focusForestState.compostItems;
+  items = store.intentGroveState.compostItems;
   assert.equal(items.length, 2);
   assert.equal(items[0].url, 'https://reader.example/now', 'newest save first');
   const node = session().nodes.find((n) => n.url === 'https://reader.example/now');
@@ -144,10 +145,10 @@ await test('context menu: save-for-later handles links and pages distinctly', as
 });
 
 await test('context menu: end mission completes the garden', async () => {
-  await listeners.menu[0]({ menuItemId: 'focus-forest-end' }, { id: 5, windowId: 1, url: 'https://reader.example/now', title: 'Reading now' });
+  await listeners.menu[0]({ menuItemId: 'intent-grove-end' }, { id: 5, windowId: 1, url: 'https://reader.example/now', title: 'Reading now' });
   await settle();
-  assert.equal(store.focusForestState.activeSessionId, null);
-  assert.equal(store.focusForestState.sessions.at(-1).endReason, 'user_ended');
+  assert.equal(store.intentGroveState.activeSessionId, null);
+  assert.equal(store.intentGroveState.sessions.at(-1).endReason, 'user_ended');
 });
 
 await test('context menu: unknown items are ignored; unsafe page URLs are sanitized, never persisted', async () => {
@@ -156,14 +157,14 @@ await test('context menu: unknown items are ignored; unsafe page URLs are saniti
   tabInfo.clear(); tabInfo.set(6, { id: 6, windowId: 1, url: 'https://safe.example/x', title: 'Safe' });
   await listeners.menu[0]({ menuItemId: 'something-else' }, { id: 6, windowId: 1, url: 'https://safe.example/x', title: 'Safe' });
   await settle();
-  assert.equal(store.focusForestState.sessions.length, 0, 'unknown menu items must do nothing');
+  assert.equal(store.intentGroveState.sessions.length, 0, 'unknown menu items must do nothing');
   // A blank selection on a page with an unsafe URL still plants (the menu is
   // always available), but the origin must sanitize to the new-tab placeholder.
-  await listeners.menu[0]({ menuItemId: 'focus-forest-start', selectionText: '   ' }, { id: 6, windowId: 1, url: 'javascript:alert(1)', title: '' });
+  await listeners.menu[0]({ menuItemId: 'intent-grove-start', selectionText: '   ' }, { id: 6, windowId: 1, url: 'javascript:alert(1)', title: '' });
   await settle();
-  assert.equal(store.focusForestState.sessions.length, 1);
+  assert.equal(store.intentGroveState.sessions.length, 1);
   assert.equal(session().origin.url, 'chrome://newtab', 'unsafe page URLs must fall back to the new-tab placeholder');
-  assert.ok(!JSON.stringify(store.focusForestState).includes('javascript:'), 'no unsafe scheme may be persisted anywhere');
+  assert.ok(!JSON.stringify(store.intentGroveState).includes('javascript:'), 'no unsafe scheme may be persisted anywhere');
 });
 
 await test('chip-position surface rejects hostile payloads and never trusts sender-provided identity', async () => {

@@ -1,4 +1,4 @@
-import { LIMITS, SCHEMA_VERSION, STORAGE_KEY, DEFAULT_NEW_TAB_URL, activeSession, clearStateCache, compactText, driftStats, emptyState, getDepthState, isBrowserNewTabUrl, isExtensionNewTabUrl, isPlaceholderOriginUrl, isSearchUrl, loadState, loadStateForWrite, makeId, normalizeSettings, safeHttpUrl, safeSessionUrl, saveState, checkStorageQuota, compactStateIfNeeded, normalizeState, earnReward } from '../shared/state.js';
+import { LIMITS, SCHEMA_VERSION, STORAGE_KEY, DEFAULT_NEW_TAB_URL, activeSession, clearLegacyState, clearStateCache, compactText, driftStats, emptyState, getDepthState, isBrowserNewTabUrl, isExtensionNewTabUrl, isPlaceholderOriginUrl, isSearchUrl, loadState, loadStateForWrite, makeId, normalizeSettings, safeHttpUrl, safeSessionUrl, saveState, checkStorageQuota, compactStateIfNeeded, normalizeState, earnReward } from '../shared/state.js';
 import { logError, logWarning, ERROR_CATEGORIES, wrapMutationWithErrorBoundary, wrapWithErrorBoundary } from '../shared/error-tracing.js';
 import { DAY_MS, SERVICE_WORKER, MEMORY_LIMITS, VALIDATION } from '../shared/constants.js';
 
@@ -329,6 +329,7 @@ function mutate(mutator) {
 function replaceState(nextState) {
   const run = mutationQueue.then(async () => {
     await saveState(nextState);
+    await clearLegacyState();
     // replaceState bypasses runMutatorWithRetry, so clear the toolbar badge
     // here: after CLEAR_DATA the mission is gone but the badge would otherwise
     // keep showing a live mission until an unrelated mutation happens.
@@ -1335,6 +1336,9 @@ async function importAllData(payload) {
 
 chrome.runtime.onInstalled.addListener((details) => {
   return wrapWithErrorBoundary(async () => {
+    // This also migrates Focus Forest's former storage key before any empty
+    // first-run state can be seeded over a user's existing gardens.
+    await loadStateForWrite();
     const result = await chrome.storage.local.get(STORAGE_KEY);
     if (!result[STORAGE_KEY]) await saveState(emptyState());
     // Check initial storage quota after seeding
@@ -1366,15 +1370,15 @@ chrome.runtime.onInstalled.addListener(() => {
     // the first threw. Remove-then-await keeps registration idempotent and
     // lets the swallow boundary log genuine failures.
     await chrome.contextMenus.removeAll();
-    await chrome.contextMenus.create({ id: 'focus-forest-start', title: 'Start Focus Mission for "%s"', contexts: ['link', 'page', 'selection'] });
-    await chrome.contextMenus.create({ id: 'focus-forest-compost', title: 'Save Page for Later', contexts: ['page', 'link'] });
-    await chrome.contextMenus.create({ id: 'focus-forest-end', title: 'End Current Focus Mission', contexts: ['page'] });
+    await chrome.contextMenus.create({ id: 'intent-grove-start', title: 'Start Focus Mission for "%s"', contexts: ['link', 'page', 'selection'] });
+    await chrome.contextMenus.create({ id: 'intent-grove-compost', title: 'Save Page for Later', contexts: ['page', 'link'] });
+    await chrome.contextMenus.create({ id: 'intent-grove-end', title: 'End Current Focus Mission', contexts: ['page'] });
   }, { category: ERROR_CATEGORIES.MESSAGING, component: 'service-worker', function: 'contextMenus.create', swallow: true })();
 });
 
 chrome.contextMenus?.onClicked?.addListener((info, tab) => {
   return wrapWithErrorBoundary(async () => {
-    if (info.menuItemId === 'focus-forest-start') {
+    if (info.menuItemId === 'intent-grove-start') {
       // Title fallbacks must never adopt an unsafe scheme as mission text:
       // only a valid http(s) tab URL is acceptable, else the neutral label.
       const title = typeof info.selectionText === 'string' && info.selectionText.trim() ? info.selectionText.trim() : (tab?.title || safeHttpUrl(tab?.url) || 'New Tab');
@@ -1390,12 +1394,12 @@ chrome.contextMenus?.onClicked?.addListener((info, tab) => {
       if (targetUrl && Number.isInteger(tab?.id) && targetUrl !== safeHttpUrl(tab?.url)) {
         await chrome.tabs.update(tab.id, { url: targetUrl });
       }
-    } else if (info.menuItemId === 'focus-forest-compost') {
+    } else if (info.menuItemId === 'intent-grove-compost') {
       const targetUrl = safeHttpUrl(info.linkUrl || tab?.url);
       if (Number.isInteger(tab?.id) && targetUrl) {
         await compost(info.linkUrl ? null : tab.id, targetUrl, info.linkText || tab?.title || targetUrl);
       }
-    } else if (info.menuItemId === 'focus-forest-end') {
+    } else if (info.menuItemId === 'intent-grove-end') {
       await endSession('user_ended');
     }
   }, { category: ERROR_CATEGORIES.MESSAGING, component: 'service-worker', function: 'contextMenus.onClicked', swallow: true })();

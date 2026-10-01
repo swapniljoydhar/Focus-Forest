@@ -43,7 +43,7 @@ async function openDashboard(t, state = stateFor(), viewport = { width: 1440, he
   t.after(() => assert.deepEqual(errors, [], 'dashboard must not log rendering or CSP errors'));
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
-    if (url.origin !== 'https://focus-forest.test') return route.abort();
+    if (url.origin !== 'https://intent-grove.test') return route.abort();
     const pathname = url.pathname.slice(1);
     const contentType = pathname.endsWith('.css') ? 'text/css' : pathname.endsWith('.js') ? 'text/javascript' : pathname.endsWith('.svg') ? 'image/svg+xml' : 'text/html';
     await route.fulfill({
@@ -98,7 +98,7 @@ async function openDashboard(t, state = stateFor(), viewport = { width: 1440, he
       for (const listener of listeners) listener({ [storageKey]: { oldValue, newValue: state } }, 'local');
     };
   }, { initialState: state, storageKey: STORAGE_KEY });
-  await page.goto('https://focus-forest.test/dashboard/index.html');
+  await page.goto('https://intent-grove.test/dashboard/index.html');
   await page.waitForFunction(() => document.querySelector('#tree').dataset.treeMode);
   return page;
 }
@@ -114,7 +114,7 @@ async function openSettings(t, options = {}) {
   t.after(() => assert.deepEqual(pageErrors, [], 'settings must not raise unhandled errors'));
   await page.route('**/*', async route => {
     const url = new URL(route.request().url());
-    if (url.origin !== 'https://focus-forest.test') return route.abort();
+    if (url.origin !== 'https://intent-grove.test') return route.abort();
     const pathname = url.pathname.slice(1);
     const contentType = pathname.endsWith('.css') ? 'text/css' : pathname.endsWith('.js') ? 'text/javascript' : 'text/html';
     await route.fulfill({
@@ -154,7 +154,7 @@ async function openSettings(t, options = {}) {
       storage: { onChanged: { addListener() {} } }
     };
   }, options.failUpdate ?? true);
-  await page.goto('https://focus-forest.test/settings/index.html');
+  await page.goto('https://intent-grove.test/settings/index.html');
   await page.waitForFunction(() => /already tending|could not read/.test(document.querySelector('#status').textContent));
   return { page, consoleErrors };
 }
@@ -567,7 +567,7 @@ test('the closing reflection follows the rhythm the user chose', async t => {
   const custom = stateFor(garden(4));
   custom.settings = { ...custom.settings, gentleDepth: 2, choiceDepth: 3 };
   const page = await openDashboard(t, custom);
-  await page.goto('https://focus-forest.test/popup/index.html');
+  await page.goto('https://intent-grove.test/popup/index.html');
   await page.waitForFunction(() => document.querySelector('#active')?.hidden === false);
   await page.locator('#end').click();
   await page.waitForFunction(() => document.querySelector('#completion')?.hidden === false);
@@ -577,7 +577,7 @@ test('the closing reflection follows the rhythm the user chose', async t => {
 
   // The default rhythm still treats depth 3 as an ordinary garden.
   const defaultPage = await openDashboard(t, stateFor(garden(4)));
-  await defaultPage.goto('https://focus-forest.test/popup/index.html');
+  await defaultPage.goto('https://intent-grove.test/popup/index.html');
   await defaultPage.waitForFunction(() => document.querySelector('#active')?.hidden === false);
   await defaultPage.locator('#end').click();
   await defaultPage.waitForFunction(() => document.querySelector('#completion')?.hidden === false);
@@ -586,7 +586,7 @@ test('the closing reflection follows the rhythm the user chose', async t => {
 
 test('the new-tab illustration shares the cartoon artwork without fake selectable pages', async t => {
   const page = await openDashboard(t);
-  await page.goto('https://focus-forest.test/newtab/index.html');
+  await page.goto('https://intent-grove.test/newtab/index.html');
   await page.locator('#welcome-tree .canopy-silhouette').waitFor({ state: 'attached' });
   assert.equal(await page.locator('#welcome-tree .foliage-puff').count(), 6);
   assert.equal(await page.locator('#welcome-tree .branch-twig').count(), 4);
@@ -599,7 +599,7 @@ test('the new-tab illustration shares the cartoon artwork without fake selectabl
 
 test('the welcome overlay keeps focus instead of the field behind it', async t => {
   const page = await openDashboard(t);
-  await page.goto('https://focus-forest.test/newtab/index.html');
+  await page.goto('https://intent-grove.test/newtab/index.html');
   await page.waitForFunction(() => document.querySelector('#onboarding-overlay')?.hidden === false);
   // The startup focus timer fires after 350ms; it must not move focus away from
   // the only control the user can actually see (the overlay is aria-modal).
@@ -610,7 +610,7 @@ test('the welcome overlay keeps focus instead of the field behind it', async t =
 
 test('dismissing the welcome overlay completes onboarding', async t => {
   const page = await openDashboard(t);
-  await page.goto('https://focus-forest.test/newtab/index.html');
+  await page.goto('https://intent-grove.test/newtab/index.html');
   await page.waitForFunction(() => document.querySelector('#onboarding-overlay')?.hidden === false);
   await page.locator('#onboarding-start').click();
   await page.waitForFunction(() => document.querySelector('#onboarding-overlay').hidden === true);
@@ -619,7 +619,7 @@ test('dismissing the welcome overlay completes onboarding', async t => {
 
 test('optional five-click demo teaches path depth without recording sample pages', async t => {
   const page = await openDashboard(t);
-  await page.goto('https://focus-forest.test/newtab/index.html');
+  await page.goto('https://intent-grove.test/newtab/index.html');
   await page.waitForFunction(() => document.querySelector('#onboarding-overlay')?.hidden === false);
   await page.locator('#demo-open').click();
   assert.equal(await page.locator('#demo-tree .node').count(), 1);
@@ -638,7 +638,7 @@ test('the companion cartoon icon builds under a strict Trusted Types CSP', async
     const attachShadow = Element.prototype.attachShadow;
     Element.prototype.attachShadow = function (options) {
       const root = attachShadow.call(this, options);
-      if (this.id === 'focus-forest-root') globalThis.testCompanionRoot = root;
+      if (this.id === 'intent-grove-root') globalThis.testCompanionRoot = root;
       return root;
     };
   });
