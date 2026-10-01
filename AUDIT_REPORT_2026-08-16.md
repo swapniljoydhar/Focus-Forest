@@ -1,6 +1,7 @@
 # Focus Forest Modified Fork Audit
 
-> Historical report: this audit was written under the former Focus Forest name and describes the repository at its stated date. It is retained as a record; current product behavior and guidance are documented in [README.md](README.md), [ARCHITECTURE.md](ARCHITECTURE.md), [EVIDENCE.md](EVIDENCE.md), and [SECURITY.md](SECURITY.md).`r`n`r`n
+> Historical report: this audit was written under the former Focus Forest name and describes the repository at its stated date. It is retained as a record; current product behavior and guidance are documented in [README.md](README.md), [ARCHITECTURE.md](ARCHITECTURE.md), [EVIDENCE.md](EVIDENCE.md), and [SECURITY.md](SECURITY.md).
+
 **Status:** FIXED AND RESHIPPED PENDING FINAL PUBLISH
 
 **Audited repository:** `https://github.com/swapniljoydhar/focus-forest`
