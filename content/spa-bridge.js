@@ -1,5 +1,5 @@
 /**
- * Focus Forest — MAIN-world SPA bridge.
+ * Intent Grove — MAIN-world SPA bridge.
  *
  * Registered in manifest.json with "world": "MAIN" (Chrome 111+), this tiny
  * classic script runs in the PAGE's JavaScript world, where it can wrap

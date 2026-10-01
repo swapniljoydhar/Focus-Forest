@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
-  "name": "Focus Forest",
-  "version": "0.3.6",
+  "name": "Intent Grove",
+  "version": "0.3.7",
   "minimum_chrome_version": "111",
   "description": "A gentle mission-aware browsing companion that helps you notice rabbit holes without blocking the web.",
   "icons": {
@@ -28,7 +28,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Focus Forest",
+    "default_title": "Intent Grove",
     "default_popup": "popup/index.html",
     "default_icon": {
       "16": "icons/icon-16.png",

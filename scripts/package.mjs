@@ -1,5 +1,5 @@
 /**
- * Packages the extension into dist/focus-forest.zip.
+ * Packages the extension into dist/intent-grove.zip.
  *
  * Archiver selection is capability-probed, never assumed. `zip` is absent on
  * minimal images and often cannot be installed (no root), so a hard dependency
@@ -13,7 +13,7 @@ import { spawnSync } from 'node:child_process';
 
 const root = process.cwd();
 const dist = `${root}/dist`;
-const archive = `${dist}/focus-forest.zip`;
+const archive = `${dist}/intent-grove.zip`;
 const entries = ['manifest.json', 'background', 'content', 'dashboard', 'icons', 'newtab', 'popup', 'settings', 'shared'];
 
 // Preference order. Both Unix candidates store paths relative to `root` and

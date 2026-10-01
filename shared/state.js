@@ -9,7 +9,7 @@ export const STORAGE_QUOTA_WARNING_THRESHOLD = 4 * 1024 * 1024; // 4MB warning t
 export const STORAGE_QUOTA_CRITICAL_THRESHOLD = 7 * 1024 * 1024; // 7MB critical threshold (Chrome's limit is ~8MB)
 
 /**
- * Curated offline reward catalog - deterministic, bounded, meaningful
+ * Curated offline reward catalog - bounded, meaningful, locally randomized
  * Rewards reinforce reflection and intentional choice, not browsing duration
  */
 export const REWARD_CATALOG = {
@@ -36,15 +36,6 @@ export const REWARD_CATALOG = {
     { id: 'bloom_3', text: 'The forest remembers this path.', icon: '🌳' },
     { id: 'bloom_4', text: 'Seasons change, wisdom remains.', icon: '🍄' },
     { id: 'bloom_5', text: 'A new pattern takes root.', icon: '🪴' }
-  ],
-  // Special discoveries: Rare seasonal details
-  discoveries: [
-    { id: 'disc_1', text: 'A visiting bird left a feather.', icon: '🐦' },
-    { id: 'disc_2', text: 'Morning dew catches the light.', icon: '💧' },
-    { id: 'disc_3', text: 'A mushroom appears after rain.', icon: '🍄' },
-    { id: 'disc_4', text: 'Seasonal berries ripen quietly.', icon: '🫐' },
-    { id: 'disc_5', text: 'Sunlight reaches the forest floor.', icon: '☀️' },
-    { id: 'disc_6', text: 'A quiet season settles in the canopy.', icon: '🌼' }
   ]
 };
 
@@ -65,8 +56,7 @@ const REWARD_TRIGGER_NOTES = {
   return_to_root: 'You came back to the intention you set.',
   compost_choice: 'You chose to keep this for later instead of following it now.',
   session_end: 'You set the garden down deliberately.',
-  mission_changed: 'You noticed a new direction and let this garden rest.',
-  low_drift_completion: 'You kept this path close to your intention.'
+  mission_changed: 'You noticed a new direction and let this garden rest.'
 };
 
 /**
@@ -80,24 +70,6 @@ export function rewardNote(trigger) {
   // Session endings are recorded as session_end_<reason>.
   if (trigger.startsWith('session_end')) return REWARD_TRIGGER_NOTES.session_end;
   return '';
-}
-
-/**
- * Chooses the tier for a reward earned by returning to the mission root.
- * A return from at or beyond the choice threshold earns a rare discovery;
- * any other return earns a seed. This is contextual and deterministic on
- * purpose: rewards stay explainable, and randomness is never amplified to
- * drive engagement.
- * @param {object} state - Current application state.
- * @returns {string} Tier name present in REWARD_CATALOG.
- */
-export function returnRewardTier(state) {
-  const session = activeSession(state);
-  if (!session) return 'seeds';
-  // Depth is structural distance from the root, not a judgement about a page.
-  const deepest = Math.max(0, ...(session.nodes || []).map((node) => Number(node?.depth) || 0));
-  const { choiceDepth } = normalizeSettings(state.settings);
-  return deepest >= choiceDepth ? 'discoveries' : 'seeds';
 }
 
 /**
@@ -246,7 +218,7 @@ export function getDepthState(depth, paused = false, thresholds = DEFAULT_SETTIN
 
 /**
  * Finds the currently active session in a state object.
- * @param {object} state - Focus Forest state.
+ * @param {object} state - Intent Grove state.
  * @returns {object|null} Active session or null.
  */
 export function activeSession(state) {
@@ -426,26 +398,6 @@ export function driftStats(session, thresholds) {
 }
 
 /**
- * Garden health: a three-step visual verdict (lush / steady / sparse) derived
- * only from existing local branch data — never a score, never shown as a
- * number. Young gardens (two pages or fewer) are always 'steady': one page
- * of journey cannot say anything true about a path.
- * @param {object|null} session
- * @param {object} settings - Raw or normalized settings.
- * @returns {'lush'|'steady'|'sparse'}
- */
-export function gardenHealth(session, settings) {
-  const nodes = Array.isArray(session?.nodes) ? session.nodes : [];
-  if (nodes.length <= 2) return 'steady';
-  const { gentleDepth } = normalizeSettings(settings);
-  const { pages } = driftStats(session, { gentleDepth });
-  const ratio = pages / nodes.length;
-  if (ratio <= 0.2) return 'lush';
-  if (ratio >= 0.5) return 'sparse';
-  return 'steady';
-}
-
-/**
  * Normalizes user-provided settings against defaults and clamps values.
  * @param {object} value - Raw settings object.
  * @param {object} [fallback=emptyState().settings] - Default settings.
@@ -569,7 +521,7 @@ export async function compactStateIfNeeded() {
 }
 
 /**
- * Loads the persisted Focus Forest state from chrome.storage.local.
+ * Loads the persisted Intent Grove state from chrome.storage.local.
  * Returns a cached copy if available and not invalidated.
  * READ-ONLY consumers: on a storage read failure this resolves to a fresh
  * empty state so UIs degrade to "nothing planted" instead of throwing.
@@ -682,7 +634,7 @@ export function canEarnReward(state) {
 /**
  * Select a random reward from the appropriate tier
  * Uses crypto.getRandomValues for true randomness when available
- * @param {string} tier - Reward tier ('seeds', 'leaves', 'blooms', 'discoveries')
+ * @param {string} tier - Reward tier ('seeds', 'leaves', or 'blooms')
  * @param {number} seed - Optional seed for deterministic selection
  * @returns {object|null} Selected reward or null if tier empty
  */

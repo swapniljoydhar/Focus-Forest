@@ -18,8 +18,9 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '.');
+const repoRoot = path.dirname(fileURLToPath(import.meta.url));
 const extDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-ext-'));
 for (const entry of ['manifest.json', 'background', 'content', 'dashboard', 'icons', 'newtab', 'popup', 'settings', 'shared']) {
   fs.cpSync(path.join(repoRoot, entry), path.join(extDir, entry), { recursive: true });
@@ -187,11 +188,13 @@ before(async () => {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-profile-'));
+  const executablePath = process.env.CHROMIUM_EXECUTABLE_PATH;
   context = await chromium.launchPersistentContext(userDataDir, {
     headless: true,
-    channel: 'chromium',
+    ...(executablePath ? { executablePath } : { channel: 'chromium' }),
     chromiumSandbox: false,
     args: [
+      ...(executablePath ? ['--headless=new'] : []),
       `--disable-extensions-except=${extDir}`,
       `--load-extension=${extDir}`,
       '--no-first-run',
@@ -332,7 +335,7 @@ test('F5  chip controls: minimize toggles, pause rests the forest, resume restor
   await waitForChip(page, cdp, (c) => c.present && !c.minimized, 'chip restored');
   await clickShadow(page, cdp, (n) => attrOf(n, 'data-action') === 'pause');
   await waitForState((s) => activeSessionOf(s)?.interventionPaused === true, 'pause persisted');
-  await waitForChip(page, cdp, (c) => c.present && c.stateText === 'Forest resting', 'resting copy');
+  await waitForChip(page, cdp, (c) => c.present && c.stateText === 'Grove resting', 'resting copy');
   let b = await badge();
   for (let i = 0; i < 20 && b.text !== '⏸'; i++) { await new Promise((r) => setTimeout(r, 200)); b = await badge(); }
   assert.equal(b.text, '⏸', 'paused badge in vivo');
@@ -364,9 +367,13 @@ test('F6  compost from the card: item saved, node composted, reward earned, toas
   assert.equal(state.rewardHistory.length, 1, 'the compost choice earns exactly one reward');
   let toast = false;
   for (let i = 0; i < 30 && !toast; i++) { toast = await findToastVisible(page, cdp); if (!toast) await new Promise((r) => setTimeout(r, 200)); }
-  assert.ok(toast, 'Forest Find toast is shown in the closed shadow root');
+  assert.ok(toast, 'Grove Note toast is shown in the closed shadow root');
   // Chip hides while the tab sits on a composted (terminal) node — honest state.
   await waitForChip(page, cdp, (c) => c.present && c.hidden, 'chip rests after composting the current page');
+  await extPage.goto(`chrome-extension://${extensionId}/newtab/index.html`);
+  await extPage.waitForSelector('#compost-reminder:not([hidden])', { timeout: 5000 });
+  assert.match(await extPage.textContent('#compost-reminder-copy'), /1 saved curiosity is resting/,
+    'the planting page gently resurfaces the saved curiosity');
 });
 
 test('F7  post-compost continuity: the tab keeps growing the garden (orphan fix in vivo)', async () => {
@@ -427,7 +434,7 @@ test('F10 settings page: save round-trip, reset to defaults, exclusion clears an
     rewards.dispatchEvent(new Event('change', { bubbles: true }));
   });
   await extPage.click('#save');
-  await extPage.waitForFunction(() => /tending the forest now/.test(document.querySelector('#status').textContent), null, { timeout: 10000 });
+  await extPage.waitForFunction(() => /tending the grove now/.test(document.querySelector('#status').textContent), null, { timeout: 10000 });
   let settings = (await readState()).settings;
   assert.deepEqual(
     { g: settings.gentleDepth, c: settings.choiceDepth, e: settings.searchEngine, x: settings.excludedSites, r: settings.enableRewards },
@@ -555,7 +562,29 @@ test('F12 popup: empty-state footer hidden, plant via form, completion ritual, e
   assert.equal(b.text, '', 'badge clears after the ritual');
 });
 
-test('F13 no uncaught errors surfaced during the whole feature walk', async () => {
+test('F13 the current page can become a fresh mission without leaving the page', async () => {
+  await resetState();
+  await patchSettings({ gentleDepth: 2, choiceDepth: 3 });
+  const page = await plantMission('Follow this research', webPage);
+  await page.click('#link-p1');
+  await page.waitForURL(`${baseUrl}/p/1`);
+  for (let depth = 2; depth <= 3; depth++) {
+    await page.click(`#link-next${depth}`);
+    await page.waitForURL(`${baseUrl}/p/${depth}`);
+  }
+  const cdp = await context.newCDPSession(page);
+  let card = false;
+  for (let i = 0; i < 40 && !card; i++) { card = await choiceCardVisible(page, cdp); if (!card) await new Promise((resolve) => setTimeout(resolve, 250)); }
+  assert.equal(card, true, 'the current page must reach the configured choice point');
+  const title = await page.title();
+  await clickShadow(page, cdp, (node) => attrOf(node, 'data-action') === 'mission-here');
+  await waitForState((state) => activeSessionOf(state)?.mission === title, 'the current page title becomes the new mission');
+  const current = await readState();
+  assert.equal(activeSessionOf(current)?.origin?.url, `${baseUrl}/p/3`, 'the current page becomes the new garden root');
+  assert.equal(current.sessions.at(-2)?.status, 'completed', 'the previous garden is preserved as completed');
+});
+
+test('F14 no uncaught errors surfaced during the whole feature walk', async () => {
   const real = [...swErrors, ...webErrors].filter((e) => !/rate limit/i.test(e));
   assert.deepEqual(real, [], 'service worker and pages must stay free of uncaught errors');
 });

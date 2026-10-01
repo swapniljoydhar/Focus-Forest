@@ -1,4 +1,4 @@
-import { renderTreeIllustration } from '../dashboard/tree-renderer.js';
+import { renderGardenTree, renderTreeIllustration } from '../dashboard/tree-renderer.js';
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
 import { applyStoredTheme } from '../shared/theme.js';
 import { applyPerfMode, nextPerfMode, sampleMemoryPressure, sampleSystemMemory } from '../shared/ram-guard.js';
@@ -16,6 +16,14 @@ const charCurrent = document.querySelector('#char-current');
 const status = document.querySelector('#form-status');
 const resumeBtn = document.querySelector('#resume-mission-btn');
 const browseBtn = document.querySelector('#browse-freely-btn');
+const demoOpen = document.querySelector('#demo-open');
+const demoPanel = document.querySelector('#onboarding-demo');
+const demoStep = document.querySelector('#demo-step');
+const demoStatus = document.querySelector('#demo-status');
+const demoChoice = document.querySelector('#demo-choice');
+const demoTree = document.querySelector('#demo-tree');
+const compostReminder = document.querySelector('#compost-reminder');
+const compostReminderCopy = document.querySelector('#compost-reminder-copy');
 
 /**
  * Send a message to the service worker with error handling
@@ -36,7 +44,7 @@ async function message(type, payload = {}) {
 }
 
 function statusWithReward(prefix, result) {
-  return result?.reward?.text ? `${prefix} · Forest Find: ${result.reward.text}` : prefix;
+  return result?.reward?.text ? `${prefix} · Grove Note: ${result.reward.text}` : prefix;
 }
 
 // Update character counter
@@ -64,6 +72,11 @@ async function init() {
         resumeBtn.querySelector('.action-text').textContent += ` · ${currentDepth} branches deep`;
       }
     }
+    const compostCount = Array.isArray(snap?.state?.compostItems) ? snap.state.compostItems.length : 0;
+    if (compostReminder && compostCount > 0) {
+      compostReminder.hidden = false;
+      compostReminderCopy.textContent = `${compostCount} saved ${compostCount === 1 ? 'curiosity is' : 'curiosities are'} resting for whenever you want to return.`;
+    }
     if (snap && snap.state && !snap.state.onboardingCompleted) {
       const overlay = document.getElementById('onboarding-overlay');
       if (overlay) {
@@ -89,7 +102,7 @@ form.addEventListener('submit', wrapWithErrorBoundary(async (event) => {
   const mission = input.value.trim();
   if (!mission) { input.focus(); return; }
   try {
-    await message('START_MISSION', { mission, missionNote: missionNote?.value.trim() || '', openSearch: true, tab: { url: location.href, title: 'Focus Forest' } });
+    await message('START_MISSION', { mission, missionNote: missionNote?.value.trim() || '', openSearch: true, tab: { url: location.href, title: 'Intent Grove' } });
     status.hidden = false;
     status.textContent = '🌱 Intention planted! Opening a gentle first step...';
     input.blur();
@@ -142,6 +155,10 @@ browseBtn.addEventListener('click', wrapWithErrorBoundary(async () => {
   } catch (err) { logError(err, { category: ERROR_CATEGORIES.MESSAGING, function: 'browseClick' }); }
 }, { category: ERROR_CATEGORIES.MESSAGING, function: 'browse.click', swallow: true }));
 
+document.querySelector('#open-compost')?.addEventListener('click', wrapWithErrorBoundary(() => {
+  return chrome.tabs.create({ url: chrome.runtime.getURL('dashboard/index.html'), active: true });
+}, { category: ERROR_CATEGORIES.UI_RENDER, function: 'open-compost.click', swallow: true }));
+
 updateCount();
 initSafely();
 
@@ -169,3 +186,43 @@ if (onboardingStart) {
     await message('COMPLETE_ONBOARDING');
   }, { category: ERROR_CATEGORIES.MESSAGING, function: 'onboarding.start', swallow: true }));
 }
+
+let demoDepth = 0;
+const demoTitles = ['Starting page', 'A useful guide', 'A comparison', 'A deeper explanation', 'A related question', 'Another useful detail'];
+function renderDemo() {
+  const nodes = Array.from({ length: demoDepth + 1 }, (_, index) => ({
+    id: `sample-${index}`,
+    parentId: index ? `sample-${index - 1}` : null,
+    depth: index,
+    title: demoTitles[index],
+    state: 'normal',
+    firstSeenAt: index
+  }));
+  renderGardenTree(demoTree, { mission: 'A sample intention', nodes }, {
+    describeNode: node => `${node.title}, ${node.depth} links from the start`,
+    shortLabel: node => node.title,
+    classForNode: node => node.depth >= 4 ? 'long' : 'healthy'
+  });
+}
+demoOpen?.addEventListener('click', wrapWithErrorBoundary(() => {
+  demoPanel.hidden = false;
+  demoDepth = 0;
+  demoChoice.hidden = true;
+  demoStep.textContent = 'Follow a sample link (1 of 5)';
+  renderDemo();
+  demoStep.focus();
+}, { category: ERROR_CATEGORIES.UI_RENDER, function: 'demo.open', swallow: true }));
+demoStep?.addEventListener('click', wrapWithErrorBoundary(() => {
+  if (demoDepth >= 5) {
+    demoDepth = 0;
+    demoChoice.hidden = true;
+    demoStep.textContent = 'Follow a sample link (1 of 5)';
+    demoStatus.textContent = 'The sample has restarted. Nothing here is saved.';
+  } else {
+    demoDepth += 1;
+    demoStatus.textContent = `${demoDepth} of 5 sample link steps. The path is longer; only you know whether it still helps your intention.`;
+    demoChoice.hidden = demoDepth < 5;
+    demoStep.textContent = demoDepth < 5 ? `Follow a sample link (${demoDepth + 1} of 5)` : 'Start the sample again';
+  }
+  renderDemo();
+}, { category: ERROR_CATEGORIES.UI_RENDER, function: 'demo.step', swallow: true }));

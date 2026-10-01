@@ -1,5 +1,5 @@
 /**
- * Focus Forest - Centralized Constants
+ * Intent Grove - Centralized Constants
  * Extracts magic numbers and configuration values for maintainability.
  *
  * Only values actually referenced by runtime code live here. Previous

@@ -1,6 +1,6 @@
 import { renderGardenTree } from './tree-renderer.js';
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
-import { gardenHealth, getNodeDuration, rewardHistoryView, STORAGE_KEY } from '../shared/state.js';
+import { getNodeDuration, rewardHistoryView, STORAGE_KEY } from '../shared/state.js';
 import { applyStoredTheme, toggleTheme, clearStoredTheme } from '../shared/theme.js';
 import { applyPerfMode, nextPerfMode, sampleMemoryPressure, sampleSystemMemory } from '../shared/ram-guard.js';
 
@@ -43,10 +43,6 @@ function renderTree(session) {
   });
   lastTree = tree;
   delete svg.dataset.preview; // the DOM was rebuilt; no stale hover preview
-  // Garden health (R3): a visual verdict on the same deterministic geometry —
-  // lush / steady / sparse, never a number.
-  if (session) svg.dataset.health = gardenHealth(session, lastSettings || {});
-  else delete svg.dataset.health;
   // A stage change (seed -> sapling -> canopy -> deep) is a milestone: give
   // the whole scene one gentle crossfade. One-shot timer, no loops.
   if (lastTreeMode && lastTreeMode !== tree.mode) {
@@ -280,7 +276,7 @@ async function render() {
   const session = snap.session;
   const nodes = session?.nodes || [];
   if (!nodes.some((node) => node.id === selectedNodeId)) selectedNodeId = null;
-  document.querySelector('#mission').textContent = session ? `Mission: ${session.mission}` : 'A visual record of where your attention wandered today.';
+  document.querySelector('#mission').textContent = session ? `Mission: ${session.mission}` : 'A visual record of where your browsing path went today.';
   document.querySelector('#mission-note').textContent = session?.note ? `Why it matters: ${session.note}` : 'No extra reason was recorded for this mission.';
   const deepest = Math.max(0, ...nodes.map((node) => node.depth));
   const composted = nodes.filter((node) => node.state === 'composted').length;
@@ -295,7 +291,7 @@ async function render() {
         : composted
           ? `You grew ${nodes.length} pages and returned ${composted} curiosit${composted === 1 ? 'y' : 'ies'} to the compost pile.`
           : deepest >= thresholds.DESATURATE
-            ? `You grew ${nodes.length} pages and found a long branch worth noticing.`
+            ? `You grew ${nodes.length} pages. The longest traced path is ${deepest} navigation steps from its root; only you know whether it served your intention.`
             : `You grew ${nodes.length} pages from a single clear intention.`;
   document.querySelector('#storyline').textContent = storyline;
   const weatherCue = document.querySelector('#weather-cue');
@@ -692,7 +688,7 @@ async function exportData() {
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `focus-forest-export-${new Date().toISOString().split('T')[0]}.json`;
+    a.download = `intent-grove-export-${new Date().toISOString().split('T')[0]}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -721,7 +717,7 @@ async function importData() {
       logError(new Error(`Import file exceeds ${MAX_IMPORT_BYTES} bytes (${file.size})`), { category: ERROR_CATEGORIES.VALIDATION, function: 'importData' });
       // A rejected file is easy to miss without feedback: the picker closes
       // either way, so say why nothing happened.
-      setImportStatus('That file is larger than 15 MiB — Focus Forest exports are far smaller. Check that you picked the right file.');
+      setImportStatus('That file is larger than 15 MiB — Intent Grove exports are far smaller. Check that you picked the right file.');
       return;
     }
     const text = await file.text();
@@ -733,7 +729,7 @@ async function importData() {
     setImportStatus('Import complete.');
   } catch (error) {
     logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'importData' });
-    setImportStatus('Import could not be read. Choose a Focus Forest export file.');
+    setImportStatus('Import could not be read. Choose a Intent Grove export file.');
   } finally {
     input.value = '';
   }

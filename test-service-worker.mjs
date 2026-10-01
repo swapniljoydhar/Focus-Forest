@@ -109,12 +109,12 @@ assert.equal(session().nodes.at(-1).title, 'Updated route title', 'same-URL SPA 
 
 await send({ type: 'CLEAR_DATA' });
 	tabInfo.clear();
-	tabInfo.set(11, { id: 11, windowId: 1, url: 'chrome-extension://test/newtab/index.html', title: 'Focus Forest' });
-	await send({ type: 'START_MISSION', mission: 'Use browser default', openSearch: true, tab: { url: 'chrome-extension://test/newtab/index.html', title: 'Focus Forest' } });
+	tabInfo.set(11, { id: 11, windowId: 1, url: 'chrome-extension://test/newtab/index.html', title: 'Intent Grove' });
+	await send({ type: 'START_MISSION', mission: 'Use browser default', openSearch: true, tab: { url: 'chrome-extension://test/newtab/index.html', title: 'Intent Grove' } });
 	assert.deepEqual(searchActions.at(-1), { text: 'Use browser default', tabId: 11 }, 'Browser default should use the browser search provider API');
 	await send({ type: 'CLEAR_DATA' });
 	await send({ type: 'UPDATE_SETTINGS', settings: { searchEngine: 'brave' } });
-	await send({ type: 'START_MISSION', mission: 'Find quiet study music', openSearch: true, tab: { url: 'chrome-extension://test/newtab/index.html', title: 'Focus Forest' } });
+	await send({ type: 'START_MISSION', mission: 'Find quiet study music', openSearch: true, tab: { url: 'chrome-extension://test/newtab/index.html', title: 'Intent Grove' } });
 assert.equal(tabActions.at(-1)?.[0], 'update', 'planting from New Tab should navigate the active browser tab');
 assert.equal(tabActions.at(-1)?.[1], 11);
 	assert.match(tabActions.at(-1)?.[2]?.url || '', /search\.brave\.com\/search\?q=Find%20quiet%20study%20music/, 'planting should open the selected search engine for the mission');
@@ -438,14 +438,14 @@ tabActions.length = 0;
 await listeners.updated[0](901, { status: 'loading', url: 'brave://newtab/' }, { id: 901, url: 'brave://newtab/', pendingUrl: 'brave://newtab/' });
 assert.equal(tabActions.some((action) => action[0] === 'update' && action[1] === 901), false, 'loading-phase NTP placeholders must not trigger a takeover');
 await listeners.updated[0](901, { status: 'complete', url: 'brave://newtab/' }, { id: 901, url: 'brave://newtab/' });
-assert.equal(tabActions.some((action) => action[0] === 'update' && action[1] === 901 && action[2].url === 'chrome-extension://test/newtab/index.html'), true, 'Brave dashboard new tabs must be replaced by Focus Forest once committed');
+assert.equal(tabActions.some((action) => action[0] === 'update' && action[1] === 901 && action[2].url === 'chrome-extension://test/newtab/index.html'), true, 'Brave dashboard new tabs must be replaced by Intent Grove once committed');
 tabActions.length = 0;
 // There is deliberately no tabs.onCreated takeover listener (it can only see
 // uncommitted/placeholder URLs); committed Chrome NTPs are taken over via
 // onUpdated 'complete'.
 assert.equal(listeners.created.length, 0, 'no onCreated takeover listener may be registered');
 await listeners.updated[0](902, { status: 'complete', url: 'chrome://newtab' }, { id: 902, url: 'chrome://newtab' });
-assert.equal(tabActions.some((action) => action[0] === 'update' && action[1] === 902 && action[2].url === 'chrome-extension://test/newtab/index.html'), true, 'Chrome new tabs must be replaced by Focus Forest when the override is skipped');
+assert.equal(tabActions.some((action) => action[0] === 'update' && action[1] === 902 && action[2].url === 'chrome-extension://test/newtab/index.html'), true, 'Chrome new tabs must be replaced by Intent Grove when the override is skipped');
 tabActions.length = 0;
 await listeners.updated[0](903, { status: 'complete', url: 'https://example.com/' }, { id: 903, url: 'https://example.com/' });
 assert.equal(tabActions.some((action) => action[0] === 'update' && action[1] === 903), false, 'ordinary pages must not be rewritten to the planting page');
@@ -474,9 +474,16 @@ try {
   await send({ type: 'IMPORT_DATA', payload: { data: { sessions: [overnight] } } });
   const stats = await send({ type: 'GET_DASHBOARD_STATS' });
   assert.equal(stats.totalFocusTime, 3600, 'elapsed session time must not change');
-  assert.equal(stats.currentStreak, 2, 'streaks count calendar days, not smaller time buckets');
+  assert.equal(stats.currentStreak, 1, 'an unattended session spanning midnight counts only its recorded start day');
   assert.deepEqual(stats.weeklyData.map((day) => day.minutes), [0, 0, 0, 0, 0, 30, 30],
     'a session crossing UTC midnight must split between its two dates');
+
+  await send({ type: 'IMPORT_DATA', payload: { data: { sessions: [{
+    ...overnight, id: 'calendar_engaged',
+    events: [{ id: 'e1', type: 'navigation', at: Date.parse('2026-09-17T00:10:00Z') }]
+  }] } } });
+  const engagedStreak = await send({ type: 'GET_DASHBOARD_STATS' });
+  assert.equal(engagedStreak.currentStreak, 2, 'a recorded trail action adds its day to the tending streak');
 
   await send({ type: 'CLEAR_DATA' });
   const historical = {
@@ -682,7 +689,7 @@ await send({ type: 'CLEAR_DATA' });
 await send({ type: 'START_MISSION', mission: 'Do not guess a parent', tab: { id: 70, url: 'https://root.example/', title: 'Root' } });
 await send({ type: 'LINK_CLICK', url: 'https://orphan.example/', title: 'Orphan' }, { id: 71 });
 assert.equal(session().nodes.length, 1, 'an unmapped tab must not attach a link to the most recent unrelated node');
-// --- R2/R3: drift accounting, note privacy, lush-completion rewards, aged compost, streak milestones ---
+// --- R2/R3: drift accounting, note privacy, non-graded completion rewards, aged compost, streak milestones ---
 {
   const nowTs = Date.now();
   const mkNode = (id, depth, url) => ({ id, url, title: id, parentId: null, depth, firstSeenAt: nowTs - 60000, closedAt: nowTs - 30000, relationshipConfidence: 'direct', confidence: 'high', navigationKind: 'link' });
@@ -695,21 +702,21 @@ assert.equal(session().nodes.length, 1, 'an unmapped tab must not attach a link 
   assert.ok(!JSON.stringify(view).includes('a private why'), 'the note text itself must never reach a page context');
   assert.deepEqual(view.drift, { pages: 0, seconds: 0 }, 'a fresh root reports zero drift');
 
-  // A lush garden: 10 pages, only one at or beyond the quiet line (ratio 0.1).
+  // Completion rewards never infer whether a browsing path matched the intention.
   const lushNodes = Array.from({ length: 9 }, (_, i) => mkNode(`lush-${i}`, i === 0 ? 0 : 1, `https://lush.example/p${i}`));
   lushNodes.push(mkNode('lush-deep', 5, 'https://lush.example/deep'));
   await send({ type: 'IMPORT_DATA', payload: { data: { sessions: [mkSession('lush-session', lushNodes)], activeSessionId: 'lush-session', settings: { enableRewards: true, gentleDepth: 4 } } } });
   const lushEnd = await send({ type: 'END_MISSION', reason: 'user_ended' });
-  assert.equal(lushEnd?.reward?.tier, 'discoveries', 'a lush completion earns a rare seasonal discovery');
-  assert.equal(lushEnd?.reward?.trigger, 'low_drift_completion');
-  assert.match(lushEnd?.reward?.note || '', /close to your intention/, 'the reward explains itself');
+  assert.equal(lushEnd?.reward?.tier, 'blooms', 'completion rewards use the same tier regardless of path depth');
+  assert.equal(lushEnd?.reward?.trigger, 'session_end_user_ended');
+  assert.match(lushEnd?.reward?.note || '', /deliberately/, 'the reward reflects the choice to end, not a presumed outcome');
 
-  // A sparse garden keeps the ordinary bloom.
+  // A deeper path receives the same completion treatment.
   const sparseNodes = [mkNode('sp-0', 0, 'https://sparse.example/p0'), mkNode('sp-1', 4, 'https://sparse.example/p1'), mkNode('sp-2', 5, 'https://sparse.example/p2'), mkNode('sp-3', 6, 'https://sparse.example/p3')];
   await send({ type: 'CLEAR_DATA' });
   await send({ type: 'IMPORT_DATA', payload: { data: { sessions: [mkSession('sparse-session', sparseNodes)], activeSessionId: 'sparse-session', settings: { enableRewards: true, gentleDepth: 4 } } } });
   const sparseEnd = await send({ type: 'END_MISSION', reason: 'user_ended' });
-  assert.equal(sparseEnd?.reward?.tier, 'blooms', 'a drifted completion keeps the ordinary bloom');
+  assert.equal(sparseEnd?.reward?.tier, 'blooms', 'path depth does not change the reward tier');
 
   // Aged compost + streak milestone surface as data, never as copy.
   await send({ type: 'IMPORT_DATA', payload: { data: { compostItems: [{ id: 'aged-1', url: 'https://aged.example/', title: 'Aged curiosity', mission: 'old mission', savedAt: nowTs - 8 * 24 * 60 * 60 * 1000 }, { id: 'fresh-1', url: 'https://fresh.example/', title: 'Fresh', mission: 'now', savedAt: nowTs - 1000 }] } } });

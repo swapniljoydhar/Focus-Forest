@@ -1,5 +1,5 @@
 /**
- * Focus Forest — memory-aware performance guardian.
+ * Intent Grove — memory-aware performance guardian.
  *
  * Signal priority (all local, never transmitted):
  *   1. chrome.system.memory.getInfo() — real system free RAM (extensions

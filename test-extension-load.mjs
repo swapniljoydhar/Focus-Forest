@@ -1,4 +1,4 @@
-// Gate 0–2 + Gate 5: load Focus Forest as a REAL extension in Chromium.
+// Gate 0–2 + Gate 5: load Intent Grove as a REAL extension in Chromium.
 // This is the suite the audit kept demanding: the manifest itself (world:"MAIN"
 // bridge, newtab override, service worker, content scripts) executes here —
 // nothing is mocked except the open web (a local HTTP server + one routed
@@ -31,8 +31,9 @@ import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const repoRoot = path.resolve(path.dirname(new URL(import.meta.url).pathname), '.');
+const repoRoot = path.dirname(fileURLToPath(import.meta.url));
 
 // --- Build a clean extension directory (mirrors scripts/package.mjs entries) ---
 const extDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-ext-'));
@@ -210,11 +211,13 @@ before(async () => {
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 
   const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-profile-'));
+  const executablePath = process.env.CHROMIUM_EXECUTABLE_PATH;
   context = await chromium.launchPersistentContext(userDataDir, {
     headless: true,
-    channel: 'chromium', // new headless: required for extension support
+    ...(executablePath ? { executablePath } : { channel: 'chromium' }), // new headless is required for extension support
     chromiumSandbox: false,
     args: [
+      ...(executablePath ? ['--headless=new'] : []),
       `--disable-extensions-except=${extDir}`,
       `--load-extension=${extDir}`,
       '--no-first-run',

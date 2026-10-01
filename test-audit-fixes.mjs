@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
 
 const store = {};
 const listeners = { installed: [], message: [], committed: [], historyStateUpdated: [], created: [], updated: [], removed: [] };
@@ -266,7 +267,7 @@ await test('A9: the companion never navigates the page to an extension URL direc
   assert.equal(/setInterval\(/.test(content), false, 'companion timers must stay bounded');
 
   const bridge = readFileSync(new URL('./content/spa-bridge.js', import.meta.url), 'utf8');
-  const checked = spawnSync(process.execPath, ['--check', new URL('./content/spa-bridge.js', import.meta.url).pathname], { encoding: 'utf8' });
+  const checked = spawnSync(process.execPath, ['--check', fileURLToPath(new URL('./content/spa-bridge.js', import.meta.url))], { encoding: 'utf8' });
   assert.equal(checked.status, 0, `spa-bridge.js must parse as a classic script:\n${checked.stderr}`);
   assert.match(bridge, /history\.pushState/, 'the bridge must wrap pushState in the page world');
   assert.match(bridge, /history\.replaceState/, 'the bridge must wrap replaceState in the page world');

@@ -45,7 +45,7 @@ async function openDashboard(t, state = stateFor(), viewport = { width: 1440, he
     const url = new URL(route.request().url());
     if (url.origin !== 'https://focus-forest.test') return route.abort();
     const pathname = url.pathname.slice(1);
-    const contentType = pathname.endsWith('.css') ? 'text/css' : pathname.endsWith('.js') ? 'text/javascript' : 'text/html';
+    const contentType = pathname.endsWith('.css') ? 'text/css' : pathname.endsWith('.js') ? 'text/javascript' : pathname.endsWith('.svg') ? 'image/svg+xml' : 'text/html';
     await route.fulfill({
       body: await readFile(new URL(pathname, root)), contentType,
       headers: { 'Content-Security-Policy': manifest.content_security_policy.extension_pages }
@@ -182,7 +182,7 @@ test('settings save preserves edits on worker error', async t => {
   await page.locator('#search-engine').selectOption('brave');
   await page.evaluate(() => { globalThis.failSettingsUpdate = false; });
   await page.locator('#save').click();
-  await page.waitForFunction(() => document.querySelector('#status').textContent === 'Your rhythm is tending the forest now.');
+  await page.waitForFunction(() => document.querySelector('#status').textContent === 'Your rhythm is tending the grove now.');
   assert.equal(await page.locator('#search-engine').inputValue(), 'brave');
   assert.equal(await page.locator('#save').isDisabled(), true);
   const updates = await page.evaluate(() => settingsCalls.filter(message => message.type === 'UPDATE_SETTINGS'));
@@ -194,7 +194,7 @@ test('settings save preserves edits on worker error', async t => {
 
 
 async function waitForSettingsResult(page) {
-  await page.waitForFunction(() => /could not|tending the forest now|original rhythm has returned/.test(document.querySelector('#status').textContent));
+  await page.waitForFunction(() => /could not|tending the grove now|original rhythm has returned/.test(document.querySelector('#status').textContent));
 }
 function assertSettingsErrors(errors, message, count) {
   assert.equal(errors.length, count);
@@ -342,11 +342,13 @@ test('settings presets make common rhythms one click away without auto-saving', 
   await page.locator('[data-preset="accountable"]').click();
   assert.equal(await page.locator('#gentle').inputValue(), '3');
   assert.equal(await page.locator('#choice').inputValue(), '4');
+  assert.equal(await page.locator('#strict-mode').isChecked(), true, 'Accountable preset enables firmer reminders');
   assert.equal(await page.locator('#save').isEnabled(), true);
   assert.equal(await page.evaluate(() => settingsCalls.some(call => call.type === 'UPDATE_SETTINGS')), false);
   await page.locator('[data-preset="gentle"]').click();
   assert.equal(await page.locator('#gentle').inputValue(), '8');
   assert.equal(await page.locator('#choice').inputValue(), '10');
+  assert.equal(await page.locator('#strict-mode').isChecked(), false, 'Gentle preset returns to non-strict wording');
   assert.deepEqual(consoleErrors, []);
 });
 
@@ -356,13 +358,13 @@ test('forest finds list earned reflections and stay hidden when there are none',
   withFinds.rewardHistory = [
     { rewardId: 'seed_1', timestamp: now - 60000 },
     { rewardId: 'not_in_catalog', timestamp: now - 30000 },
-    { rewardId: 'disc_2', timestamp: now }
+    { rewardId: 'bloom_2', timestamp: now }
   ];
   const page = await openDashboard(t, withFinds);
   assert.equal(await page.locator('#finds-panel').isVisible(), true);
   assert.deepEqual(
     await page.locator('.find-item strong').allTextContents(),
-    ['Morning dew catches the light.', 'The root is still here.'],
+    ['A session tended with care.', 'The root is still here.'],
     'finds are newest first and unknown catalog ids are skipped'
   );
   assert.equal(await page.locator('.find-item').count(), 2);
@@ -381,7 +383,7 @@ test('the garden follows the rhythm the user chose instead of fixed depths', asy
   assert.match(await classOf('garden-one-node-1'), /\bhealthy\b/);
   assert.match(await classOf('garden-one-node-2'), /\blong\b/, 'depth 2 is the gentle threshold this user chose');
   assert.match(await classOf('garden-one-node-3'), /\bdeep\b/, 'depth 3 is the choice threshold this user chose');
-  assert.equal(await page.locator('#storyline').textContent(), 'You grew 4 pages and found a long branch worth noticing.');
+  assert.equal(await page.locator('#storyline').textContent(), 'You grew 4 pages. The longest traced path is 3 navigation steps from its root; only you know whether it served your intention.');
 
   // An unconfigured garden must keep the default rhythm's appearance.
   const defaultPage = await openDashboard(t, stateFor(garden(4)));
@@ -571,7 +573,7 @@ test('the closing reflection follows the rhythm the user chose', async t => {
   await page.waitForFunction(() => document.querySelector('#completion')?.hidden === false);
   // Deepest branch is 3, which is this user's own gentle threshold.
   assert.equal(await page.locator('#completion-title').textContent(), 'This garden has a long path to remember.');
-  assert.match(await page.locator('#completion-copy').textContent(), /deepest branch of 3/);
+  assert.match(await page.locator('#completion-copy').textContent(), /deepest path.*3/);
 
   // The default rhythm still treats depth 3 as an ordinary garden.
   const defaultPage = await openDashboard(t, stateFor(garden(4)));
@@ -613,6 +615,20 @@ test('dismissing the welcome overlay completes onboarding', async t => {
   await page.locator('#onboarding-start').click();
   await page.waitForFunction(() => document.querySelector('#onboarding-overlay').hidden === true);
   assert.equal(await page.locator('#mission-input').isVisible(), true);
+});
+
+test('optional five-click demo teaches path depth without recording sample pages', async t => {
+  const page = await openDashboard(t);
+  await page.goto('https://focus-forest.test/newtab/index.html');
+  await page.waitForFunction(() => document.querySelector('#onboarding-overlay')?.hidden === false);
+  await page.locator('#demo-open').click();
+  assert.equal(await page.locator('#demo-tree .node').count(), 1);
+  for (let i = 0; i < 5; i++) await page.locator('#demo-step').click();
+  assert.equal(await page.locator('#demo-tree .node').count(), 6, 'the sample tree grows one node per fictional link');
+  assert.equal(await page.locator('#demo-choice').isVisible(), true, 'the sample explains when a choice appears');
+  assert.match(await page.locator('#demo-status').textContent(), /only you know/);
+  assert.equal(await page.evaluate(() => globalThis.contentMessages.some(message => message.type === 'START_MISSION')), false);
+  assert.equal(await page.locator('#demo-tree a').count(), 0, 'sample pages never become live links');
 });
 
 test('the companion cartoon icon builds under a strict Trusted Types CSP', async t => {

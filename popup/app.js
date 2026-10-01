@@ -73,15 +73,15 @@ function reflectionFor(session) {
   const savedLine = saved ? `${saved} ${saved === 1 ? 'curiosity is' : 'curiosities are'} resting in the compost pile.` : 'Nothing needed to be set aside for later.';
   const drift = driftStats(session, { gentleDepth: Number(thresholds?.gentleDepth) || Number(thresholds?.DESATURATE) || 4 });
   const driftMinutes = Math.round(drift.seconds / 60);
-  const driftLine = drift.pages > 0 ? ` Beyond the quiet line: ${drift.pages} ${drift.pages === 1 ? 'page' : 'pages'}, ${driftMinutes} ${driftMinutes === 1 ? 'minute' : 'minutes'}.` : '';
+  const driftLine = drift.pages > 0 ? ` At or beyond the quiet line: ${drift.pages} ${drift.pages === 1 ? 'page has' : 'pages have'} been open for about ${driftMinutes} ${driftMinutes === 1 ? 'minute' : 'minutes'} in total. This elapsed time can include background tabs; it is not active reading time.` : '';
   return {
     deepest,
-    copy: `You began with \u201c${session.mission}\u201d. ${branchLine} You grew through ${pages}, reached a deepest branch of ${deepest}, and ${savedLine} ${neutralLine}${driftLine}`
+    copy: `You began with \u201c${session.mission}\u201d. ${branchLine} You grew through ${pages}, reached a deepest path ${deepest} ${deepest === 1 ? 'step' : 'steps'} from the start, and ${savedLine} ${neutralLine}${driftLine}`
   };
 }
 
 function updatePauseCopy(paused) {
-  pauseEl.textContent = paused ? 'Resume the forest' : 'Pause interventions';
+  pauseEl.textContent = paused ? 'Resume reminders' : 'Pause interventions';
 }
 
 function setRitual(open) {
@@ -118,7 +118,7 @@ async function render() {
   const depth = current?.depth || 0;
   thresholds = snap.thresholds || { DESATURATE: 4, INTERRUPT: 5 };
   const state = session.interventionPaused
-    ? 'Forest resting for this mission.'
+    ? 'Grove resting for this mission.'
     : depth >= thresholds.INTERRUPT
       ? 'This path is getting very deep.'
       : depth >= thresholds.DESATURATE

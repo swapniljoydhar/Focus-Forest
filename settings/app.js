@@ -42,9 +42,9 @@ const gentlePreviewLabel = document.querySelector('#gentle-preview-label'); cons
 const previewGentle = document.querySelector('#preview-gentle'); const previewChoice = document.querySelector('#preview-choice');
 const previewCopy = document.querySelector('#preview-copy');
 const presets = {
-  gentle: { gentleDepth: 8, choiceDepth: 10 },
-  balanced: { gentleDepth: 4, choiceDepth: 5 },
-  accountable: { gentleDepth: 3, choiceDepth: 4 }
+  gentle: { gentleDepth: 8, choiceDepth: 10, strictMode: false },
+  balanced: { gentleDepth: 4, choiceDepth: 5, strictMode: false },
+  accountable: { gentleDepth: 3, choiceDepth: 4, strictMode: true }
 };
 // The "original rhythm" is the shared DEFAULT_SETTINGS, not a hand-copied
 // literal: if defaults ever change, reset must restore the true defaults
@@ -73,7 +73,7 @@ function markDirty() {
   const dirty = !sameSettings(currentSettings(), saved);
   save.disabled = !ready || saving || !dirty;
   reset.disabled = !ready || saving;
-  if (ready && !saving) status.textContent = dirty ? 'You have a rhythm change ready to save.' : 'Your current rhythm is already tending the forest.';
+  if (ready && !saving) status.textContent = dirty ? 'You have a rhythm change ready to save.' : 'Your current rhythm is already tending the grove.';
 }
 function applySettings(settings) {
   gentle.value = settings.gentleDepth;
@@ -107,7 +107,7 @@ function sync() {
   choicePreviewLabel.textContent = `Choice at ${c}`;
   previewGentle.style.left = `${(g / 10) * 100}%`;
   previewChoice.style.left = `${(c / 10) * 100}%`;
-  previewCopy.textContent = g <= 3 ? 'The forest will whisper early, useful for short and deliberate paths.' : c >= 7 ? 'There is more room to explore before the forest offers a choice.' : 'The path stays open. The forest simply becomes easier to notice.';
+  previewCopy.textContent = g <= 3 ? 'The forest will whisper early, useful for short and deliberate paths.' : c >= 7 ? 'There is more room to explore before the forest offers a choice.' : 'The path stays open. The grove simply becomes easier to notice.';
   markDirty();
 }
 const safeLoad = wrapWithErrorBoundary(load, { category: ERROR_CATEGORIES.UI_RENDER, function: 'load' });
@@ -137,6 +137,7 @@ document.querySelectorAll('[data-preset]').forEach((button) => button.addEventLi
   if (!preset) return;
   gentle.value = String(preset.gentleDepth);
   choice.value = String(preset.choiceDepth);
+  if (strictToggle) strictToggle.checked = preset.strictMode;
   sync();
   status.textContent = `${button.textContent.replace(/\s+\d+\s*\/\s*\d+/, '').trim()} rhythm is ready to save.`;
 }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'preset.click', swallow: true })));
@@ -163,7 +164,7 @@ async function persistSettings(restoring = false) {
   if (!confirmed) {
     status.textContent = restoring ? 'The original rhythm could not be restored. Your edits are still here; try again.' : 'The rhythm could not be confirmed as saved. Your edits are still here; try again.';
   } else if (sameSettings(currentSettings(), saved)) {
-    status.textContent = restoring ? 'The original rhythm has returned.' : 'Your rhythm is tending the forest now.';
+    status.textContent = restoring ? 'The original rhythm has returned.' : 'Your rhythm is tending the grove now.';
   } else {
     status.textContent = 'Your earlier rhythm was saved. You have newer edits ready to save.';
   }
