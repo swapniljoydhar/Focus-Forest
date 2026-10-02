@@ -282,6 +282,12 @@ body[data-page-visibility="hidden"] .forest-scene .tree-canopy {
 [data-theme="dark"] #mission-note { background: rgba(30, 38, 30, 0.9); color: var(--color-text-primary); }
 [data-theme="dark"] .compost-reminder,[data-theme="dark"] .guide-viewport { background: rgba(30,38,30,.72); }
 [data-theme="dark"] .main-heading { text-shadow: none; }
+[data-theme="dark"] .hill-back { fill: #243026; }
+[data-theme="dark"] .hill-front { fill: #1a241d; }
+[data-theme="dark"] body[data-tod="night"] .hill-back,
+[data-theme="dark"] body[data-tod="dusk"] .hill-back { fill: #243026; }
+[data-theme="dark"] body[data-tod="night"] .hill-front,
+[data-theme="dark"] body[data-tod="dusk"] .hill-front { fill: #1a241d; }
 [data-theme="dark"] .sun-glow,
 [data-theme="dark"] .ambient::before,
 [data-theme="dark"] .ambient::after { opacity: 0.16; }

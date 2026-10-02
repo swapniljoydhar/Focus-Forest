@@ -46,3 +46,35 @@ body[data-motion="off"] .tab-content.active{animation:none}
 
 .stat-milestone { font-size: .78rem; color: var(--color-text-secondary, #6c8c68); margin-top: 2px; min-height: 1.2em; }
 .saved-aged-note { font-size: .85rem; color: var(--color-text-secondary, #8a7a4f); margin: 0 0 10px; }
+
+/* Dark palette contrast fixes for headings and supporting copy that are explicit in light mode. */
+[data-theme="dark"] .brand-line { color: #c0d1bb; }
+[data-theme="dark"] .weather-cue { color: #b0c1ac; }
+[data-theme="dark"] .weather-cue:before { background: #e1cc7b; }
+[data-theme="dark"] .header-row .eyebrow,
+[data-theme="dark"] .panel .eyebrow { color: #a8c19f; }
+[data-theme="dark"] .header-row h1 { color: #edf4e9; text-shadow: none; }
+[data-theme="dark"] .mission { color: #c0cdbb; }
+[data-theme="dark"] .mission-note,
+[data-theme="dark"] .storyline { color: #c1cfbd; }
+[data-theme="dark"] .legend { color: #b1bfad; }
+[data-theme="dark"] .tree-stage { color: #c0dcb5; }
+[data-theme="dark"] .tree-hint { color: #b2c0ae; }
+[data-theme="dark"] .panel-intro,
+[data-theme="dark"] .muted { color: #b1bfad; }
+[data-theme="dark"] .event strong,
+[data-theme="dark"] .compost-item a,
+[data-theme="dark"] .find-item strong { color: #d4e1cf; }
+[data-theme="dark"] .event small,
+[data-theme="dark"] .compost-item small,
+[data-theme="dark"] .find-item small { color: #b1bfad; }
+[data-theme="dark"] .detail-copy h3 { color: #d4e1cf; }
+[data-theme="dark"] .detail-copy p:last-child,
+[data-theme="dark"] .detail-copy .detail-reason,
+[data-theme="dark"] .detail-note { color: #b7c5b2; }
+[data-theme="dark"] .detail-button { border-color: #536a50; background: #293229; color: #d3e2ce; }
+[data-theme="dark"] .detail-button:hover,
+[data-theme="dark"] .detail-button:focus-visible { border-color: #96bd8f; background: #354335; }
+[data-theme="dark"] .detail-button.quiet { background: transparent; color: #b7c5b2; }
+[data-theme="dark"] footer { color: #b5c5af; }
+[data-theme="dark"] #tree.forest-scene { border-color: #354235; background: radial-gradient(ellipse at 48% 40%, #273228 0%, #202920 55%, #1b231c 100%); }

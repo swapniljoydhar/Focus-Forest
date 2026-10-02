@@ -1,0 +1,31 @@
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 38px;
+  padding: 7px 11px;
+  border: 1px solid #cbdac7;
+  border-radius: 10px;
+  background: rgba(249, 251, 246, .92);
+  color: #385f3d;
+  font: 650 12px/1.2 ui-sans-serif, system-ui, sans-serif;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: background-color .16s ease, border-color .16s ease, color .16s ease;
+}
+.theme-toggle:hover { background: #fff; border-color: #9dbb98; }
+.theme-toggle:focus-visible { outline: 3px solid rgba(74, 124, 89, .38); outline-offset: 2px; }
+.theme-toggle [data-theme-icon] { font-size: 16px; line-height: 1; }
+.theme-toggle-icon-only { width: 34px; min-width: 34px; height: 34px; min-height: 34px; padding: 0; border-radius: 50%; }
+.theme-toggle-icon-only [data-theme-icon] { font-size: 18px; }
+[data-theme="dark"] .theme-toggle { border-color: #4a5a4a; background: #252d25; color: #c6dbc2; }
+[data-theme="dark"] .theme-toggle:hover { border-color: #789a75; background: #303a30; color: #edf5e9; }
+[data-theme="dark"] .theme-toggle:focus-visible { outline-color: rgba(164, 201, 163, .62); }
+.popup-brand .theme-toggle { margin-left: 6px; flex: none; }
+.settings-shell .brand-line .theme-toggle { margin-left: auto; }
+.planting-container > .page-header .theme-toggle { margin-left: auto; flex: none; }
+@media (max-width: 480px) {
+  .planting-container > .page-header .theme-toggle { min-height: 36px; padding: 6px 8px; font-size: 11px; }
+}
+@media (prefers-reduced-motion: reduce) { .theme-toggle { transition: none; } }

@@ -1,8 +1,9 @@
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
-import { applyStoredTheme } from '../shared/theme.js';
+import { applyStoredTheme, mountThemeToggle } from '../shared/theme.js';
 import { driftStats } from '../shared/state.js';
 
 applyStoredTheme();
+mountThemeToggle();
 
 /**
  * Send a message to the service worker with error handling

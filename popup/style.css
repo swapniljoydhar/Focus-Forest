@@ -109,3 +109,9 @@ footer button:hover{color:#527154;text-decoration:underline}
 [data-theme="dark"] .actions .text-action,[data-theme="dark"] .completion-actions .text-action,[data-theme="dark"] .empty .text-action{color:#8aa38a}
 [data-theme="dark"] footer button{color:#7a8a7a}
 [data-theme="dark"] footer button:hover{color:#a3b3a3}
+
+[data-theme="dark"] .meter-labels,
+[data-theme="dark"] .quiet-stats span,
+[data-theme="dark"] .meter-labels { color: #b0c0ab; }
+[data-theme="dark"] .plant-form input::placeholder,
+[data-theme="dark"] .plant-form textarea::placeholder { color: #a4b4a0; }
