@@ -1,4 +1,4 @@
-import { renderGardenTree, renderTreeIllustration } from '../dashboard/tree-renderer.js';
+import { renderTreeIllustration } from '../dashboard/tree-renderer.js';
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
 import { applyStoredTheme } from '../shared/theme.js';
 import { applyPerfMode, nextPerfMode, sampleMemoryPressure, sampleSystemMemory } from '../shared/ram-guard.js';
@@ -6,7 +6,6 @@ import { applyPerfMode, nextPerfMode, sampleMemoryPressure, sampleSystemMemory }
 applyStoredTheme();
 
 renderTreeIllustration(document.querySelector('#welcome-tree'), 'sapling');
-renderTreeIllustration(document.querySelector('#onboarding-tree'), 'seed');
 
 // DOM Elements - New Structure
 const form = document.querySelector('#mission-form');
@@ -16,12 +15,10 @@ const charCurrent = document.querySelector('#char-current');
 const status = document.querySelector('#form-status');
 const resumeBtn = document.querySelector('#resume-mission-btn');
 const browseBtn = document.querySelector('#browse-freely-btn');
-const demoOpen = document.querySelector('#demo-open');
-const demoPanel = document.querySelector('#onboarding-demo');
-const demoStep = document.querySelector('#demo-step');
-const demoStatus = document.querySelector('#demo-status');
-const demoChoice = document.querySelector('#demo-choice');
-const demoTree = document.querySelector('#demo-tree');
+const guideSlides = [...document.querySelectorAll('[data-guide-slide]')];
+const guidePrevious = document.querySelector('#guide-previous');
+const guideNext = document.querySelector('#guide-next');
+const guideProgress = document.querySelector('#guide-progress');
 const compostReminder = document.querySelector('#compost-reminder');
 const compostReminderCopy = document.querySelector('#compost-reminder-copy');
 
@@ -102,11 +99,13 @@ form.addEventListener('submit', wrapWithErrorBoundary(async (event) => {
   const mission = input.value.trim();
   if (!mission) { input.focus(); return; }
   try {
-    await message('START_MISSION', { mission, missionNote: missionNote?.value.trim() || '', openSearch: true, tab: { url: location.href, title: 'Intent Grove' } });
+    const chosenPlan = document.querySelector('input[name="return-plan"]:checked')?.value || 'decide';
+    await message('START_MISSION', { mission, missionNote: missionNote?.value.trim() || '', responsePlan: chosenPlan, openSearch: true, tab: { url: location.href, title: 'Intent Grove' } });
     status.hidden = false;
     status.textContent = '🌱 Intention planted! Opening a gentle first step...';
     input.blur();
     missionNote.value = '';
+    document.querySelector('input[name="return-plan"][value="decide"]')?.click();
   } catch (err) {
     logError(err, { category: ERROR_CATEGORIES.MESSAGING, function: 'startMission' });
     status.hidden = false;
@@ -175,8 +174,8 @@ document.addEventListener('visibilitychange', updatePageVisibility);
 
 // Onboarding dismiss
 const onboardingStart = document.getElementById('onboarding-start');
-if (onboardingStart) {
-  onboardingStart.addEventListener('click', wrapWithErrorBoundary(async () => {
+const onboardingSkip = document.getElementById('onboarding-skip');
+async function finishOnboarding() {
     const overlay = document.getElementById('onboarding-overlay');
     if (overlay) overlay.hidden = true;
     // Hiding the overlay while focus is inside it drops focus to <body>,
@@ -184,45 +183,35 @@ if (onboardingStart) {
     // overlay was visible, so move focus to the form explicitly here.
     input.focus();
     await message('COMPLETE_ONBOARDING');
-  }, { category: ERROR_CATEGORIES.MESSAGING, function: 'onboarding.start', swallow: true }));
 }
-
-let demoDepth = 0;
-const demoTitles = ['Starting page', 'A useful guide', 'A comparison', 'A deeper explanation', 'A related question', 'Another useful detail'];
-function renderDemo() {
-  const nodes = Array.from({ length: demoDepth + 1 }, (_, index) => ({
-    id: `sample-${index}`,
-    parentId: index ? `sample-${index - 1}` : null,
-    depth: index,
-    title: demoTitles[index],
-    state: 'normal',
-    firstSeenAt: index
-  }));
-  renderGardenTree(demoTree, { mission: 'A sample intention', nodes }, {
-    describeNode: node => `${node.title}, ${node.depth} links from the start`,
-    shortLabel: node => node.title,
-    classForNode: node => node.depth >= 4 ? 'long' : 'healthy'
-  });
+for (const button of [onboardingStart, onboardingSkip]) {
+  button?.addEventListener('click', wrapWithErrorBoundary(finishOnboarding, { category: ERROR_CATEGORIES.MESSAGING, function: 'onboarding.finish', swallow: true }));
 }
-demoOpen?.addEventListener('click', wrapWithErrorBoundary(() => {
-  demoPanel.hidden = false;
-  demoDepth = 0;
-  demoChoice.hidden = true;
-  demoStep.textContent = 'Follow a sample link (1 of 5)';
-  renderDemo();
-  demoStep.focus();
-}, { category: ERROR_CATEGORIES.UI_RENDER, function: 'demo.open', swallow: true }));
-demoStep?.addEventListener('click', wrapWithErrorBoundary(() => {
-  if (demoDepth >= 5) {
-    demoDepth = 0;
-    demoChoice.hidden = true;
-    demoStep.textContent = 'Follow a sample link (1 of 5)';
-    demoStatus.textContent = 'The sample has restarted. Nothing here is saved.';
-  } else {
-    demoDepth += 1;
-    demoStatus.textContent = `${demoDepth} of 5 sample link steps. The path is longer; only you know whether it still helps your intention.`;
-    demoChoice.hidden = demoDepth < 5;
-    demoStep.textContent = demoDepth < 5 ? `Follow a sample link (${demoDepth + 1} of 5)` : 'Start the sample again';
+document.querySelector('#onboarding-overlay')?.addEventListener('keydown', (event) => {
+  const overlay = document.querySelector('#onboarding-overlay');
+  if (overlay?.hidden) return;
+  if (event.key === 'Escape') {
+    event.preventDefault();
+    finishOnboarding().catch((error) => logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'onboarding.escape' }));
+    return;
   }
-  renderDemo();
-}, { category: ERROR_CATEGORIES.UI_RENDER, function: 'demo.step', swallow: true }));
+  if (event.key !== 'Tab') return;
+  const controls = [...overlay.querySelectorAll('button:not([disabled])')].filter((control) => !control.closest('[hidden]'));
+  if (!controls.length) return;
+  const first = controls[0], last = controls.at(-1);
+  if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+  else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+});
+
+let guideIndex = 0;
+function showGuideSlide(index) {
+  if (!guideSlides.length) return;
+  guideIndex = Math.max(0, Math.min(index, guideSlides.length - 1));
+  guideSlides.forEach((slide, i) => { slide.hidden = i !== guideIndex; });
+  guideProgress.textContent = `${guideIndex + 1} of ${guideSlides.length}`;
+  guidePrevious.disabled = guideIndex === 0;
+  guideNext.disabled = guideIndex === guideSlides.length - 1;
+}
+guidePrevious?.addEventListener('click', () => showGuideSlide(guideIndex - 1));
+guideNext?.addEventListener('click', () => showGuideSlide(guideIndex + 1));
+showGuideSlide(0);

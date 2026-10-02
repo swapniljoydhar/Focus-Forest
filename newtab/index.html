@@ -32,52 +32,46 @@
     <!-- Onboarding overlay (first run) -->
     <div id="onboarding-overlay" class="onboarding-overlay" role="dialog" aria-modal="true" aria-labelledby="onboarding-title" hidden>
       <div class="onboarding-card">
-        <div class="onboarding-visual" aria-hidden="true">
-          <svg id="onboarding-tree" class="onboarding-tree" viewBox="195 0 510 520"></svg>
+        <p class="onboarding-kicker">A QUIETER WAY TO BROWSE</p>
+        <h2 id="onboarding-title" class="onboarding-title">Your browsing, your choice.</h2>
+        <p id="onboarding-intro" class="onboarding-intro">A quick tour. Skip it any time and explore at your own pace.</p>
+        <div class="guide-viewport" aria-live="polite">
+          <figure class="guide-slide" data-guide-slide="0">
+            <img src="guide-images/01-intention.png" alt="Intent Grove New Tab page with the intention form and Plant Intention button" width="1000" height="620">
+            <figcaption><strong>1. Name what you came to do</strong><span>Write a flexible intention. Planting opens it as a search; the note stays on this device.</span></figcaption>
+          </figure>
+          <figure class="guide-slide" data-guide-slide="1" hidden>
+            <img src="guide-images/02-choice.png" alt="Intent Grove companion reminder with options to continue, return, save a page, or start a new mission" width="1000" height="620">
+            <figcaption><strong>2. Pause, then choose</strong><span>A reminder describes recorded navigation depth. It can’t tell whether a page is relevant. Continue, return, save it, or begin again.</span></figcaption>
+          </figure>
+          <figure class="guide-slide" data-guide-slide="2" hidden>
+            <img src="guide-images/03-garden.png" alt="Intent Grove garden dashboard showing a session tree grown from browsing paths" width="1000" height="620">
+          <figcaption><strong>3. Reflect on the path</strong><span>Your garden shows pages and paths you visited. A branch is distance from the start, not a score or a verdict.</span></figcaption>
+          </figure>
+          <figure class="guide-slide" data-guide-slide="3" hidden>
+            <img src="guide-images/04-settings.png" alt="Intent Grove settings for reminder timing, motion, firmer reminders, and pausing the companion on chosen sites" width="1000" height="620">
+            <figcaption><strong>4. Make the rhythm yours</strong><span>Adjust or pause reminders in Settings. The toolbar popup offers quick session controls. You can change your mind at any time.</span></figcaption>
+          </figure>
         </div>
-        <h2 id="onboarding-title" class="onboarding-title">Welcome to Intent Grove</h2>
-        <div class="onboarding-steps">
-          <div class="onboarding-step">
-            <span class="step-icon" aria-hidden="true">🌱</span>
-            <div class="step-content">
-              <strong>Plant an intention</strong>
-              <p>Start each session with a clear, gentle goal for your browsing.</p>
-            </div>
-          </div>
-          <div class="onboarding-step">
-            <span class="step-icon" aria-hidden="true">🔍</span>
-            <div class="step-content">
-              <strong>Notice your path</strong>
-              <p>Intent Grove gently highlights when you wander far from your intention.</p>
-            </div>
-          </div>
-          <div class="onboarding-step">
-            <span class="step-icon" aria-hidden="true">🌿</span>
-            <div class="step-content">
-              <strong>Grow awareness</strong>
-              <p>No blocking, no guilt — just a clearer view of your browsing habits.</p>
-            </div>
-          </div>
-          <div class="onboarding-step browser-notice-step">
-            <span class="step-icon" aria-hidden="true">👇</span>
-            <div class="step-content">
-              <strong>One small browser notice</strong>
-              <p>If you see the Intent Grove bar at the bottom in Brave, open <em>Customize Brave</em> and choose <em>Hide footer on New Tab page</em>. This is browser UI, so Intent Grove cannot hide it for you.</p>
-            </div>
+        <div class="guide-controls" aria-label="Walkthrough controls">
+          <button id="guide-previous" type="button" class="guide-nav" aria-label="Previous walkthrough screen" disabled>←</button>
+          <span id="guide-progress" class="guide-progress">1 of 3</span>
+          <button id="guide-next" type="button" class="guide-nav" aria-label="Next walkthrough screen">→</button>
+        </div>
+        <div class="browser-notice-step">
+          <span class="step-icon" aria-hidden="true">👇</span>
+          <div class="step-content">
+            <strong>Seeing a Brave bar at the bottom?</strong>
+            <p>Open <em>Customize Brave</em> → <em>Hide footer on New Tab page</em>. The browser controls this footer; Intent Grove can’t hide it.</p>
           </div>
         </div>
         <div class="browser-notice-arrow" aria-hidden="true"><span>Look along the bottom edge</span><b>↓</b></div>
-        <button id="demo-open" type="button" class="demo-open">Try a 5-click demo (optional)</button>
-        <section id="onboarding-demo" class="onboarding-demo" aria-label="Sample browsing path demo" hidden>
-          <p class="demo-caption">A fictional browsing path. These sample pages are never opened or saved.</p>
-          <svg id="demo-tree" viewBox="0 0 900 520" role="img" aria-label="Sample garden tree, growing as you follow links"></svg>
-          <button id="demo-step" type="button" class="demo-step">Follow a sample link</button>
-          <p id="demo-status" role="status" aria-live="polite">The tree shows navigation distance, not whether a page fits your intention.</p>
-          <div id="demo-choice" class="demo-choice" hidden>At this sample point, Intent Grove offers a choice. In your settings, you choose when it appears; only you know whether this path is useful.</div>
-        </section>
-        <button id="onboarding-start" type="button" class="plant-btn onboarding-start-btn">
-          <span class="btn-text">Start Growing</span>
-        </button>
+        <div class="onboarding-actions">
+          <button id="onboarding-skip" type="button" class="onboarding-skip">Skip tour</button>
+          <button id="onboarding-start" type="button" class="plant-btn onboarding-start-btn">
+            <span class="btn-text">Start using Intent Grove</span>
+          </button>
+        </div>
       </div>
     </div>
     
@@ -143,6 +137,13 @@
           </label>
           <textarea id="mission-note" maxlength="280" rows="2" placeholder="A small reason can help you return to the root."></textarea>
           <p class="input-hint">Your note is stored in your local garden. It is not sent to websites.</p>
+          <fieldset class="return-plan">
+            <legend>If I reach a reminder point, I plan to… <span class="optional-label">(optional)</span></legend>
+            <label><input type="radio" name="return-plan" value="return"> Return to my intention</label>
+            <label><input type="radio" name="return-plan" value="save"> Save this for later</label>
+            <label><input type="radio" name="return-plan" value="decide" checked> Pause and choose in the moment</label>
+            <p class="input-hint">Your plan is a private prompt you chose. It never removes the other choices.</p>
+          </fieldset>
         </div>
         
         <button type="submit" class="plant-btn" aria-label="Plant your intention and start browsing">

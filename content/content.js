@@ -76,6 +76,7 @@
 #ff-root.strict .chip[data-state="interrupt"]{border-color:rgba(196,110,90,.8)}
 #ff-root.strict .choice-card{border-color:rgba(196,110,90,.42)}
 .choice-drift{display:block;margin-top:7px;font-size:12px;color:var(--ff-muted)}
+.choice-plan{display:block;margin-top:9px;padding:8px 10px;border-left:3px solid #73956b;border-radius:6px;background:rgba(115,149,107,.1);font-size:12px;color:var(--ff-text)}
 #ff-root.motion-off *,#ff-root.motion-off *::before,#ff-root.motion-off *::after{animation:none!important;transition:none!important}
 #ff-root *{box-sizing:border-box}
 .chip{position:fixed;top:16px;right:18px;display:flex;align-items:center;gap:9px;max-width:min(380px,calc(100vw - 32px));padding:8px 8px 8px 12px;border:1px solid var(--ff-border);border-radius:999px;background:linear-gradient(120deg,var(--ff-surface-a),var(--ff-surface-b));box-shadow:0 8px 28px rgba(42,65,41,.16),0 1px 0 rgba(255,255,255,.6) inset;backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px);font:13px/1.25 ui-sans-serif,system-ui,-apple-system,sans-serif;color:var(--ff-text);pointer-events:auto;cursor:default;transition:transform .18s ease,box-shadow .18s ease,opacity .2s ease;animation:ff-slide-in .28s cubic-bezier(.2,.8,.3,1) both}
@@ -108,7 +109,7 @@
 @keyframes ff-tree-flicker{0%,100%{opacity:1;filter:brightness(1)}
 50%{opacity:.5;filter:brightness(1.4)}}
 @keyframes ff-slide-in{from{opacity:0;transform:translateY(-8px) scale(.96)} to{opacity:1;transform:translateY(0) scale(1)}}
-.choice-card{position:fixed;right:24px;bottom:24px;z-index:2147483647;max-width:min(420px,calc(100vw - 32px));max-height:calc(100vh - 32px);overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:20px 20px 18px;border:1px solid var(--ff-border);border-radius:24px;background:var(--ff-card);box-shadow:0 12px 36px rgba(42,65,41,.24);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);pointer-events:auto;animation:ff-slide-up .3s cubic-bezier(.2,.8,.3,1) both}
+.choice-card{position:fixed;right:24px;bottom:24px;z-index:2147483647;max-width:min(420px,calc(100vw - 32px));max-height:calc(100vh - 112px);overflow-y:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:20px 20px 18px;border:1px solid var(--ff-border);border-radius:24px;background:var(--ff-card);box-shadow:0 12px 36px rgba(42,65,41,.24);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);pointer-events:auto;animation:ff-slide-up .3s cubic-bezier(.2,.8,.3,1) both}
 .choice-card[hidden]{display:none !important}
 .choice-card .close{position:absolute;top:12px;right:12px;border:0;background:var(--ff-btn);border-radius:999px;width:28px;height:28px;font-size:16px;line-height:1;color:var(--ff-text);cursor:pointer;display:flex;align-items:center;justify-content:center}
 .choice-card .close:hover{background:rgba(74,104,71,.2)}
@@ -133,11 +134,13 @@
 .choice-secondary-action:active{transform:scale(.99)}
 .choice-icon{font-size:16px;width:22px;text-align:center;flex:none}
 .choice span{display:block}
-.choice strong{font-weight:600;font-size:13px}
-.choice small{font-size:11px;color:#6c8c68;margin-top:2px}
+.choice>span:not(.choice-icon){flex:1;min-width:0}
+.choice strong{display:block;font-weight:600;font-size:13px;line-height:1.35;overflow-wrap:anywhere}
+.choice small{display:block;font-size:11px;line-height:1.4;color:#6c8c68;margin-top:3px;white-space:normal;overflow-wrap:anywhere}
+@media(max-height:700px){.choice-card{max-height:calc(100vh - 112px);padding:12px 16px 10px;border-radius:20px}.choice-eyebrow{margin-bottom:3px}.choice-card h2{margin-bottom:5px}.choice-copy{font-size:13px;line-height:1.35;margin-bottom:10px}.choice-copy em{margin-top:5px;font-size:12px}.choice-plan{margin-top:6px;padding:6px 8px;font-size:11px}.choice-drift{margin-top:5px;font-size:11px;line-height:1.35}.choice-actions{gap:5px}.choice{padding:7px 12px}.choice small{font-size:10.5px;margin-top:2px}.choice-secondary-action{margin-top:7px;padding:7px 10px;font-size:12px}}
 @keyframes ff-slide-up{from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:translateY(0)}}
 @keyframes ff-find-reveal{0%{opacity:0;transform:translateY(10px) scale(.96)}60%{opacity:1;transform:translateY(-2px) scale(1.01)}100%{opacity:1;transform:translateY(0) scale(1)}}
-@media (max-width:480px){.choice-card{right:12px;bottom:12px;max-width:calc(100vw - 24px);max-height:calc(100vh - 24px);padding:18px 16px 14px}}
+@media (max-width:480px){.choice-card{right:12px;bottom:12px;max-width:calc(100vw - 24px);max-height:calc(100vh - 110px);padding:18px 16px 14px}}
 @media (prefers-reduced-motion:reduce){.choice-card,.forest-find{animation:none!important}.choice,.choice-secondary-action{transition:none!important}}
 `;
 
@@ -597,15 +600,24 @@
     const promptEl = document.createElement('em');
     promptEl.textContent = reflectionPrompts[Math.floor(depth) % reflectionPrompts.length]; // floor(): a fractional depth (import-only) would index undefined and render it
     choiceCopy.append(
-      document.createTextNode('You started with '),
+      document.createTextNode('You set '),
       missionEl,
-      document.createTextNode('. The browser has traced '),
+      document.createTextNode('. The browser recorded '),
       depthEl,
-      document.createTextNode(` ${depth === 1 ? 'step' : 'steps'} from the start, at `),
+      document.createTextNode(` ${depth === 1 ? 'navigation step' : 'navigation steps'} to `),
       pageEl,
-      document.createTextNode(`. This is a ${confidence}-confidence path estimate; depth shows navigation distance, not whether this page fits your intention. Nothing is wrong — choose whether to keep exploring, return, or pause the grove. `),
+      document.createTextNode(` (${confidence}-confidence estimate). This is path distance, not page relevance. You decide what to do next. `),
       promptEl
     );
+    const planText = current?.responsePlan === 'return'
+      ? 'You chose: return to your intention.'
+      : current?.responsePlan === 'save'
+        ? 'You chose: save this curiosity for later.'
+        : 'You chose to pause and decide in the moment.';
+    const planEl = document.createElement('span');
+    planEl.className = 'choice-plan';
+    planEl.textContent = `${planText} All options remain available.`;
+    choiceCopy.append(planEl);
     if (viewDrift && viewDrift.pages > 0) {
       const driftEl = document.createElement('span');
       driftEl.className = 'choice-drift';
@@ -647,7 +659,7 @@
     if (paused) return { stateKind: 'resting', state: 'Grove resting' };
     // Strict mode changes only the wording at and beyond the quiet line; the
     // gentle strings are pinned byte-for-byte by the e2e suite (F4).
-    if (depth >= thresholds.INTERRUPT) return { stateKind: 'interrupt', state: strict ? 'The mission is still waiting' : 'You may be wandering' };
+    if (depth >= thresholds.INTERRUPT) return { stateKind: 'interrupt', state: strict ? 'Your chosen check-in point is here' : 'A moment to check in' };
     if (depth >= thresholds.DESATURATE) return { stateKind: 'drift', state: strict ? 'You keep going deeper' : 'This branch is getting long' };
     return depth > 0
       ? { stateKind: 'branch', state: `${depth} ${depth === 1 ? 'branch' : 'branches'} deep` }

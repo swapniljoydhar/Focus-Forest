@@ -44,6 +44,16 @@ const server = http.createServer((req, res) => {
 });
 let baseUrl;
 let context, extensionId, sw, webPage, extPage, swErrors = [], webErrors = [];
+// Set CAPTURE_ONBOARDING_GUIDE=1 with CHROMIUM_EXECUTABLE_PATH pointing at
+// Brave to refresh these real extension screenshots from local test fixtures.
+const guideImageDir = path.join(repoRoot, 'newtab', 'guide-images');
+async function captureGuide(name, page, selector = null) {
+  if (process.env.CAPTURE_ONBOARDING_GUIDE !== '1') return Promise.resolve();
+  fs.mkdirSync(guideImageDir, { recursive: true });
+  await page.waitForTimeout(700); // let the companion's real entrance motion settle before capture
+  const target = selector ? page.locator(selector) : page;
+  return target.screenshot({ path: path.join(guideImageDir, name) });
+}
 
 async function waitForServiceWorker(ctx, timeoutMs = 25000) {
   const deadline = Date.now() + timeoutMs;
@@ -108,10 +118,10 @@ async function badge() {
 // Plant via the page's own messaging context (no engine step — see
 // test-extension-load.mjs for why routed engine commits are avoided), then
 // land the tracked tab on the local SERP through a reliable http navigation.
-async function plantMission(missionText, trackedPage) {
+async function plantMission(missionText, trackedPage, responsePlan = 'decide') {
   await extPage.goto(`chrome-extension://${extensionId}/newtab/index.html`);
   await extPage.waitForSelector('#mission-form', { timeout: 15000 });
-  const response = await extPage.evaluate((mission) => chrome.runtime.sendMessage({ type: 'START_MISSION', mission, missionNote: '' }), missionText);
+  const response = await extPage.evaluate(({ mission, responsePlan: plan }) => chrome.runtime.sendMessage({ type: 'START_MISSION', mission, missionNote: '', responsePlan: plan }), { mission: missionText, responsePlan });
   assert.ok(response && response.id, `START_MISSION must return a session (got ${JSON.stringify(response)?.slice(0, 120)})`);
   await waitForState((s) => activeSessionOf(s)?.mission === missionText, `mission planted: ${missionText}`);
   await trackedPage.goto(`${baseUrl}/serp`);
@@ -170,6 +180,17 @@ async function choiceCardVisible(page, cdp) {
   const cards = await shadowAll(page, cdp, (n) => classOf(n).includes('choice-card'));
   return Boolean(cards.length) && !cards[0].attributes?.includes('hidden');
 }
+async function textInShadowClass(page, cdp, className) {
+  const nodes = await shadowAll(page, cdp, (n) => classOf(n).includes(className));
+  return nodes[0] ? textOf(nodes[0]) : '';
+}
+async function shadowBounds(page, cdp, className) {
+  const nodes = await shadowAll(page, cdp, (n) => classOf(n).includes(className));
+  const { model } = await cdp.send('DOM.getBoxModel', { backendNodeId: nodes[0].backendNodeId });
+  const quad = model.border;
+  const xs = [quad[0], quad[2], quad[4], quad[6]], ys = [quad[1], quad[3], quad[5], quad[7]];
+  return { left: Math.min(...xs), right: Math.max(...xs), top: Math.min(...ys), bottom: Math.max(...ys) };
+}
 async function findToastVisible(page, cdp) {
   const finds = await shadowAll(page, cdp, (n) => classOf(n).includes('forest-find'));
   return Boolean(finds.length) && !finds[0].attributes?.includes('hidden');
@@ -177,10 +198,19 @@ async function findToastVisible(page, cdp) {
 async function clickShadow(page, cdp, pred) {
   const nodes = await shadowAll(page, cdp, pred);
   assert.ok(nodes.length >= 1, 'shadow node to click must exist');
+  const { object } = await cdp.send('DOM.resolveNode', { backendNodeId: nodes[0].backendNodeId });
+  await cdp.send('Runtime.callFunctionOn', {
+    objectId: object.objectId,
+    functionDeclaration: 'function () { this.scrollIntoView({ block: "center", inline: "nearest" }); }',
+    awaitPromise: true,
+  });
   const { model } = await cdp.send('DOM.getBoxModel', { backendNodeId: nodes[0].backendNodeId });
-  const [x1, y1, x2, y2] = model.content;
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x: (x1 + x2) / 2, y: (y1 + y2) / 2, button: 'left', clickCount: 1 });
-  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x: (x1 + x2) / 2, y: (y1 + y2) / 2, button: 'left', clickCount: 1 });
+  const xs = [model.content[0], model.content[2], model.content[4], model.content[6]];
+  const ys = [model.content[1], model.content[3], model.content[5], model.content[7]];
+  const x = xs.reduce((sum, value) => sum + value, 0) / xs.length;
+  const y = ys.reduce((sum, value) => sum + value, 0) / ys.length;
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+  await cdp.send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
 }
 const displayOf = (page, selector) => page.evaluate((sel) => getComputedStyle(document.querySelector(sel)).display, selector);
 
@@ -239,11 +269,30 @@ test('F1  onboarding: overlay shows on first run, dismiss persists and moves foc
   await extPage.waitForSelector('#onboarding-overlay:not([hidden])', { timeout: 10000 });
   assert.match(
     await extPage.locator('.browser-notice-step').innerText(),
-    /Customize Brave.*Hide footer on New Tab page.*cannot hide it for you/s,
+    /Customize Brave.*Hide footer on New Tab page.*can.t hide it/s,
     'first-run onboarding must explain the actual Brave footer control and that it is browser-owned'
   );
   assert.match(await extPage.locator('.browser-notice-arrow').innerText(), /bottom edge/i, 'first-run onboarding arrow must identify where to look');
   assert.equal(await extPage.locator('.browser-notice-arrow').isVisible(), true, 'first-run onboarding must point toward the browser-owned bottom notice');
+  assert.equal(await extPage.locator('[data-guide-slide]').count(), 4, 'walkthrough must introduce the four core surfaces');
+  if (process.env.CAPTURE_ONBOARDING_GUIDE !== '1') {
+    for (const image of await extPage.locator('[data-guide-slide] img').all()) {
+      await image.evaluate(img => img.decode());
+      assert.ok(await image.evaluate(img => img.naturalWidth >= 700), 'walkthrough imagery must load as full-size captures');
+    }
+  }
+  await extPage.click('#guide-next');
+  assert.equal(await extPage.textContent('#guide-progress'), '2 of 4');
+  await extPage.click('#guide-previous');
+  assert.equal(await extPage.textContent('#guide-progress'), '1 of 4');
+  const originalViewport = extPage.viewportSize();
+  await extPage.setViewportSize({ width: 1000, height: 620 });
+  await extPage.locator('#mission-form').evaluate(el => el.scrollIntoView({ block: 'start' }));
+  await extPage.locator('#onboarding-overlay').evaluate(el => { el.hidden = true; });
+  await captureGuide('01-intention.png', extPage);
+  await extPage.locator('#onboarding-overlay').evaluate(el => { el.hidden = false; });
+  await extPage.evaluate(() => window.scrollTo(0, 0));
+  await extPage.setViewportSize(originalViewport);
   await extPage.click('#onboarding-start');
   await extPage.waitForSelector('#onboarding-overlay', { state: 'hidden', timeout: 5000 });
   const focused = await extPage.evaluate(() => document.activeElement?.id);
@@ -269,6 +318,27 @@ test('F2  new-tab UI: resume/browse buttons follow the session (CSS [hidden] fix
   await waitForState((s) => s.activeSessionId === null, 'browse-freely ends the mission');
   await extPage.waitForSelector('#resume-mission-btn', { state: 'hidden', timeout: 5000 });
   assert.equal(await displayOf(extPage, '#resume-mission-btn'), 'none', 'resume hides again after browse-freely');
+});
+
+test('F2b  New Tab lets a person choose and save a private reminder response plan', async () => {
+  await resetState();
+  await extPage.goto(`chrome-extension://${extensionId}/newtab/index.html`);
+  await extPage.waitForSelector('#mission-form');
+  if (await extPage.locator('#onboarding-overlay').isVisible()) await extPage.click('#onboarding-skip');
+  await extPage.locator('input[name="return-plan"][value="save"]').check();
+  await extPage.fill('#mission-input', 'Read about native plants');
+  await extPage.locator('#mission-form').evaluate(form => form.requestSubmit());
+  await waitForState((s) => activeSessionOf(s)?.mission === 'Read about native plants', 'form-created mission');
+  assert.equal(activeSessionOf(await readState())?.responsePlan, 'save', 'the selected response plan travels with the planted mission');
+  await extPage.goto(`chrome-extension://${extensionId}/popup/index.html`);
+  await extPage.waitForSelector('#active:not([hidden])');
+  await extPage.click('#end');
+  await extPage.waitForSelector('#completion:not([hidden])');
+  await extPage.click('#complete');
+  await waitForState((s) => !activeSessionOf(s), 'plan-test mission ended through the popup');
+  let cleared = await badge();
+  for (let i = 0; i < 20 && cleared.text !== ''; i++) { await new Promise((r) => setTimeout(r, 100)); cleared = await badge(); }
+  assert.equal(cleared.text, '', 'ending the plan-test session also clears its toolbar badge');
 });
 
 test('F3  badge lifecycle: planted green, paused gold, deep warm, ended empty', async () => {
@@ -312,7 +382,8 @@ test('F3  badge lifecycle: planted green, paused gold, deep warm, ended empty', 
 test('F4  companion copy tracks depth; choice card appears at the threshold', async () => {
   await resetState();
   await patchSettings({ gentleDepth: 2, choiceDepth: 3 });
-  const page = await plantMission('Depth copy probe', webPage);
+  const page = await plantMission('Depth copy probe', webPage, 'return');
+  assert.equal(activeSessionOf(await readState())?.responsePlan, 'return', 'the chosen if-then plan persists with its mission');
   const cdp = await context.newCDPSession(page);
   let info = await waitForChip(page, cdp, (c) => c.present && !c.hidden, 'chip visible on the tracked page');
   assert.equal(info.missionText, 'Depth copy probe', 'chip shows the mission');
@@ -328,10 +399,19 @@ test('F4  companion copy tracks depth; choice card appears at the threshold', as
   await page.click('#link-next3');
   await page.waitForURL(`${baseUrl}/p/3`);
   const cdp3 = await context.newCDPSession(page);
-  await waitForChip(page, cdp3, (c) => c.present && !c.hidden && c.stateText === 'You may be wandering', 'choice-threshold copy');
+  await waitForChip(page, cdp3, (c) => c.present && !c.hidden && c.stateText === 'A moment to check in', 'choice-threshold copy');
   let card = false;
   for (let i = 0; i < 40 && !card; i++) { card = await choiceCardVisible(page, cdp3); if (!card) await new Promise((r) => setTimeout(r, 250)); }
   assert.ok(card, 'choice card appears at the choice threshold');
+  assert.match(await textInShadowClass(page, cdp3, 'choice-plan'), /You chose: return to your intention.*All options remain available/);
+  const originalViewport = page.viewportSize();
+  await page.setViewportSize({ width: 1000, height: 620 });
+  const chipBounds = await shadowBounds(page, cdp3, 'chip');
+  const cardBounds = await shadowBounds(page, cdp3, 'choice-card');
+  assert.ok(chipBounds.bottom < cardBounds.top || cardBounds.bottom < chipBounds.top || chipBounds.right < cardBounds.left || cardBounds.right < chipBounds.left,
+    'the reminder must not cover its own companion controls at a compact viewport');
+  await captureGuide('02-choice.png', page);
+  await page.setViewportSize(originalViewport);
 });
 
 test('F5  chip controls: minimize toggles, pause rests the forest, resume restores', async () => {
@@ -352,7 +432,7 @@ test('F5  chip controls: minimize toggles, pause rests the forest, resume restor
   assert.ok(!card, 'pausing hides the choice card');
   await clickShadow(page, cdp, (n) => attrOf(n, 'data-action') === 'pause');
   await waitForState((s) => activeSessionOf(s)?.interventionPaused === false, 'resume persisted');
-  await waitForChip(page, cdp, (c) => c.present && c.stateText === 'You may be wandering', 'wandering copy returns after resume');
+  await waitForChip(page, cdp, (c) => c.present && c.stateText === 'A moment to check in', 'check-in copy returns after resume');
 });
 
 test('F6  compost from the card: item saved, node composted, reward earned, toast shown', async () => {
@@ -429,6 +509,10 @@ test('F9  Pause Site from the chip adds the exclusion and hides the companion', 
 test('F10 settings page: save round-trip, reset to defaults, exclusion clears and chip returns', async () => {
   await extPage.goto(`chrome-extension://${extensionId}/settings/index.html`);
   await extPage.waitForFunction(() => /already tending|could not read/.test(document.querySelector('#status').textContent), null, { timeout: 10000 });
+  const originalViewport = extPage.viewportSize();
+  await extPage.setViewportSize({ width: 1000, height: 620 });
+  await captureGuide('04-settings.png', extPage);
+  await extPage.setViewportSize(originalViewport);
   await extPage.evaluate(() => {
     const set = (sel, value, evt) => { const el = document.querySelector(sel); el.value = value; el.dispatchEvent(new Event(evt, { bubbles: true })); };
     set('#gentle', '3', 'input');
@@ -496,6 +580,14 @@ test('F11 dashboard: tree, trail, compost, stats, theme, export, clear, import, 
   await writeState(fixture);
   await extPage.goto(`chrome-extension://${extensionId}/dashboard/index.html`);
   await extPage.waitForFunction(() => Boolean(document.querySelector('#tree')?.dataset.treeMode), null, { timeout: 15000 });
+  const originalViewport = extPage.viewportSize();
+  await extPage.selectOption('#session-select', { index: 1 });
+  await extPage.waitForFunction(() => document.querySelectorAll('#tree .node').length === 2);
+  await extPage.setViewportSize({ width: 1000, height: 620 });
+  await captureGuide('03-garden.png', extPage, '#tree');
+  await extPage.setViewportSize(originalViewport);
+  await extPage.selectOption('#session-select', { index: 0 });
+  await extPage.waitForFunction(() => /Active garden/.test(document.querySelector('#mission')?.textContent || ''));
   assert.match(await extPage.textContent('#mission'), /Active garden/, 'dashboard shows the active mission');
   const options = await extPage.$$eval('#session-select option', (els) => els.length);
   assert.equal(options, 2, 'session picker lists both gardens');
