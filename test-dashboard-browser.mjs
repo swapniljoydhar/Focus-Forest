@@ -44,7 +44,7 @@ async function openDashboard(t, state = stateFor(), viewport = { width: 1440, he
     const url = new URL(route.request().url());
     if (url.origin !== 'https://intent-grove.test') return route.abort();
     const pathname = url.pathname.slice(1);
-    const contentType = pathname.endsWith('.css') ? 'text/css' : pathname.endsWith('.js') ? 'text/javascript' : pathname.endsWith('.svg') ? 'image/svg+xml' : 'text/html';
+    const contentType = pathname.endsWith('.css') ? 'text/css' : pathname.endsWith('.js') ? 'text/javascript' : pathname.endsWith('.svg') ? 'image/svg+xml' : pathname.endsWith('.png') ? 'image/png' : 'text/html';
     await route.fulfill({
       body: await readFile(new URL(pathname, root)), contentType,
       headers: { 'Content-Security-Policy': manifest.content_security_policy.extension_pages }
@@ -615,7 +615,9 @@ test('first-run walkthrough uses real guide screens with accessible, bounded nav
   for (const image of await page.locator('[data-guide-slide] img').all()) {
     assert.ok(await image.getAttribute('src'));
     assert.ok((await image.getAttribute('alt'))?.length > 20);
+    assert.ok(await image.evaluate(img => img.complete && img.naturalWidth > 0), 'each onboarding image must load as a real image');
   }
+  assert.match(await page.locator('[data-guide-slide="2"] img').getAttribute('alt'), /fictional sample tree/);
   assert.equal(await page.locator('#guide-progress').textContent(), '1 of 4');
   assert.equal(await page.locator('#guide-previous').isDisabled(), true);
   await page.keyboard.press('Tab');
