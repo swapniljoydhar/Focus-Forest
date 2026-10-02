@@ -718,3 +718,26 @@ test('50 rapid SPA transitions remain distinct without runaway heap growth', asy
   if (before && after) assert.ok(after - before < 2 * 1024 * 1024, `SPA heap growth should stay below 2 MiB (got ${after - before} bytes)`);
 });
 
+
+test('completed onboarding can be replayed from Settings without resetting setup state', async t => {
+  const completedState = { ...stateFor(), onboardingCompleted: true };
+  const page = await openDashboard(t, completedState);
+  await page.goto('https://intent-grove.test/settings/index.html');
+  const tourLink = page.getByRole('link', { name: 'Replay the quick tour' });
+  assert.equal(await tourLink.getAttribute('href'), '../newtab/index.html?tour=1');
+  await tourLink.click();
+  await page.waitForURL('**/newtab/index.html?tour=1');
+  await page.waitForFunction(() => !document.querySelector('#onboarding-overlay').hidden);
+  await page.getByRole('button', { name: 'Skip tour' }).click();
+  await page.waitForFunction(() => document.querySelector('#onboarding-overlay').hidden);
+  assert.equal(await page.evaluate(() => contentMessages.filter(message => message.type === 'COMPLETE_ONBOARDING').length), 1,
+    'dismissing the replay is safe and uses the existing idempotent completion message');
+});
+
+test('completed onboarding stays hidden on ordinary New Tab loads', async t => {
+  const completedState = { ...stateFor(), onboardingCompleted: true };
+  const page = await openDashboard(t, completedState);
+  await page.goto('https://intent-grove.test/newtab/index.html');
+  await page.waitForFunction(() => document.querySelector('#mission-input'));
+  assert.equal(await page.locator('#onboarding-overlay').isVisible(), false);
+});

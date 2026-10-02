@@ -92,7 +92,12 @@ footer button{display:block;margin:12px auto 0}}
 [data-theme="dark"] .save:hover{background:#4a6f4f}
 [data-theme="dark"] .status{color:#8aa38a!important}
 [data-theme="dark"] footer{color:#7a8a7a}
+[data-theme="dark"] .guide-link,[data-theme="dark"] .guide-link:hover{color:#a4c9a3}
 [data-theme="dark"] footer button{color:#8aa38a}
 [data-theme="dark"] .rhythm-preview{background:rgba(22,28,22,.85);border-color:#354235}
 [data-theme="dark"] .rhythm-preview p{color:#a3b3a3}
 [data-theme="dark"] .rhythm-labels{color:#8a9a8a}
+
+.guide-link{display:inline-block;margin:12px 12px 0;color:#527d55;font-size:12px;font-weight:700;text-underline-offset:3px}
+.guide-link:hover{color:#315f38}
+.guide-link:focus-visible{outline:3px solid rgba(101,145,98,.35);outline-offset:3px;border-radius:3px}
