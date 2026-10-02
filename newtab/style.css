@@ -228,7 +228,7 @@ body[data-page-visibility="hidden"] .forest-scene .tree-canopy {
 .onboarding-overlay[hidden] { display: none; }
 .onboarding-card {
   width: min(520px, 100%);
-  max-height: min(600px, 90svh);
+  max-height: min(680px, 90svh);
   overflow-y: auto;
   padding: var(--space-2xl);
   border-radius: var(--radius-lg);
@@ -244,6 +244,10 @@ body[data-page-visibility="hidden"] .forest-scene .tree-canopy {
 .step-icon { font-size: 1.5rem; line-height: 1; flex-shrink: 0; }
 .step-content strong { display: block; font-size: 0.9375rem; color: var(--color-text-primary); margin-bottom: 2px; }
 .step-content p { margin: 0; font-size: 0.875rem; color: var(--color-text-secondary); line-height: 1.5; }
+.browser-notice-step { padding: var(--space-sm); border: 1px solid rgba(74, 124, 89, .25); border-radius: var(--radius-md); background: rgba(74, 124, 89, .07); }
+.browser-notice-arrow { display: flex; flex-direction: column; align-items: center; margin: calc(var(--space-md) * -1) 0 var(--space-md); color: var(--color-accent-green-dark); font-size: .75rem; font-weight: 700; letter-spacing: .02em; }
+.browser-notice-arrow b { font-size: 1.5rem; line-height: 1; animation: browserNoticeArrow 1.4s ease-in-out infinite; }
+@keyframes browserNoticeArrow { 50% { transform: translateY(4px); } }
 .onboarding-start-btn { max-width: 260px; margin: 0 auto; }
 
 @media (max-width: 480px) {
