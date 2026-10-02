@@ -53,7 +53,7 @@ function renderTree(session) {
     stageShiftTimer = window.setTimeout(() => svg.classList.remove('stage-shift'), 900);
   }
   lastTreeMode = tree.mode;
-  const stages = { empty: 'Every forest starts somewhere.', seed: 'A little beginning.', sapling: 'Putting down roots.', canopy: 'Room for your curiosity.', deep: 'A whole world of little discoveries.' };
+  const stages = { empty: 'Every grove starts somewhere.', seed: 'A little beginning.', sapling: 'Putting down roots.', canopy: 'Room for your curiosity.', deep: 'A whole world of little discoveries.' };
   document.querySelector('#tree-stage').textContent = stages[tree.mode];
   document.querySelector('#tree-hint').textContent = !tree.root
     ? 'Plant an intention, and give your curiosity a place to grow.'
@@ -771,3 +771,4 @@ document.addEventListener('visibilitychange', () => { updatePageVisibility(); sc
 updatePageVisibility();
 switchTab('map');
 renderSafely();
+

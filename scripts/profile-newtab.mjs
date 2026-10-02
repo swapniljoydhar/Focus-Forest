@@ -1,15 +1,14 @@
 import { chromium } from 'playwright';
 import path from 'node:path';
-import fs from 'node:fs';
 import { createServer } from 'node:http';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import { resolveBraveExecutablePath } from './browser-runtime.mjs';
 
-const root = process.env.FOCUS_FOREST_ROOT
-  ? path.resolve(process.env.FOCUS_FOREST_ROOT)
+const root = process.env.INTENT_GROVE_ROOT
+  ? path.resolve(process.env.INTENT_GROVE_ROOT)
   : path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const defaultEdge = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
-const executablePath = process.env.CHROMIUM_EXECUTABLE_PATH || (process.platform === 'win32' && fs.existsSync(defaultEdge) ? defaultEdge : undefined);
+const executablePath = resolveBraveExecutablePath();
 const browser = await chromium.launch({ headless: true, executablePath });
 const mimeTypes = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.css': 'text/css; charset=utf-8', '.svg': 'image/svg+xml', '.png': 'image/png' };
 const server = createServer(async (request, response) => {
@@ -104,3 +103,4 @@ if (process.argv.includes('--assert')) {
 }
 await browser.close();
 server.close();
+

@@ -1,4 +1,5 @@
-// Gate 0–2 + Gate 5: load Intent Grove as a REAL extension in Chromium.
+// Gate 0–2 + Gate 5: load Intent Grove as a REAL extension in Brave locally
+// (Playwright-managed Chromium on CI runners that do not have Brave installed).
 // This is the suite the audit kept demanding: the manifest itself (world:"MAIN"
 // bridge, newtab override, service worker, content scripts) executes here —
 // nothing is mocked except the open web (a local HTTP server + one routed
@@ -27,6 +28,7 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
 import { chromium } from 'playwright';
+import { resolveBraveExecutablePath } from './scripts/browser-runtime.mjs';
 import http from 'node:http';
 import fs from 'node:fs';
 import os from 'node:os';
@@ -210,8 +212,8 @@ before(async () => {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
 
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-profile-'));
-  const executablePath = process.env.CHROMIUM_EXECUTABLE_PATH;
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'intent-grove-test-profile-'));
+  const executablePath = resolveBraveExecutablePath();
   context = await chromium.launchPersistentContext(userDataDir, {
     headless: true,
     ...(executablePath ? { executablePath } : { channel: 'chromium' }), // new headless is required for extension support
@@ -593,3 +595,4 @@ test('no uncaught errors surfaced anywhere during the real-extension run', async
   const real = [...swErrors, ...webErrors].filter((e) => !/rate limit/i.test(e));
   assert.deepEqual(real, [], 'service worker and pages must stay free of uncaught errors');
 });
+
