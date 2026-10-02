@@ -1,9 +1,10 @@
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
 import { normalizeSettings, DEFAULT_SETTINGS } from '../shared/state.js';
-import { applyStoredTheme } from '../shared/theme.js';
+import { applyStoredTheme, mountThemeToggle } from '../shared/theme.js';
 import { sampleMemoryPressure, sampleSystemMemory } from '../shared/ram-guard.js';
 
 applyStoredTheme();
+mountThemeToggle();
 
 /**
  * Send a message to the service worker with error handling

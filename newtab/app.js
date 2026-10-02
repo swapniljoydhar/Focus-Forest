@@ -1,9 +1,10 @@
 import { renderTreeIllustration } from '../dashboard/tree-renderer.js';
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
-import { applyStoredTheme } from '../shared/theme.js';
+import { applyStoredTheme, mountThemeToggle } from '../shared/theme.js';
 import { applyPerfMode, nextPerfMode, sampleMemoryPressure, sampleSystemMemory } from '../shared/ram-guard.js';
 
 applyStoredTheme();
+mountThemeToggle();
 
 renderTreeIllustration(document.querySelector('#welcome-tree'), 'sapling');
 

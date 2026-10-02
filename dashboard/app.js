@@ -1,7 +1,7 @@
 import { renderGardenTree } from './tree-renderer.js';
 import { logError, wrapWithErrorBoundary, ERROR_CATEGORIES } from '../shared/error-tracing.js';
 import { getNodeDuration, rewardHistoryView, STORAGE_KEY } from '../shared/state.js';
-import { applyStoredTheme, toggleTheme, clearStoredTheme } from '../shared/theme.js';
+import { applyStoredTheme, mountThemeToggle, clearStoredTheme } from '../shared/theme.js';
 import { applyPerfMode, nextPerfMode, sampleMemoryPressure, sampleSystemMemory } from '../shared/ram-guard.js';
 
 let lastSettings = null;
@@ -393,7 +393,6 @@ document.querySelector('#forget-site').addEventListener('click', wrapWithErrorBo
   await renderSafely();
 }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'forget-site.click', swallow: true }));
 document.querySelector('#clear').addEventListener('click', wrapWithErrorBoundary(event => openCareDialog('clear', event.currentTarget), { category: ERROR_CATEGORIES.UI_RENDER, function: 'clear.click', swallow: true }));
-document.querySelector('#theme-toggle').addEventListener('click', wrapWithErrorBoundary(() => { toggleTheme(); }, { category: ERROR_CATEGORIES.UI_RENDER, function: 'theme-toggle.click', swallow: true }));
 document.querySelector('#settings').addEventListener('click', wrapWithErrorBoundary(() => chrome.runtime.openOptionsPage(), { category: ERROR_CATEGORIES.UI_RENDER, function: 'settings.click', swallow: true }));
 
 // Tab switching
@@ -737,6 +736,7 @@ async function importData() {
 
 // Load saved theme preference on startup
 applyStoredTheme();
+mountThemeToggle();
 
 const exportBtn = document.getElementById('exportData');
 if (exportBtn) exportBtn.addEventListener('click', wrapWithErrorBoundary(exportData, { category: ERROR_CATEGORIES.MESSAGING, function: 'exportData.click', swallow: true }));

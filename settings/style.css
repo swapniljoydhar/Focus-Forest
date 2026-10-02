@@ -101,3 +101,8 @@ footer button{display:block;margin:12px auto 0}}
 .guide-link{display:inline-block;margin:12px 12px 0;color:#527d55;font-size:12px;font-weight:700;text-underline-offset:3px}
 .guide-link:hover{color:#315f38}
 .guide-link:focus-visible{outline:3px solid rgba(101,145,98,.35);outline-offset:3px;border-radius:3px}
+
+[data-theme="dark"] .local-note,
+[data-theme="dark"] .control-group p,
+[data-theme="dark"] .radio small { color: #b0c0ab; }
+[data-theme="dark"] textarea::placeholder { color: #a4b4a0; }

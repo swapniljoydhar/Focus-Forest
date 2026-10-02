@@ -1,7 +1,7 @@
 /**
  * Shared theme preference for all extension pages.
- * The dashboard owns the toggle; every other page respects the same stored
- * choice (extension pages share one localStorage origin).
+ * Every extension surface exposes the same choice. A saved choice is shared
+ * through the extension origin; otherwise the OS color preference is used.
  */
 
 // Module-internal storage key; pages interact through applyStoredTheme/toggleTheme.
@@ -25,14 +25,48 @@ function readThemePreference() {
   return null;
 }
 
+function systemTheme() {
+  try { return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'; }
+  catch { return 'light'; }
+}
+
+function updateThemeButtons() {
+  const dark = document.documentElement.getAttribute('data-theme') === 'dark';
+  for (const button of document.querySelectorAll('[data-theme-toggle]')) {
+    const target = dark ? 'light' : 'dark';
+    button.setAttribute('aria-label', `Switch to ${target} theme`);
+    button.title = `Switch to ${target} theme`;
+    const label = button.querySelector('[data-theme-label]');
+    if (label) label.textContent = `${dark ? 'Dark' : 'Light'} theme`;
+    const icon = button.querySelector('[data-theme-icon]');
+    if (icon) icon.textContent = dark ? '☼' : '☾';
+  }
+}
+
+function applyTheme(theme) {
+  document.documentElement.setAttribute('data-theme', theme);
+  document.documentElement.style.colorScheme = theme;
+  updateThemeButtons();
+}
+
 /** Apply the user's stored theme (dark/light) to the current page's <html>. */
 export function applyStoredTheme() {
+  const saved = readThemePreference();
+  applyTheme(saved || systemTheme());
+
+  // Follow the OS until the user chooses a theme. Extension pages share
+  // localStorage, and the storage event keeps already-open surfaces in sync.
   try {
-    const saved = readThemePreference();
-    if (saved === 'dark' || saved === 'light') {
-      document.documentElement.setAttribute('data-theme', saved);
-    }
-  } catch { /* storage may be unavailable */ }
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)');
+    media?.addEventListener?.('change', () => {
+      if (!readThemePreference()) applyTheme(systemTheme());
+    });
+    window.addEventListener('storage', (event) => {
+      if (event.key === THEME_STORAGE_KEY || event.key === LEGACY_THEME_STORAGE_KEY) {
+        applyTheme(readThemePreference() || systemTheme());
+      }
+    });
+  } catch { /* older browsers may not support preference change events */ }
 }
 
 /** Toggle between light and dark, persist the choice, and apply it. */
@@ -40,12 +74,20 @@ export function toggleTheme() {
   const html = document.documentElement;
   const current = html.getAttribute('data-theme') || 'light';
   const next = current === 'light' ? 'dark' : 'light';
-  html.setAttribute('data-theme', next);
+  applyTheme(next);
   try {
     localStorage.setItem(THEME_STORAGE_KEY, next);
     localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
   } catch { /* storage may be unavailable */ }
   return next;
+}
+
+/** Attach one accessible, synchronized theme control to each current surface. */
+export function mountThemeToggle() {
+  for (const button of document.querySelectorAll('[data-theme-toggle]')) {
+    button.addEventListener('click', toggleTheme);
+  }
+  updateThemeButtons();
 }
 
 /** Remove the stored theme choice; used by the dashboard's clear-all-data
@@ -55,5 +97,5 @@ export function clearStoredTheme() {
     localStorage.removeItem(THEME_STORAGE_KEY);
     localStorage.removeItem(LEGACY_THEME_STORAGE_KEY);
   } catch { /* storage may be unavailable */ }
-  document.documentElement.removeAttribute('data-theme');
+  applyTheme(systemTheme());
 }

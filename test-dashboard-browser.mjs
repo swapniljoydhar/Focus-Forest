@@ -32,15 +32,15 @@ function garden(count, id = 'garden-one') {
 function stateFor(...sessions) {
   return { ...emptyState(), sessions, activeSessionId: sessions.at(-1)?.id || null };
 }
-async function openDashboard(t, state = stateFor(), viewport = { width: 1440, height: 1000 }, reducedMotion = 'reduce') {
-  const context = await browser.newContext({ viewport, reducedMotion });
+async function openDashboard(t, state = stateFor(), viewport = { width: 1440, height: 1000 }, reducedMotion = 'reduce', colorScheme = 'light') {
+  const context = await browser.newContext({ viewport, reducedMotion, colorScheme });
   t.after(() => context.close());
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', error => errors.push(error.message));
   page.on('console', message => { if (message.type() === 'error') errors.push(message.text()); });
   t.after(() => assert.deepEqual(errors, [], 'dashboard must not log rendering or CSP errors'));
-  await page.route('**/*', async route => {
+  await context.route('**/*', async route => {
     const url = new URL(route.request().url());
     if (url.origin !== 'https://intent-grove.test') return route.abort();
     const pathname = url.pathname.slice(1);
@@ -740,4 +740,36 @@ test('completed onboarding stays hidden on ordinary New Tab loads', async t => {
   await page.goto('https://intent-grove.test/newtab/index.html');
   await page.waitForFunction(() => document.querySelector('#mission-input'));
   assert.equal(await page.locator('#onboarding-overlay').isVisible(), false);
+});
+
+test('theme follows the system until chosen, then stays synchronized across extension surfaces', async t => {
+  const page = await openDashboard(t, stateFor(), undefined, 'reduce', 'dark');
+  const toggle = page.locator('[data-theme-toggle]');
+  assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+  assert.equal(await toggle.getAttribute('aria-label'), 'Switch to light theme');
+  assert.equal(await page.locator('html').evaluate(node => getComputedStyle(node).colorScheme), 'dark');
+
+  await page.emulateMedia({ colorScheme: 'light' });
+  await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+  await page.locator('[data-theme-toggle]').click();
+  assert.equal(await page.locator('html').getAttribute('data-theme'), 'dark');
+  assert.equal(await page.evaluate(() => localStorage.getItem('intent-grove-theme')), 'dark');
+
+  const popup = await page.context().newPage();
+  await popup.goto('https://intent-grove.test/popup/index.html');
+  await popup.waitForFunction(() => document.querySelector('[data-theme-toggle]')?.getAttribute('aria-label') === 'Switch to light theme');
+  await popup.locator('[data-theme-toggle]').click();
+  await page.waitForFunction(() => document.documentElement.dataset.theme === 'light');
+  assert.equal(await page.evaluate(() => localStorage.getItem('intent-grove-theme')), 'light');
+
+  await popup.goto('https://intent-grove.test/settings/index.html');
+  assert.equal(await popup.locator('html').getAttribute('data-theme'), 'light');
+  await popup.locator('[data-theme-toggle]').click();
+  assert.equal(await popup.locator('html').getAttribute('data-theme'), 'dark');
+  await popup.goto('https://intent-grove.test/newtab/index.html');
+  await popup.waitForFunction(() => document.querySelector('#mission-input'));
+  assert.equal(await popup.locator('html').getAttribute('data-theme'), 'dark');
+  assert.equal(await popup.locator('[data-theme-toggle]').getAttribute('aria-label'), 'Switch to light theme');
+  await popup.locator('[data-theme-toggle]').click();
+  assert.equal(await popup.locator('html').getAttribute('data-theme'), 'light');
 });
