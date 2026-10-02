@@ -34,7 +34,7 @@ export const REWARD_CATALOG = {
   blooms: [
     { id: 'bloom_1', text: 'Your garden grows with intention.', icon: '🌺' },
     { id: 'bloom_2', text: 'A session tended with care.', icon: '🌹' },
-    { id: 'bloom_3', text: 'The forest remembers this path.', icon: '🌳' },
+    { id: 'bloom_3', text: 'The grove remembers this path.', icon: '🌳' },
     { id: 'bloom_4', text: 'Seasons change, wisdom remains.', icon: '🍄' },
     { id: 'bloom_5', text: 'A new pattern takes root.', icon: '🪴' }
   ]
@@ -530,7 +530,7 @@ export async function compactStateIfNeeded() {
  * READ-ONLY consumers: on a storage read failure this resolves to a fresh
  * empty state so UIs degrade to "nothing planted" instead of throwing.
  * Never use this inside a mutation that will be written back — persisting the
- * empty fallback over a transient read error would wipe the user's forest.
+ * empty fallback over a transient read error would wipe the user's grove.
  * Write paths must use loadStateForWrite() instead.
  * @returns {Promise<object>} Normalized state object.
  */
@@ -739,3 +739,4 @@ export function earnReward(state, tier, trigger) {
   
   return { ...reward, tier, trigger, note: rewardNote(trigger) };
 }
+

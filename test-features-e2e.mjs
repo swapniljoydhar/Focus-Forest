@@ -19,6 +19,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { resolveBraveExecutablePath } from './scripts/browser-runtime.mjs';
 
 const repoRoot = path.dirname(fileURLToPath(import.meta.url));
 const extDir = fs.mkdtempSync(path.join(os.tmpdir(), 'intent-grove-ext-'));
@@ -44,7 +45,7 @@ const server = http.createServer((req, res) => {
 });
 let baseUrl;
 let context, extensionId, sw, webPage, extPage, swErrors = [], webErrors = [];
-// Set CAPTURE_ONBOARDING_GUIDE=1 with CHROMIUM_EXECUTABLE_PATH pointing at
+// Set CAPTURE_ONBOARDING_GUIDE=1 with BRAVE_EXECUTABLE_PATH pointing at
 // Brave to refresh these real extension screenshots from local test fixtures.
 const guideImageDir = path.join(repoRoot, 'newtab', 'guide-images');
 async function captureGuide(name, page, selector = null) {
@@ -217,8 +218,8 @@ const displayOf = (page, selector) => page.evaluate((sel) => getComputedStyle(do
 before(async () => {
   await new Promise((resolve) => server.listen(0, '127.0.0.1', resolve));
   baseUrl = `http://127.0.0.1:${server.address().port}`;
-  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ff-profile-'));
-  const executablePath = process.env.CHROMIUM_EXECUTABLE_PATH;
+  const userDataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'intent-grove-test-profile-'));
+  const executablePath = resolveBraveExecutablePath();
   context = await chromium.launchPersistentContext(userDataDir, {
     headless: true,
     acceptDownloads: true,
@@ -719,4 +720,5 @@ test('F14 no uncaught errors surfaced during the whole feature walk', async () =
   const real = [...swErrors, ...webErrors].filter((e) => !/rate limit/i.test(e));
   assert.deepEqual(real, [], 'service worker and pages must stay free of uncaught errors');
 });
+
 

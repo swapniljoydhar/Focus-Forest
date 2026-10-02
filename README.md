@@ -85,13 +85,13 @@ The current direction is a transparent reflection tool: factual navigation conte
 
 ## Development
 
-No build step, no runtime dependencies — plain HTML/CSS/JS modules. Playwright is dev-only (browser test lanes); an existing Chromium binary can be selected with `CHROMIUM_EXECUTABLE_PATH`.
+No build step, no runtime dependencies — plain HTML/CSS/JS modules. Playwright is dev-only (browser test lanes). Local browser suites select installed Brave by default; set `BRAVE_EXECUTABLE_PATH` when Brave is installed outside its standard location. On CI runners without Brave, the suites use Playwright-managed Chromium. They never silently select Edge or Chrome.
 
 ```bash
 npm ci                        # dev toolchain only
-npm test                      # 13 unit/contract suites, no browser required
+npm test                      # unit/contract suites, no browser required
 npx playwright install chromium
-npm run test:dashboard        # dashboard UI in real Chromium
+npm run test:dashboard        # dashboard UI in Brave (Playwright Chromium on CI)
 npm run test:extension        # loads the real manifest (11 gates)
 npm run test:features         # end-to-end walk of every user surface (13 steps)
 npm run test:spa-stress       # 50 rapid history.pushState transitions
@@ -107,3 +107,4 @@ npm run preview:trees         # local gallery of the real SVG tree renderer
 - **[EVIDENCE.md](EVIDENCE.md)** — what current research can and cannot support, design guardrails, and a private evaluation plan.
 - **[SECURITY.md](SECURITY.md)** · original [security review](SECURITY_REVIEW_2026-08-15.md) · [modified-fork audit](AUDIT_REPORT_2026-08-16.md) · [September 2026 audit](AUDIT_2026-09-21.md)
 - **[CHROMEWEBSTORE.md](CHROMEWEBSTORE.md)** — store listing copy and per-permission justification · **[CONTRIBUTING.md](CONTRIBUTING.md)**
+

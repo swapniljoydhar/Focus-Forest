@@ -1,20 +1,19 @@
 import assert from 'node:assert/strict';
 import { after, before, test } from 'node:test';
-import fs from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { chromium } from 'playwright';
 import { emptyState, normalizeSettings, STORAGE_KEY } from './shared/state.js';
+import { resolveBraveExecutablePath } from './scripts/browser-runtime.mjs';
 
-// Exercise the real HTML, CSS, modules, and extension CSP in Chromium.
+// Exercise the real HTML, CSS, modules, and extension CSP in Brave locally
+// (Playwright-managed Chromium on CI runners that do not have Brave installed).
 // Only Chrome's messaging/storage APIs are mocked; no external website is used.
 const root = new URL('.', import.meta.url);
 const manifest = JSON.parse(await readFile(new URL('manifest.json', root), 'utf8'));
 let browser;
 before(async () => {
-  const defaultEdge = 'C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe';
-  const defaultChrome = 'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe';
-  const executablePath = process.env.CHROMIUM_EXECUTABLE_PATH || (process.platform === 'win32' ? (fs.existsSync(defaultEdge) ? defaultEdge : fs.existsSync(defaultChrome) ? defaultChrome : undefined) : undefined);
-  browser = await chromium.launch({ executablePath });
+  const executablePath = resolveBraveExecutablePath();
+  browser = await chromium.launch(executablePath ? { executablePath } : {});
 });
 after(async () => { await browser?.close(); });
 
@@ -155,7 +154,7 @@ async function openSettings(t, options = {}) {
     };
   }, options.failUpdate ?? true);
   await page.goto('https://intent-grove.test/settings/index.html');
-  await page.waitForFunction(() => /already tending|could not read/.test(document.querySelector('#status').textContent));
+  await page.waitForFunction(() => /already tending|could not load/.test(document.querySelector('#status').textContent));
   return { page, consoleErrors };
 }
 
@@ -264,7 +263,7 @@ test('settings confirm null using a matching normalized snapshot', async t => {
 for (const snapshot of [null, {}, { settings: {} }, { settings: { ...emptyState().settings, gentleDepth: 99 } }]) {
   test(`settings reject invalid initial snapshot ${JSON.stringify(snapshot)}`, async t => {
     const { page, consoleErrors } = await openSettings(t, { snapshot: () => snapshot });
-    assert.match(await page.locator('#status').textContent(), /could not read/);
+    assert.match(await page.locator('#status').textContent(), /could not load/);
     await page.locator('#search-engine').selectOption('brave');
     assert.equal(await page.locator('#save').isDisabled(), true);
     assert.equal(await page.locator('#reset').isDisabled(), true);
@@ -716,3 +715,4 @@ test('50 rapid SPA transitions remain distinct without runaway heap growth', asy
   assert.equal(new Set(routes.filter(route => route.startsWith('/rapid-chapter-'))).size, 50, 'rapid SPA routes should remain distinct');
   if (before && after) assert.ok(after - before < 2 * 1024 * 1024, `SPA heap growth should stay below 2 MiB (got ${after - before} bytes)`);
 });
+

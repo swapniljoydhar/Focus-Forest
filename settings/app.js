@@ -107,7 +107,7 @@ function sync() {
   choicePreviewLabel.textContent = `Choice at ${c}`;
   previewGentle.style.left = `${(g / 10) * 100}%`;
   previewChoice.style.left = `${(c / 10) * 100}%`;
-  previewCopy.textContent = g <= 3 ? 'The forest will whisper early, useful for short and deliberate paths.' : c >= 7 ? 'There is more room to explore before the forest offers a choice.' : 'The path stays open. The grove simply becomes easier to notice.';
+  previewCopy.textContent = g <= 3 ? 'The grove will offer a gentle reminder early, useful for shorter paths.' : c >= 7 ? 'You will have more room to explore before a reminder appears.' : 'The path stays open. The grove simply becomes easier to notice.';
   markDirty();
 }
 const safeLoad = wrapWithErrorBoundary(load, { category: ERROR_CATEGORIES.UI_RENDER, function: 'load' });
@@ -119,7 +119,7 @@ async function load() {
     applySettings(saved);
   } catch (error) { 
     logError(error, { category: ERROR_CATEGORIES.MESSAGING, function: 'load' });
-    status.textContent = 'The forest could not read its local rhythm. Try again.'; 
+    status.textContent = 'Intent Grove could not load your local settings. Try again.'; 
   } 
 }
 gentle.addEventListener('input', wrapWithErrorBoundary(sync, { category: ERROR_CATEGORIES.UI_RENDER, function: 'gentle.input', swallow: true }));
@@ -173,3 +173,4 @@ save.addEventListener('click', wrapWithErrorBoundary(() => persistSettings(), { 
 reset.addEventListener('click', wrapWithErrorBoundary(() => persistSettings(true), { category: ERROR_CATEGORIES.MESSAGING, function: 'reset.click', swallow: true }));
 markDirty();
 safeLoad();
+
