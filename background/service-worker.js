@@ -551,6 +551,7 @@ function activeView(state, tabId) {
     session: {
       id: session.id,
       mission: session.mission,
+      responsePlan: session.responsePlan || 'decide',
       interventionPaused: Boolean(session.interventionPaused),
       node: { id: node.id, depth: node.depth, state: node.state, url: node.url, confidence: node.confidence || 'low', navigationKind: node.navigationKind || 'external' }
     },
@@ -641,10 +642,11 @@ async function recordActiveTab(tabId, windowId) {
   activeTabs.set(key, { tabId });
 }
 
-async function createSession(mission, tab, rawNote = '') {
+async function createSession(mission, tab, rawNote = '', rawResponsePlan = 'decide') {
   const cleanMission = compactText(mission, 140);
   if (!cleanMission) return null;
   const note = compactText(rawNote, LIMITS.MISSION_NOTE);
+  const responsePlan = ['return', 'save', 'decide'].includes(rawResponsePlan) ? rawResponsePlan : 'decide';
   return mutate((state) => {
     const previous = activeSession(state);
     if (previous) {
@@ -655,7 +657,7 @@ async function createSession(mission, tab, rawNote = '') {
     const title = compactText(tab?.title || 'New Tab');
     const originTabId = Number.isInteger(tab?.id) ? tab.id : null;
     const session = {
-      id: makeId('session'), mission: cleanMission, note, status: 'active', startedAt: Date.now(), endedAt: null, endReason: null,
+      id: makeId('session'), mission: cleanMission, note, responsePlan, status: 'active', startedAt: Date.now(), endedAt: null, endReason: null,
       origin: { tabId: originTabId, windowId: Number.isInteger(tab?.windowId) ? tab.windowId : null, url: originUrl, title }, nodes: [], events: [], activeIntervals: [], pendingRedirects: [], interventionPaused: false
     };
     pushNode(session, { id: makeId('node'), tabIds: Number.isInteger(tab?.id) ? [tab.id] : [], url: originUrl, title, parentId: null, depth: 0, firstSeenAt: Date.now(), relationshipConfidence: 'direct', confidence: 'high', navigationKind: 'mission-origin', state: 'normal' });
@@ -1443,7 +1445,7 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
           ? (tab?.id != null ? tab : (await chrome.tabs?.query?.({ active: true, currentWindow: true }).then((tabs) => tabs[0]).catch(() => null)))
           : null;
         const missionTab = sanitizeTab(tab) || sanitizeTab(activeTab) || sanitizeTab(message.tab);
-        const session = await createSession(message.mission, missionTab, message.missionNote);
+        const session = await createSession(message.mission, missionTab, message.missionNote, message.responsePlan);
         if (message.openSearch && activeTab?.id != null && chrome.tabs?.update) {
           const settings = await loadState().then((state) => normalizeSettings(state.settings));
           // Use chrome.search API with try-catch for better cross-Chromium compatibility
@@ -1578,7 +1580,7 @@ const SCHEMAS = {
   GET_ACTIVE_VIEW: {},
   GET_CHIP_POS: {},
   SET_CHIP_POS: { x: 'number', y: 'number' },
-  START_MISSION: { mission: 'string', missionNote: 'string?', tab: 'object?', openSearch: 'boolean?' },
+  START_MISSION: { mission: 'string', missionNote: 'string?', responsePlan: 'string?', tab: 'object?', openSearch: 'boolean?' },
   END_MISSION: { reason: 'string?' },
   LINK_CLICK: { url: 'string', title: 'string?', targetBlank: 'boolean?' },
   OBSERVE_PAGE: { url: 'string', title: 'string?' },

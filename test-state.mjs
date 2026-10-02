@@ -129,6 +129,15 @@ function sessionFixture(id) {
 }
 
 describe('shared/state.js core functions', () => {
+  it('keeps only a supported private response plan and defaults old or invalid data to decide', () => {
+    const base = sessionFixture('plan-fixture');
+    assert.strictEqual(normalizeState(base).sessions[0].responsePlan, 'decide');
+    base.sessions[0].responsePlan = 'save';
+    assert.strictEqual(normalizeState(base).sessions[0].responsePlan, 'save');
+    base.sessions[0].responsePlan = 'open-a-new-tab';
+    assert.strictEqual(normalizeState(base).sessions[0].responsePlan, 'decide');
+  });
+
   it('compactText trims and truncates', () => {
     assert.strictEqual(compactText('  hello world  '), 'hello world');
     assert.strictEqual(compactText('a'.repeat(200), 50), 'a'.repeat(50));

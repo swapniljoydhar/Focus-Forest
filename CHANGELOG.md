@@ -9,6 +9,8 @@ All notable Intent Grove changes are documented here.
 - Rebranded the product from Focus Forest to **Intent Grove** in the manifest, user-facing surfaces, package metadata, artwork, and current documentation.
 - Migrated the canonical browsing state and theme keys, companion root ID, bridge event, context-menu IDs, and session marker to the Intent Grove namespace. Legacy state and theme data migrate before cleanup; already-open tabs accept both bridge events, and old injection markers prevent duplicate companions during reload transitions.
 - Added [EVIDENCE.md](EVIDENCE.md), which describes the limits of current digital self-regulation research, makes no efficacy claims for this extension, and sets explicit anti-shame and autonomy guardrails.
+- Replaced the text-heavy first-run overlay and fictional click demo with a short, skippable four-screen walkthrough using real Brave captures of the New Tab, companion reminder, garden tree, and Settings. Kept the browser-owned Brave footer tip explicit and separate.
+- Added an optional per-mission “if I reach a reminder point, I plan to…” choice. It is local, defaults to deciding in the moment, and is repeated transparently in the reminder while leaving every action available.
 - Updated user-facing strict-mode copy to “Use firmer reminders” and corrected dashboard wording so recorded paths are not described as inferred attention.
 - Renamed the generated archive to `dist/intent-grove.zip`; updated current install, architecture, store, and contributor documentation. Historical audits remain dated records and are marked as such.
 - Fixed the New Tab performance profiler's hidden-animation assertion to inspect actual running animation play states instead of comparing timing snapshots.
@@ -18,7 +20,7 @@ All notable Intent Grove changes are documented here.
 
 ### Improved (user agency, clarity, and New Tab performance — 2026-10-01)
 
-- Added an optional five-step fictional garden demo that teaches path depth without saving anything or opening pages.
+- Added an optional five-step fictional garden demo that taught path depth without saving anything or opening pages; the later first-run walkthrough replaces it with real product captures.
 - Added one-tap Gentle, Balanced, and Accountable presets; preset selection previews changes without saving them.
 - Added **Make this page my new mission** to the non-blocking choice card, preserving the previous garden when a useful detour becomes the new intention.
 - Surface saved compost curiosities on the New Tab page, and explain that planting sends the mission text to the selected search provider.
@@ -48,7 +50,7 @@ All notable Intent Grove changes are documented here.
 ### Added (accountability & performance guardian — R2/R3, 2026-09-22)
 
 - **Drift accounting (R2):** the choice card now states one more fact — how many pages and minutes you are from your mission — computed from existing local branch data (nodes at or beyond the quiet line, live duration). The worker sends only `{pages, seconds}` plus a `hasNote` boolean; the private note text itself never reaches a page context (unit-pinned).
-- **Strict mode (R2, opt-in, default off):** firmer factual chip copy ("The mission is still waiting" / "You keep going deeper"), a choice-card line quoting the fact that you wrote down *why this mattered*, and stronger state accents on the companion. All four choices — including **Keep exploring** — are untouched; a `test-security.mjs` pin makes that agency guarantee contractual. Gentle copy is byte-identical when Strict is off (pinned by e2e F4).
+- **Strict mode (R2, opt-in, default off):** more explicit chip copy ("Your chosen check-in point is here" / "You keep going deeper"), a choice-card line quoting the fact that you wrote down *why this mattered*, and stronger state accents on the companion. All four choices — including **Keep exploring** — are untouched; a `test-security.mjs` pin makes that agency guarantee contractual. Gentle copy stays neutral ("A moment to check in" / "This branch is getting long").
 - **Garden health (R3):** `gardenHealth()` derives *lush / steady / sparse* purely from the local branch ratio — never a number, never a layout change; the dashboard treats the same deterministic SVG (saturation, glints, leaf opacity). Young gardens (≤2 pages) are never judged.
 - **Quiet discoveries extension (R3):** low-drift mission completion earns a rare seasonal discovery (new `low_drift_completion` trigger + two catalog entries); every other ending keeps the ordinary bloom. Same cooldowns, caps, and opt-in setting.
 - **Streak milestones (R3):** the worker exposes a milestone *key* (3/7/14/30 days) from the existing `currentStreak` stat; the dashboard words it, positive-only — a broken streak shows nothing and is never framed as a loss. No new storage.

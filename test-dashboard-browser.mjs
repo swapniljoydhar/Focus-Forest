@@ -608,6 +608,36 @@ test('the welcome overlay keeps focus instead of the field behind it', async t =
   assert.equal(await page.locator('#mission-input').evaluate(el => document.activeElement === el), false);
 });
 
+test('first-run walkthrough uses real guide screens with accessible, bounded navigation', async t => {
+  const page = await openDashboard(t);
+  await page.goto('https://intent-grove.test/newtab/index.html');
+  await page.waitForFunction(() => document.querySelector('#onboarding-overlay')?.hidden === false);
+  assert.equal(await page.locator('[data-guide-slide]').count(), 4);
+  for (const image of await page.locator('[data-guide-slide] img').all()) {
+    assert.ok(await image.getAttribute('src'));
+    assert.ok((await image.getAttribute('alt'))?.length > 20);
+  }
+  assert.equal(await page.locator('#guide-progress').textContent(), '1 of 4');
+  assert.equal(await page.locator('#guide-previous').isDisabled(), true);
+  await page.keyboard.press('Tab');
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'guide-next', 'keyboard focus stays within the modal tour');
+  await page.keyboard.press('Shift+Tab');
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'onboarding-start', 'reverse tab from the first control returns to the last');
+  await page.locator('#guide-next').click();
+  assert.equal(await page.locator('#guide-progress').textContent(), '2 of 4');
+  assert.equal(await page.locator('[data-guide-slide="1"]').isVisible(), true);
+  await page.locator('#guide-next').click();
+  assert.equal(await page.locator('#guide-progress').textContent(), '3 of 4');
+  await page.locator('#guide-next').click();
+  assert.equal(await page.locator('#guide-progress').textContent(), '4 of 4');
+  assert.equal(await page.locator('#guide-next').isDisabled(), true);
+  await page.locator('#guide-next').evaluate(button => button.click());
+  assert.equal(await page.locator('#guide-progress').textContent(), '4 of 4', 'navigation must stay within the guide');
+  await page.locator('#onboarding-skip').click();
+  await page.waitForFunction(() => document.querySelector('#onboarding-overlay').hidden === true);
+  assert.equal(await page.evaluate(() => document.activeElement?.id), 'mission-input');
+});
+
 test('dismissing the welcome overlay completes onboarding', async t => {
   const page = await openDashboard(t);
   await page.goto('https://intent-grove.test/newtab/index.html');
@@ -615,20 +645,6 @@ test('dismissing the welcome overlay completes onboarding', async t => {
   await page.locator('#onboarding-start').click();
   await page.waitForFunction(() => document.querySelector('#onboarding-overlay').hidden === true);
   assert.equal(await page.locator('#mission-input').isVisible(), true);
-});
-
-test('optional five-click demo teaches path depth without recording sample pages', async t => {
-  const page = await openDashboard(t);
-  await page.goto('https://intent-grove.test/newtab/index.html');
-  await page.waitForFunction(() => document.querySelector('#onboarding-overlay')?.hidden === false);
-  await page.locator('#demo-open').click();
-  assert.equal(await page.locator('#demo-tree .node').count(), 1);
-  for (let i = 0; i < 5; i++) await page.locator('#demo-step').click();
-  assert.equal(await page.locator('#demo-tree .node').count(), 6, 'the sample tree grows one node per fictional link');
-  assert.equal(await page.locator('#demo-choice').isVisible(), true, 'the sample explains when a choice appears');
-  assert.match(await page.locator('#demo-status').textContent(), /only you know/);
-  assert.equal(await page.evaluate(() => globalThis.contentMessages.some(message => message.type === 'START_MISSION')), false);
-  assert.equal(await page.locator('#demo-tree a').count(), 0, 'sample pages never become live links');
 });
 
 test('the companion cartoon icon builds under a strict Trusted Types CSP', async t => {
