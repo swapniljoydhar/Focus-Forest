@@ -239,9 +239,10 @@ test('F1  onboarding: overlay shows on first run, dismiss persists and moves foc
   await extPage.waitForSelector('#onboarding-overlay:not([hidden])', { timeout: 10000 });
   assert.match(
     await extPage.locator('.browser-notice-step').innerText(),
-    /Intent Grove cannot close it for you/,
-    'first-run onboarding must explain that the browser-owned bottom notice needs a user action'
+    /Customize Brave.*Hide footer on New Tab page.*cannot hide it for you/s,
+    'first-run onboarding must explain the actual Brave footer control and that it is browser-owned'
   );
+  assert.match(await extPage.locator('.browser-notice-arrow').innerText(), /bottom edge/i, 'first-run onboarding arrow must identify where to look');
   assert.equal(await extPage.locator('.browser-notice-arrow').isVisible(), true, 'first-run onboarding must point toward the browser-owned bottom notice');
   await extPage.click('#onboarding-start');
   await extPage.waitForSelector('#onboarding-overlay', { state: 'hidden', timeout: 5000 });

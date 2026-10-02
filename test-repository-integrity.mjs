@@ -5,7 +5,11 @@ import path from 'node:path';
 const root = process.cwd();
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'manifest.json'), 'utf8'));
 const packageJson = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+const workflow = fs.readFileSync(path.join(root, '.github/workflows/ci.yml'), 'utf8');
 assert.equal(manifest.version, packageJson.version, 'manifest and package versions must stay aligned');
+assert.match(workflow, /name: Validate Intent Grove/, 'the CI workflow should use the current product name');
+assert.match(workflow, /path: dist\/intent-grove\.zip/, 'CI must upload the archive name produced by the package script');
+assert.doesNotMatch(workflow, /focus-forest\.zip|focus-forest-extension|Validate Focus Forest/, 'CI must not retain former product artifact names');
 assert.ok(manifest.permissions.includes('storage'), 'Chromium storage APIs require the storage permission');
 assert.equal(manifest.permissions.includes('storage.sync'), false, 'storage.sync is an API, not a manifest permission');
 const required = [
