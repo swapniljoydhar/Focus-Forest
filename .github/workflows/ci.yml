@@ -1,4 +1,4 @@
-name: Validate Focus Forest
+name: Validate Intent Grove
 
 on:
   push:
@@ -39,12 +39,12 @@ jobs:
       - name: Upload performance profile
         uses: actions/upload-artifact@v4
         with:
-          name: focus-forest-performance-profile
+          name: intent-grove-performance-profile
           path: profile-newtab.json
       - name: Package extension
         run: npm run package
       - name: Upload extension artifact
         uses: actions/upload-artifact@v4
         with:
-          name: focus-forest-extension
-          path: dist/focus-forest.zip
+          name: intent-grove-extension
+          path: dist/intent-grove.zip

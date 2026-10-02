@@ -414,6 +414,19 @@ test('Gate 1: deep branch raises the choice card and "Start a new mission" reall
   }
   assert.ok(visible, 'choice card must appear at the choice threshold (closed shadow, asserted via CDP pierce)');
 
+  const secondaryAction = (await shadowAll(page, cdp, (node) => attrOf(node, 'data-action') === 'mission-here'))[0];
+  assert.ok(secondaryAction, 'the current-page mission action is present in the choice card');
+  const { object } = await cdp.send('DOM.resolveNode', { backendNodeId: secondaryAction.backendNodeId });
+  const styleResult = await cdp.send('Runtime.callFunctionOn', {
+    objectId: object.objectId,
+    functionDeclaration: `function () { const style = getComputedStyle(this); const card = this.closest('.choice-card'); return { display: style.display, borderWidth: style.borderWidth, overflowY: getComputedStyle(card).overflowY, maxHeight: getComputedStyle(card).maxHeight }; }`,
+    returnByValue: true
+  });
+  assert.equal(styleResult.result.value.display, 'block', 'the current-page mission action must render as a styled full-width action');
+  assert.notEqual(styleResult.result.value.borderWidth, '0px', 'the current-page mission action must have its own visible control treatment');
+  assert.equal(styleResult.result.value.overflowY, 'auto', 'the choice card must scroll instead of being clipped on short windows');
+  assert.notEqual(styleResult.result.value.maxHeight, 'none', 'the choice card height must be bounded by the viewport');
+
   const missionBefore = activeSessionOf(await readState()).mission;
   await clickShadow(page, cdp, (n) => attrOf(n, 'data-action') === 'mission');
   await page.waitForURL(/chrome-extension:\/\/[a-z]{32}\/newtab\/index\.html/, { timeout: 15000 });
