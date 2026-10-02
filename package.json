@@ -15,6 +15,7 @@
     "test:dashboard": "node test-dashboard-browser.mjs",
     "test:spa-stress": "node --test --test-name-pattern=\"50 rapid SPA transitions\" test-dashboard-browser.mjs",
     "profile:performance": "node scripts/profile-newtab.mjs --assert",
+    "capture:guide": "node scripts/capture-onboarding-dashboard.mjs",
     "preview:trees": "node scripts/preview-trees.mjs",
     "package": "node scripts/package.mjs",
     "test:extension": "node test-extension-load.mjs",
