@@ -74,7 +74,9 @@ async function init() {
       compostReminder.hidden = false;
       compostReminderCopy.textContent = `${compostCount} saved ${compostCount === 1 ? 'curiosity is' : 'curiosities are'} resting for whenever you want to return.`;
     }
-    if (snap && snap.state && !snap.state.onboardingCompleted) {
+    // Keep the tour available as permanent help after first-run setup.
+    const replayTour = new URLSearchParams(window.location.search).get('tour') === '1';
+    if (snap && snap.state && (!snap.state.onboardingCompleted || replayTour)) {
       const overlay = document.getElementById('onboarding-overlay');
       if (overlay) {
         overlay.hidden = false;
